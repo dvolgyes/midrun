@@ -6,6 +6,8 @@ entirely in `virtual_fs.generate`/`is_virtual_dir`/`TrainctlFS.readdir`, not in 
 kernel mount.
 """
 
+import pytest
+
 from trainctl.config import TrainctlConfig
 from trainctl.fuse.filesystem import TrainctlFS
 from trainctl.lightning_backend import load_backend
@@ -92,3 +94,13 @@ def test_rank_index_out_of_range_is_not_found() -> None:
     fs = _fs_with_rank((111,))
     assert virtual_fs.generate(fs._runtime, "/meta/ranks/007/workers/000/pid") is None
     assert not virtual_fs.is_virtual_dir(fs._runtime, "/meta/ranks/007/workers")
+
+
+@pytest.mark.parametrize("alias", ["0", "-0", "+0", "00", "0000", "0_0", " 000"])
+def test_index_spellings_that_are_not_listed_are_not_found(alias: str) -> None:
+    fs = _fs_with_rank((111,))
+    runtime = fs._runtime
+    assert virtual_fs.generate(runtime, f"/meta/ranks/{alias}/pid") is None
+    assert not virtual_fs.is_virtual_dir(runtime, f"/meta/ranks/{alias}")
+    assert virtual_fs.generate(runtime, f"/meta/ranks/000/workers/{alias}/pid") is None
+    assert not virtual_fs.is_virtual_dir(runtime, f"/meta/ranks/000/workers/{alias}")

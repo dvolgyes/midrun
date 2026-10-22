@@ -235,14 +235,14 @@ _WORKER_FIELDS = ("pid",)
 
 
 def _index_at(parts: list[str], pos: int, count: int) -> int | None:
-    """Parses `parts[pos]` as an integer index below `count`, or returns None."""
+    """Returns the index below `count` that `parts[pos]` names as `list_dir` spells it.
+
+    Other spellings of the same number (`0`, `-0`, `0_0`) name no path.
+    """
     if pos >= len(parts):
         return None
-    try:
-        index = int(parts[pos])
-    except ValueError:
-        return None
-    return index if 0 <= index < count else None
+    names = {f"{index:03d}": index for index in range(count)}
+    return names.get(parts[pos])
 
 
 def _rank_field_values(rank: "RankInfo") -> dict[str, str]:
