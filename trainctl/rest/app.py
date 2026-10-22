@@ -23,10 +23,19 @@ from trainctl.rest.schemas.command_in import CommandIn
 from trainctl.rest.schemas.debug_capture_in import DebugCaptureIn
 from trainctl.rest.schemas.hold_in import HoldIn
 from trainctl.rest.schemas.snapshot_in import SnapshotIn
-from trainctl.runtime import cuda_memory, inspectors_registry, virtual_fs
+from trainctl.runtime import inspectors_registry, virtual_fs
 from trainctl.runtime.command_args import InvalidCommandError
 from trainctl.runtime.commands.command import Command
 from trainctl.runtime.commands.parse_when import parse_when
+from trainctl.runtime.cuda_memory.cheap_cuda_memory_stats import (
+    cheap_cuda_memory_stats,
+)
+from trainctl.runtime.cuda_memory.dump_cuda_memory_snapshot import (
+    dump_cuda_memory_snapshot,
+)
+from trainctl.runtime.cuda_memory.set_cuda_memory_history import (
+    set_cuda_memory_history,
+)
 
 _STATIC_DIR = Path(__file__).parent / "static"
 _MEDIA_TYPES = {".json": "application/json"}
@@ -343,10 +352,10 @@ def build_app(runtime: "TrainctlRuntime") -> FastAPI:
     @app.get("/debug/cuda-memory/snapshot")
     def cuda_memory_snapshot() -> dict[str, Any]:
         try:
-            snapshot_bytes = cuda_memory.dump_snapshot()
+            snapshot_bytes = dump_cuda_memory_snapshot()
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        stats = cuda_memory.cheap_stats()
+        stats = cheap_cuda_memory_stats()
         manifest = runtime.artifacts.write_debug_capture(
             "cuda-memory",
             {
@@ -362,7 +371,7 @@ def build_app(runtime: "TrainctlRuntime") -> FastAPI:
         enabled: bool, max_entries: Annotated[int | None, Query(ge=1)] = None
     ) -> dict[str, Any]:
         try:
-            state = cuda_memory.set_history(enabled, max_entries)
+            state = set_cuda_memory_history(enabled, max_entries)
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         runtime.cuda_memory_history = state

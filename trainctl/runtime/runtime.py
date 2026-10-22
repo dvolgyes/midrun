@@ -28,7 +28,6 @@ from trainctl.lightning_backend import LightningBackend
 from trainctl.logging import LoggingSession
 from trainctl.runtime import (
     command_args,
-    cuda_memory,
     forward_input,
     graph_inspectors,
     hparam_registry,
@@ -39,6 +38,9 @@ from trainctl.runtime.artifacts import ArtifactStore
 from trainctl.runtime.commands.command import Command
 from trainctl.runtime.commands.command_queue import CommandQueue
 from trainctl.runtime.commands.next_id import next_id
+from trainctl.runtime.cuda_memory.cuda_memory_history_state import (
+    CudaMemoryHistoryState,
+)
 from trainctl.runtime.current_step import CurrentStep
 from trainctl.runtime.events import SafePoint
 from trainctl.runtime.finite_guard import DataloaderFiniteGuard, FiniteCheckReport
@@ -181,7 +183,7 @@ class TrainctlRuntime:
         )
         self._exception_hold: ExceptionBreakpointInfo | None = None
         self._model_summary_json: dict[str, Any] = {}
-        self.cuda_memory_history = cuda_memory.CudaMemoryHistoryState(
+        self.cuda_memory_history = CudaMemoryHistoryState(
             enabled=False, max_entries=None, started_at=None
         )
         self.profiler_run: ProfilerRun | None = None

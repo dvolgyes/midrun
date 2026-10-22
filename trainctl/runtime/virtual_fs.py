@@ -13,11 +13,13 @@ from dataclasses import asdict
 from typing import TYPE_CHECKING, Any
 
 from trainctl.runtime import (
-    cuda_memory,
     forward_input,
     graph_inspectors,
     inspectors_registry,
     torchinfo_inspector,
+)
+from trainctl.runtime.cuda_memory.cheap_cuda_memory_stats import (
+    cheap_cuda_memory_stats,
 )
 
 if TYPE_CHECKING:
@@ -178,7 +180,7 @@ _STATIC_FILES: dict[str, Callable[["TrainctlRuntime"], bytes]] = {
         {name: asdict(value) for name, value in rt.tunable_hparams.items()}
     ),
     "/state/cuda-memory.json": lambda rt: _json(
-        {**asdict(rt.cuda_memory_history), **cuda_memory.cheap_stats()}
+        {**asdict(rt.cuda_memory_history), **cheap_cuda_memory_stats()}
     ),
     "/state/profiler.json": lambda rt: _json(
         rt.profiler_run.phase_state() if rt.profiler_run else {"state": "idle"}

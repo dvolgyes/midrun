@@ -15,8 +15,10 @@ from fastapi.testclient import TestClient
 from trainctl.config import TrainctlConfig
 from trainctl.load_backend import load_backend
 from trainctl.rest.app import build_app
-from trainctl.runtime import cuda_memory
 from trainctl.runtime.artifacts import ArtifactStore
+from trainctl.runtime.cuda_memory.set_cuda_memory_history import (
+    set_cuda_memory_history,
+)
 from trainctl.runtime.runtime import TrainctlRuntime
 
 pytestmark = pytest.mark.skipif(
@@ -61,7 +63,7 @@ def test_get_cuda_memory_history_enables_and_updates_runtime_state(
         assert runtime.cuda_memory_history.enabled is True
         assert runtime.cuda_memory_history.max_entries == 500
     finally:
-        cuda_memory.set_history(False, max_entries=None)
+        set_cuda_memory_history(False, max_entries=None)
 
 
 def test_get_cuda_memory_history_disable_needs_no_max_entries(tmp_path: Path) -> None:
@@ -87,7 +89,7 @@ def test_get_cuda_memory_history_rejects_a_max_entries_below_one(
         assert response.status_code == 422, response.text
         assert runtime.cuda_memory_history.enabled is False
     finally:
-        cuda_memory.set_history(False, max_entries=None)
+        set_cuda_memory_history(False, max_entries=None)
 
 
 def test_cuda_memory_snapshot_gives_a_url_for_its_files(tmp_path: Path) -> None:

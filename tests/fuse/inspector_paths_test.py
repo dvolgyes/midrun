@@ -10,7 +10,9 @@ from trainctl.config import TrainctlConfig
 from trainctl.fuse.filesystem import TrainctlFS
 from trainctl.load_backend import load_backend
 from trainctl.runtime import virtual_fs
-from trainctl.runtime.cuda_memory import CudaMemoryHistoryState
+from trainctl.runtime.cuda_memory.cuda_memory_history_state import (
+    CudaMemoryHistoryState,
+)
 from trainctl.runtime.profiler import ProfilerRun
 from trainctl.runtime.runtime import TrainctlRuntime
 
