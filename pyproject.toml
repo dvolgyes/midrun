@@ -1,7 +1,7 @@
 [project]
 name = "trainctl"
 version = "0.1.0"
-description = "Add your description here"
+description = "Look inside a running PyTorch Lightning job and steer it: a REST API, a dashboard and a FUSE view"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "BSD-3-Clause"

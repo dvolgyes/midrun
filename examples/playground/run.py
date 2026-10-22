@@ -5,8 +5,8 @@ Run this in one terminal:
 
     uv run python -m examples.playground.run
 
-Then, in a second terminal, open the REST base URL printed at startup in a
-browser (or `curl` it) for a full guide to every endpoint, with links.
+Then open the REST base URL printed at startup in a browser for the dashboard,
+or `<base URL>/docs` for every endpoint, with a form to try each one.
 Ctrl+C in this terminal stops training gracefully (Lightning's own signal
 handling); a second Ctrl+C forces an immediate exit.
 
@@ -47,7 +47,8 @@ def _banner(log_dir: Path) -> str:
     artifacts = log_dir / "artifacts"
     return f"""
 =================================================================
- trainctl playground -- open {REST_BASE}/ for a full guide + links
+ trainctl playground -- dashboard: {REST_BASE}/
+                         API docs:   {REST_BASE}/docs
                          log dir:    {log_dir}
                          FUSE mount: {mnt}
                          artifacts:  {artifacts}
