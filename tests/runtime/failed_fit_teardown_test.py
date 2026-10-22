@@ -127,18 +127,22 @@ time.sleep(60)
 def test_killed_process_leaves_no_stale_mount(
     tmp_path: Path, mountpoint: Path, signum: signal.Signals
 ) -> None:
-    proc = subprocess.Popen(  # noqa: S603 -- fixed interpreter and script
-        [sys.executable, "-c", _MOUNT_AND_WAIT, str(tmp_path)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
+    # A file, not a pipe: a child that writes a long crash report to an unread
+    # stderr pipe blocks before it exits, and readline() below then never returns.
+    stderr_path = tmp_path / "stderr.txt"
+    with stderr_path.open("w") as stderr_file:
+        proc = subprocess.Popen(  # noqa: S603 -- fixed interpreter and script
+            [sys.executable, "-c", _MOUNT_AND_WAIT, str(tmp_path)],
+            stdout=subprocess.PIPE,
+            stderr=stderr_file,
+            text=True,
+        )
     assert proc.stdout is not None
     line = proc.stdout.readline().strip()
     if line != "ready":
         proc.kill()
-        _, stderr = proc.communicate(timeout=10)
-        pytest.fail(f"mount process did not start: {stderr}")
+        proc.wait(timeout=10)
+        pytest.fail(f"mount process did not start: {stderr_path.read_text()}")
     assert _mounted(mountpoint)
     proc.send_signal(signum)
     proc.wait(timeout=10)
