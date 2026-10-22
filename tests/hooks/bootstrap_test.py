@@ -33,7 +33,7 @@ def _all_slot_paths(live_dir) -> list:
 
 def test_no_source_creates_74_disabled_scripts_and_readme(tmp_path, log) -> None:
     base_dir = tmp_path / "run"
-    live_dir = bootstrap_hooks_tree(base_dir, None, session_id="s-1", log=log)
+    live_dir = bootstrap_hooks_tree(base_dir, None, session_id="s-1", log=log).live_dir
 
     assert live_dir == base_dir / "hooks"
     slots = _all_slot_paths(live_dir)
@@ -66,7 +66,9 @@ def test_partial_source_fills_only_missing_slots_and_preserves_bytes_and_mode(
     custom_heavy.chmod(0o750)
 
     base_dir = tmp_path / "run"
-    live_dir = bootstrap_hooks_tree(base_dir, source, session_id="s-2", log=log)
+    live_dir = bootstrap_hooks_tree(
+        base_dir, source, session_id="s-2", log=log
+    ).live_dir
 
     live_light = live_dir / "light" / "on_fit_start.sh"
     assert live_light.read_bytes() == custom_light.read_bytes()
@@ -92,7 +94,9 @@ def test_helper_files_are_copied_recursively_with_preserved_mode(tmp_path, log) 
     helper.chmod(0o700)
 
     base_dir = tmp_path / "run"
-    live_dir = bootstrap_hooks_tree(base_dir, source, session_id="s-3", log=log)
+    live_dir = bootstrap_hooks_tree(
+        base_dir, source, session_id="s-3", log=log
+    ).live_dir
 
     live_helper = live_dir / "helpers" / "nested" / "notify.sh"
     assert live_helper.read_text() == "echo hi\n"
@@ -175,7 +179,7 @@ def test_repeat_setup_reuses_live_tree_and_never_restores_deleted_scripts(
     tmp_path, log
 ) -> None:
     base_dir = tmp_path / "run"
-    live_dir = bootstrap_hooks_tree(base_dir, None, session_id="s-10", log=log)
+    live_dir = bootstrap_hooks_tree(base_dir, None, session_id="s-10", log=log).live_dir
 
     deleted = live_dir / "light" / "on_fit_start.sh"
     deleted.unlink()
@@ -185,7 +189,7 @@ def test_repeat_setup_reuses_live_tree_and_never_restores_deleted_scripts(
 
     live_dir_again = bootstrap_hooks_tree(
         base_dir, None, session_id="s-10-again", log=log
-    )
+    ).live_dir
 
     assert live_dir_again == live_dir
     assert not deleted.exists()
@@ -193,6 +197,15 @@ def test_repeat_setup_reuses_live_tree_and_never_restores_deleted_scripts(
     assert stat.S_IMODE(edited.stat().st_mode) & 0o111 != 0
     marker = json.loads((base_dir / "trainctl-hooks-state.json").read_text())
     assert marker["session_id"] == "s-10"  # first session's marker, not overwritten
+
+
+def test_a_resumed_tree_keeps_the_first_session_id(tmp_path, log) -> None:
+    base_dir = tmp_path / "run"
+    first = bootstrap_hooks_tree(base_dir, None, session_id="s-first", log=log)
+    resumed = bootstrap_hooks_tree(base_dir, None, session_id="s-again", log=log)
+
+    assert first.session_id == "s-first"
+    assert resumed.session_id == "s-first"
 
 
 def test_baseline_edits_after_bootstrap_do_not_propagate_on_resume(
@@ -206,7 +219,9 @@ def test_baseline_edits_after_bootstrap_do_not_propagate_on_resume(
     )
 
     base_dir = tmp_path / "run"
-    live_dir = bootstrap_hooks_tree(base_dir, source, session_id="s-11", log=log)
+    live_dir = bootstrap_hooks_tree(
+        base_dir, source, session_id="s-11", log=log
+    ).live_dir
 
     (source / "light" / "on_fit_start.sh").write_text(
         "#!/usr/bin/env bash\necho changed-after\n"
@@ -214,7 +229,7 @@ def test_baseline_edits_after_bootstrap_do_not_propagate_on_resume(
 
     live_dir_again = bootstrap_hooks_tree(
         base_dir, source, session_id="s-11-again", log=log
-    )
+    ).live_dir
 
     assert live_dir_again == live_dir
     assert (
@@ -241,7 +256,7 @@ def test_interrupted_publish_recovers_from_provenance_without_recopying(
     tmp_path, log
 ) -> None:
     base_dir = tmp_path / "run"
-    live_dir = bootstrap_hooks_tree(base_dir, None, session_id="s-13", log=log)
+    live_dir = bootstrap_hooks_tree(base_dir, None, session_id="s-13", log=log).live_dir
     # Simulate a crash between the atomic rename and the external marker write.
     (base_dir / "trainctl-hooks-state.json").unlink()
     sentinel = live_dir / "light" / "on_fit_start.sh"
@@ -249,7 +264,7 @@ def test_interrupted_publish_recovers_from_provenance_without_recopying(
 
     live_dir_again = bootstrap_hooks_tree(
         base_dir, None, session_id="s-13-recovered", log=log
-    )
+    ).live_dir
 
     assert live_dir_again == live_dir
     marker = json.loads((base_dir / "trainctl-hooks-state.json").read_text())

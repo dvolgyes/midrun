@@ -14,6 +14,7 @@ import shutil
 import socket
 import stat as stat_module
 import tempfile
+from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -36,14 +37,28 @@ class HooksBootstrapError(RuntimeError):
     """A baseline copy or live-tree bootstrap step failed in a way that must not retry silently."""
 
 
+@dataclass(frozen=True)
+class HooksTree:
+    """A run's live hooks tree and the session id that its marker records.
+
+    Attributes:
+        live_dir: The live `hooks/` directory (`base_dir / "hooks"`).
+        session_id: The id of the session that published the tree. A resumed run
+            keeps it, so its hooks see the same `session_id` as the first one.
+    """
+
+    live_dir: Path
+    session_id: str
+
+
 def bootstrap_hooks_tree(
     base_dir: Path,
     source_dir: Path | None,
     *,
     session_id: str,
     log: Any,
-) -> Path:
-    """Ensures `base_dir/hooks` exists, seeded/copied as needed, and returns its path.
+) -> HooksTree:
+    """Ensures `base_dir/hooks` exists, seeded/copied as needed, and returns it.
 
     Idempotent: once `base_dir` holds a compatible marker (`trainctl-hooks-state.json`), a later
     call returns the existing live tree unchanged, regardless of `source_dir` -- resuming a run
@@ -54,12 +69,14 @@ def bootstrap_hooks_tree(
             function may create it.
         source_dir: Optional baseline directory (`light/`, `heavy/`, and supporting files),
             copied into the live tree once. Never executed in place and never modified.
-        session_id: This run's collision-resistant identity, recorded in the marker/provenance.
+        session_id: This run's collision-resistant identity, recorded in the marker/provenance
+            when this call publishes a fresh tree.
         log: A bound logger (e.g. `LoggingSession.bind()`) used for warnings/info; never a bare
             module-level logger, so callers control attribution.
 
     Returns:
-        The live `hooks/` directory path (`base_dir / "hooks"`).
+        The live `hooks/` directory and the session id that the marker records: `session_id`
+        for a fresh tree, the earlier session's id for a resumed one.
 
     Raises:
         HooksBootstrapError: `source_dir` is unsafe relative to `base_dir` (equal, containing, or
@@ -93,7 +110,7 @@ def bootstrap_hooks_tree(
                 marker_path,
                 record.get("source_dir"),
             )
-        return live_dir
+        return HooksTree(live_dir, record["session_id"])
 
     resolved_source = None
     if source_dir is not None:
@@ -103,7 +120,7 @@ def bootstrap_hooks_tree(
         record = _try_read_record(live_dir / _PROVENANCE_NAME)
         if record is not None:
             _write_json(marker_path, record)
-            return live_dir
+            return HooksTree(live_dir, record["session_id"])
         raise HooksBootstrapError(
             f"{live_dir} already exists but is not a Trainctl-owned hooks tree (no compatible "
             f"{marker_path.name} or {_PROVENANCE_NAME} found); refusing to reuse or overwrite it. "
@@ -111,7 +128,8 @@ def bootstrap_hooks_tree(
         )
 
     base_dir.mkdir(parents=True, exist_ok=True)
-    return _publish_fresh_tree(base_dir, live_dir, resolved_source, session_id, log)
+    _publish_fresh_tree(base_dir, live_dir, resolved_source, session_id, log)
+    return HooksTree(live_dir, session_id)
 
 
 def _publish_fresh_tree(
@@ -120,7 +138,7 @@ def _publish_fresh_tree(
     resolved_source: Path | None,
     session_id: str,
     log: Any,
-) -> Path:
+) -> None:
     marker_path = base_dir / _MARKER_NAME
     staging_dir = Path(tempfile.mkdtemp(dir=base_dir, prefix=".hooks-staging-"))
     staging_dir.chmod(_DEFAULT_DIR_MODE)
@@ -190,7 +208,6 @@ def _publish_fresh_tree(
     log.info(
         "hooks: bootstrapped live tree at {} (source={})", live_dir, resolved_source
     )
-    return live_dir
 
 
 def _resolve_and_validate_source(source_dir: Path, base_dir: Path) -> Path:

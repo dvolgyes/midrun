@@ -26,7 +26,7 @@ def test_rendered_examples_pass_shellcheck(tmp_path: Path) -> None:
 
     live_dir = bootstrap_hooks_tree(
         tmp_path / "run", None, session_id="s-1", log=logger
-    )
+    ).live_dir
     scripts = sorted(
         str(path)
         for modality in MODALITIES

@@ -282,6 +282,8 @@ class TrainctlRuntime:
         Reads rank/world size directly from `trainer`: `_local_rank_info` is not
         populated yet at this point (the adapter's `setup` runs before the composed
         model's own `setup`, which is what triggers `_gather_ranks`).
+        A resumed run dispatches with the session id that the marker records; the
+        new id names only this stage's logging session and a freshly published tree.
         """
         if self._hook_session is not None:
             return
@@ -309,12 +311,12 @@ class TrainctlRuntime:
                     "trainctl: hooks_enabled requires bash on PATH or an explicit hooks_shell"
                 )
             shell = Path(resolved)
-        live_dir = bootstrap_hooks_tree(
+        tree = bootstrap_hooks_tree(
             base_dir, self.config.hooks_source_dir, session_id=session_id, log=log
         )
         self._hook_session = HookSession(
-            live_dir,
-            session_id=session_id,
+            tree.live_dir,
+            session_id=tree.session_id,
             rank=trainer.global_rank,
             world_size=trainer.world_size,
             rank_policy=self.config.hooks_rank_policy,

@@ -5,7 +5,9 @@ attachment through an actual Lightning `Trainer`, rather than `HookSession`/
 """
 
 import json
+import shlex
 import shutil
+import sys
 from pathlib import Path
 
 import lightning.pytorch as PL
@@ -324,6 +326,23 @@ def test_sequential_fit_then_test_reuses_hooks_tree_and_adapter_instance(
     assert custom_light.read_text().startswith("#!/usr/bin/env bash")
     assert fired_log.exists()
     assert len(fired_log.read_text().splitlines()) >= 1
+
+
+def test_a_resumed_run_dispatches_with_the_marker_session_id(tmp_path) -> None:
+    model = _TinyModelLP(**_base_kwargs())
+    _make_trainer(tmp_path).fit(model, _make_loader())
+    session_ids = tmp_path / "session_ids.log"
+    read_id = 'import json, sys; print(json.load(open(sys.argv[1]))["session_id"])'
+    _make_script(
+        tmp_path / "hooks" / "light" / "on_train_start.sh",
+        f'{shlex.quote(sys.executable)} -c {shlex.quote(read_id)} "$1" >> "{session_ids}"',
+    )
+
+    _make_trainer(tmp_path).fit(model, _make_loader())
+    _make_trainer(tmp_path).fit(_TinyModelLP(**_base_kwargs()), _make_loader())
+
+    marker_id = _read_marker(tmp_path)["session_id"]
+    assert session_ids.read_text().splitlines() == [marker_id, marker_id]
 
 
 def test_user_callback_preserved_alongside_trainctl_adapter(tmp_path) -> None:
