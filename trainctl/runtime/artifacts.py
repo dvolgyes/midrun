@@ -6,12 +6,19 @@ and manifest format, not the FUSE projection.
 """
 
 import json
+import re
 import time
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
 
 from trainctl.runtime.commands import next_id
+
+# Allowed checkpoint labels and capture filenames: one plain path component.
+ARTIFACT_NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+
+_ARTIFACT_NAME = re.compile(ARTIFACT_NAME_PATTERN)
+_RESERVED_CAPTURE_FILENAMES = frozenset({"manifest.json"})
 
 
 class ArtifactStore:
@@ -28,7 +35,15 @@ class ArtifactStore:
         (self.root / "debug").mkdir(parents=True, exist_ok=True)
 
     def checkpoint_path(self, label: str) -> Path:
-        """Returns a fresh checkpoint file path under `checkpoints/`."""
+        """Returns a fresh checkpoint file path under `checkpoints/`.
+
+        Raises:
+            ValueError: `label` does not match `ARTIFACT_NAME_PATTERN`.
+        """
+        if not _ARTIFACT_NAME.fullmatch(label):
+            raise ValueError(
+                f"invalid checkpoint label {label!r}: must match {ARTIFACT_NAME_PATTERN}"
+            )
         return self.root / "checkpoints" / f"ckpt-{next_id('c')}-{label}.ckpt"
 
     def write_snapshot(self, kind: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -71,13 +86,19 @@ class ArtifactStore:
             The written manifest (id, kind, created_at, metadata, filenames, and path).
 
         Raises:
-            ValueError: a filename in `files` is not a bare name (REST-supplied input boundary:
-                rejects path separators/`..` so a capture can never write outside its own directory).
+            ValueError: a filename in `files` does not match `ARTIFACT_NAME_PATTERN`
+                or is `manifest.json` (REST-supplied input boundary: a capture can
+                never write outside its own directory or replace its manifest).
+                Nothing is written in that case.
         """
         for filename in files:
-            if "/" in filename or filename in (".", ".."):
+            if (
+                not _ARTIFACT_NAME.fullmatch(filename)
+                or filename in _RESERVED_CAPTURE_FILENAMES
+            ):
                 raise ValueError(
-                    f"invalid capture filename {filename!r}: must be a bare filename"
+                    f"invalid capture filename {filename!r}: must match"
+                    f" {ARTIFACT_NAME_PATTERN} and not be manifest.json"
                 )
         dbg_id = next_id("dbg")
         dbg_dir = self.root / "debug" / dbg_id

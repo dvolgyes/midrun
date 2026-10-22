@@ -2,7 +2,9 @@
 
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from trainctl.runtime.artifacts import ARTIFACT_NAME_PATTERN
 
 
 class ExecutionSpec(BaseModel):
@@ -37,7 +39,7 @@ class CheckpointIn(BaseModel):
     """Body for `POST /checkpoints`."""
 
     when: Any = "now"
-    label: str = "manual"
+    label: str = Field(default="manual", pattern=ARTIFACT_NAME_PATTERN)
 
 
 class SnapshotIn(BaseModel):

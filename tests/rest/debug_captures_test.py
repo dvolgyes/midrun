@@ -67,3 +67,19 @@ def test_get_unknown_artifact_id_is_404(tmp_path: Path) -> None:
     client = _client(tmp_path)
     response = client.get("/artifacts/dbg_999999")
     assert response.status_code == 404
+
+
+def test_post_debug_captures_cannot_overwrite_the_manifest(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    response = client.post(
+        "/debug/captures", json={"kind": "bad", "files": {"manifest.json": "{}"}}
+    )
+    assert response.status_code == 400
+    assert client.get("/artifacts").json()["debug"] == []
+
+
+def test_post_checkpoints_rejects_traversal_label(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    response = client.post("/checkpoints", json={"label": "../../../escape"})
+    assert response.status_code == 422
+    assert client.get("/commands").json() == []

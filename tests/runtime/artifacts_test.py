@@ -63,3 +63,29 @@ def test_write_debug_capture_ids_dont_collide_under_concurrency(tmp_path: Path) 
 
     assert len(ids) == 20
     assert len(set(ids)) == 20
+
+
+@pytest.mark.parametrize(
+    "bad_label", ["../../outside", "a/b", "..", "", "x\0y", ".hidden", "x" * 65]
+)
+def test_checkpoint_path_rejects_unsafe_labels(tmp_path: Path, bad_label: str) -> None:
+    store = ArtifactStore(tmp_path / "artifacts")
+    with pytest.raises(ValueError, match="invalid checkpoint label"):
+        store.checkpoint_path(bad_label)
+
+
+def test_checkpoint_path_stays_in_checkpoints_dir(tmp_path: Path) -> None:
+    store = ArtifactStore(tmp_path)
+    path = store.checkpoint_path("before-lr_change.v2")
+    assert path.parent == tmp_path / "checkpoints"
+    assert path.name.endswith("-before-lr_change.v2.ckpt")
+
+
+@pytest.mark.parametrize("bad_filename", ["", "x\0y", "manifest.json", ".hidden"])
+def test_write_debug_capture_rejects_bad_name_before_writing(
+    tmp_path: Path, bad_filename: str
+) -> None:
+    store = ArtifactStore(tmp_path)
+    with pytest.raises(ValueError, match="invalid capture filename"):
+        store.write_debug_capture("bad", {"ok.txt": "x", bad_filename: "y"})
+    assert list((tmp_path / "debug").iterdir()) == []
