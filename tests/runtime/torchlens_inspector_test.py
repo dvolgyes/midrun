@@ -14,12 +14,13 @@ import torch
 
 from trainctl.config import TrainctlConfig
 from trainctl.load_backend import load_backend
-from trainctl.runtime import torchlens_inspector
 from trainctl.runtime.artifacts import ArtifactStore
 from trainctl.runtime.commands.parse_when import parse_when
 from trainctl.runtime.runtime import TrainctlRuntime
+from trainctl.runtime.torchlens_available import torchlens_available
+from trainctl.runtime.torchlens_capture import torchlens_capture
 
-_INSTALLED = torchlens_inspector.available()
+_INSTALLED = torchlens_available()
 
 
 class _Model(torch.nn.Module):
@@ -57,7 +58,7 @@ def test_capture_raises_without_torchlens(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setitem(sys.modules, "torchlens", None)
     model = _Model()
     with pytest.raises(ImportError):
-        torchlens_inspector.capture(model, torch.randn(3, 4))
+        torchlens_capture(model, torch.randn(3, 4))
 
 
 def test_torchlens_capture_auto_engages_hold_when_not_already_held(
@@ -106,7 +107,7 @@ def test_torchlens_capture_without_torchlens_fails_and_engages_no_hold(
 @pytest.mark.skipif(not _INSTALLED, reason="torchlens not installed")
 def test_capture_returns_summary_and_graph() -> None:
     model = _Model()
-    files = torchlens_inspector.capture(model, torch.randn(3, 4))
+    files = torchlens_capture(model, torch.randn(3, 4))
     assert "summary.txt" in files
     assert "graph.svg" in files
 

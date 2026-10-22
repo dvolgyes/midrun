@@ -12,16 +12,7 @@ from pathlib import Path
 from typing import Any
 
 
-def available() -> bool:
-    """Returns whether `torchlens` can be imported."""
-    try:
-        import torchlens  # noqa: F401
-    except ImportError:
-        return False
-    return True
-
-
-def capture(model: Any, batch: Any) -> dict[str, str | bytes]:
+def torchlens_capture(model: Any, batch: Any) -> dict[str, str | bytes]:
     """Traces one forward pass and returns a summary and a rendered graph.
 
     Args:

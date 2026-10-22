@@ -31,7 +31,6 @@ from trainctl.runtime import (
     forward_input,
     graph_inspectors,
     hparam_registry,
-    torchlens_inspector,
 )
 from trainctl.runtime.artifacts import ArtifactStore
 from trainctl.runtime.commands.command import Command
@@ -63,6 +62,8 @@ from trainctl.runtime.torchinfo_inspector.basic_summary_text import (
 from trainctl.runtime.torchinfo_inspector.torchinfo_rich_summary import (
     torchinfo_rich_summary,
 )
+from trainctl.runtime.torchlens_available import torchlens_available
+from trainctl.runtime.torchlens_capture import torchlens_capture
 from trainctl.torch_debug.manager import TorchDebugManager
 
 _ALLOWED_DURING_HOLD = frozenset(
@@ -1512,7 +1513,7 @@ def _handle_torchlens_capture(
 ) -> dict:
     if runtime.current_step.batch is None:
         raise ValueError("torchlens_capture requires an in-flight batch")
-    if not torchlens_inspector.available():
+    if not torchlens_available():
         raise ImportError("torchlens_capture requires the torchlens package")
     if not runtime.gate.is_held():
         # torchlens instruments the model with hooks; auto-engage a hold so a human
@@ -1522,7 +1523,7 @@ def _handle_torchlens_capture(
             command.id, str(safe_point), trainer.current_epoch, trainer.global_step
         )
     target = forward_input.resolve(pl_module, runtime.current_step.batch)
-    files = torchlens_inspector.capture(pl_module, target)
+    files = torchlens_capture(pl_module, target)
     return runtime.artifacts.write_debug_capture("torchlens-trace", files)
 
 
