@@ -2,7 +2,7 @@
 
 Exercises `TrainctlFS` directly against a `TrainctlRuntime` with hand-published
 rank state, rather than mounting real FUSE -- the routing logic under test lives
-entirely in `virtual_fs.generate`/`is_virtual_dir`/`TrainctlFS.readdir`, not in the
+entirely in `virtual_file_content`/`is_virtual_dir`/`TrainctlFS.readdir`, not in the
 kernel mount.
 """
 
@@ -11,9 +11,10 @@ import pytest
 from trainctl.config import TrainctlConfig
 from trainctl.fuse.filesystem import TrainctlFS
 from trainctl.load_backend import load_backend
-from trainctl.runtime import virtual_fs
 from trainctl.runtime.runtime import TrainctlRuntime
 from trainctl.runtime.state.rank_info import RankInfo
+from trainctl.runtime.virtual_fs.is_virtual_dir import is_virtual_dir
+from trainctl.runtime.virtual_fs.virtual_file_content import virtual_file_content
 
 
 def _fs_with_rank(worker_pids: tuple[int, ...] = (111, 222)) -> TrainctlFS:
@@ -65,10 +66,10 @@ def test_worker_fields_listed_under_worker_index() -> None:
 def test_worker_pid_file_content() -> None:
     fs = _fs_with_rank((111, 222))
     assert (
-        virtual_fs.generate(fs._runtime, "/meta/ranks/000/workers/000/pid") == b"111\n"
+        virtual_file_content(fs._runtime, "/meta/ranks/000/workers/000/pid") == b"111\n"
     )
     assert (
-        virtual_fs.generate(fs._runtime, "/meta/ranks/000/workers/001/pid") == b"222\n"
+        virtual_file_content(fs._runtime, "/meta/ranks/000/workers/001/pid") == b"222\n"
     )
 
 
@@ -86,21 +87,21 @@ def test_worker_pid_file_read_and_getattr_round_trip() -> None:
 
 def test_worker_index_out_of_range_is_not_found() -> None:
     fs = _fs_with_rank((111,))
-    assert virtual_fs.generate(fs._runtime, "/meta/ranks/000/workers/001/pid") is None
-    assert not virtual_fs.is_virtual_dir(fs._runtime, "/meta/ranks/000/workers/001")
+    assert virtual_file_content(fs._runtime, "/meta/ranks/000/workers/001/pid") is None
+    assert not is_virtual_dir(fs._runtime, "/meta/ranks/000/workers/001")
 
 
 def test_rank_index_out_of_range_is_not_found() -> None:
     fs = _fs_with_rank((111,))
-    assert virtual_fs.generate(fs._runtime, "/meta/ranks/007/workers/000/pid") is None
-    assert not virtual_fs.is_virtual_dir(fs._runtime, "/meta/ranks/007/workers")
+    assert virtual_file_content(fs._runtime, "/meta/ranks/007/workers/000/pid") is None
+    assert not is_virtual_dir(fs._runtime, "/meta/ranks/007/workers")
 
 
 @pytest.mark.parametrize("alias", ["0", "-0", "+0", "00", "0000", "0_0", " 000"])
 def test_index_spellings_that_are_not_listed_are_not_found(alias: str) -> None:
     fs = _fs_with_rank((111,))
     runtime = fs._runtime
-    assert virtual_fs.generate(runtime, f"/meta/ranks/{alias}/pid") is None
-    assert not virtual_fs.is_virtual_dir(runtime, f"/meta/ranks/{alias}")
-    assert virtual_fs.generate(runtime, f"/meta/ranks/000/workers/{alias}/pid") is None
-    assert not virtual_fs.is_virtual_dir(runtime, f"/meta/ranks/000/workers/{alias}")
+    assert virtual_file_content(runtime, f"/meta/ranks/{alias}/pid") is None
+    assert not is_virtual_dir(runtime, f"/meta/ranks/{alias}")
+    assert virtual_file_content(runtime, f"/meta/ranks/000/workers/{alias}/pid") is None
+    assert not is_virtual_dir(runtime, f"/meta/ranks/000/workers/{alias}")

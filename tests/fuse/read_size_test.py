@@ -14,8 +14,8 @@ from pathlib import Path
 import pytest
 
 from trainctl.config import TrainctlConfig
+from trainctl.fuse import filesystem
 from trainctl.load_backend import load_backend
-from trainctl.runtime import virtual_fs
 from trainctl.runtime.runtime import TrainctlRuntime
 
 
@@ -46,14 +46,14 @@ def growing_file(
 ) -> str:
     """Makes the file one byte longer each time it is generated."""
     lengths = itertools.count(1)
-    generate = virtual_fs.generate
+    content_of = filesystem.virtual_file_content
 
     def _growing(runtime: TrainctlRuntime, path: str) -> bytes | None:
         if path == request.param:
             return b"x" * next(lengths) + b"\n"
-        return generate(runtime, path)
+        return content_of(runtime, path)
 
-    monkeypatch.setattr(virtual_fs, "generate", _growing)
+    monkeypatch.setattr(filesystem, "virtual_file_content", _growing)
     return request.param.lstrip("/")
 
 

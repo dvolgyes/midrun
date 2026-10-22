@@ -17,9 +17,10 @@ import torch
 from trainctl.config import TrainctlConfig
 from trainctl.fuse.filesystem import TrainctlFS
 from trainctl.load_backend import load_backend
-from trainctl.runtime import virtual_fs as fs_module
 from trainctl.runtime.events import SafePoint
 from trainctl.runtime.runtime import TrainctlRuntime
+from trainctl.runtime.virtual_fs.live_files import LIVE_FILES
+from trainctl.runtime.virtual_fs.virtual_file_content import virtual_file_content
 
 
 class _Model(torch.nn.Module):
@@ -76,7 +77,7 @@ def test_model_summary_live_txt_blocks_then_serves_fresh_data() -> None:
         target=_drive_next_safe_point, args=(runtime, model), daemon=True
     ).start()
 
-    content = fs_module.generate(runtime, "/model/summary-live.txt")
+    content = virtual_file_content(runtime, "/model/summary-live.txt")
 
     assert b"Linear" in content
 
@@ -93,7 +94,7 @@ def test_model_graph_dot_blocks_then_serves_dot_source() -> None:
         target=_drive_next_safe_point, args=(runtime, model), daemon=True
     ).start()
 
-    content = fs_module.generate(runtime, "/model/graph.dot")
+    content = virtual_file_content(runtime, "/model/graph.dot")
 
     assert b"digraph" in content
 
@@ -106,7 +107,7 @@ def test_getattr_reports_zero_size_without_computing(
     def _boom(rt: object) -> bytes:
         raise AssertionError("getattr must not compute a live file")
 
-    monkeypatch.setitem(fs_module._LIVE_FILES, "/model/summary-live.txt", _boom)
+    monkeypatch.setitem(LIVE_FILES, "/model/summary-live.txt", _boom)
 
     attrs = fs.getattr("/model/summary-live.txt")
 
@@ -119,9 +120,7 @@ def test_open_translates_timeout_to_fuse_errno(monkeypatch: pytest.MonkeyPatch) 
     def _raise_timeout(rt: object) -> bytes:
         raise TimeoutError("no safe point reached")
 
-    monkeypatch.setitem(
-        fs_module._LIVE_FILES, "/model/summary-live.txt", _raise_timeout
-    )
+    monkeypatch.setitem(LIVE_FILES, "/model/summary-live.txt", _raise_timeout)
 
     with pytest.raises(mfusepy.FuseOSError) as excinfo:
         fs.open("/model/summary-live.txt", 0)
@@ -134,9 +133,7 @@ def test_open_translates_other_failures_to_eio(monkeypatch: pytest.MonkeyPatch) 
     def _raise_value_error(rt: object) -> bytes:
         raise ValueError("requires an in-flight batch")
 
-    monkeypatch.setitem(
-        fs_module._LIVE_FILES, "/model/summary-live.txt", _raise_value_error
-    )
+    monkeypatch.setitem(LIVE_FILES, "/model/summary-live.txt", _raise_value_error)
 
     with pytest.raises(mfusepy.FuseOSError) as excinfo:
         fs.open("/model/summary-live.txt", 0)

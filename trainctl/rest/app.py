@@ -23,7 +23,7 @@ from trainctl.rest.schemas.command_in import CommandIn
 from trainctl.rest.schemas.debug_capture_in import DebugCaptureIn
 from trainctl.rest.schemas.hold_in import HoldIn
 from trainctl.rest.schemas.snapshot_in import SnapshotIn
-from trainctl.runtime import inspectors_registry, virtual_fs
+from trainctl.runtime import inspectors_registry
 from trainctl.runtime.command_args.validate_command_args import InvalidCommandError
 from trainctl.runtime.commands.command import Command
 from trainctl.runtime.commands.parse_when import parse_when
@@ -36,6 +36,9 @@ from trainctl.runtime.cuda_memory.dump_cuda_memory_snapshot import (
 from trainctl.runtime.cuda_memory.set_cuda_memory_history import (
     set_cuda_memory_history,
 )
+from trainctl.runtime.virtual_fs.is_virtual_dir import is_virtual_dir
+from trainctl.runtime.virtual_fs.list_virtual_dir import list_virtual_dir
+from trainctl.runtime.virtual_fs.virtual_file_content import virtual_file_content
 
 _STATIC_DIR = Path(__file__).parent / "static"
 _MEDIA_TYPES = {".json": "application/json"}
@@ -392,15 +395,15 @@ def build_app(runtime: "TrainctlRuntime") -> FastAPI:
     @app.get("/files/{path:path}")
     def get_file(path: str) -> Response:
         virtual_path = "/" + path
-        if virtual_fs.is_virtual_dir(runtime, virtual_path):
+        if is_virtual_dir(runtime, virtual_path):
             return JSONResponse(
                 {
                     "path": virtual_path,
-                    "entries": virtual_fs.list_dir(runtime, virtual_path),
+                    "entries": list_virtual_dir(runtime, virtual_path),
                 }
             )
         try:
-            content = virtual_fs.generate(runtime, virtual_path)
+            content = virtual_file_content(runtime, virtual_path)
         except TimeoutError as exc:
             raise HTTPException(status_code=504, detail=str(exc)) from exc
         except Exception as exc:

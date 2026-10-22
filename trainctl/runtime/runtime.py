@@ -152,8 +152,8 @@ class TrainctlRuntime:
         lightning_profiler_level: `off`, `simple`, `advanced`, or `pytorch` -- the
             level `lightning_profiler` was last set to.
         live_captures: Broker for cheap, non-persisted live views served at
-            `SafePoint.BEFORE_OPTIMIZER_STEP` -- see `trainctl.fuse.filesystem`'s
-            `_LIVE_FILES`.
+            `SafePoint.BEFORE_OPTIMIZER_STEP` -- see
+            `trainctl.runtime.virtual_fs.live_files.LIVE_FILES`.
         tunable_hparams: Current value/type of each hparam the model opted into via
             `trainctl_tunable_hparams`, refreshed at every safe point. Entries
             declared via the dict form also carry `min`/`max`/`label`.

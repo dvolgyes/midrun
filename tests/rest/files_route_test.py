@@ -1,6 +1,6 @@
 """Behavioral tests for GET /files/{path} -- the REST mirror of the FUSE virtual tree.
 
-`get_file` reuses `virtual_fs.generate`/`is_virtual_dir`/`list_dir`, the same functions
+`get_file` reuses `virtual_file_content`/`is_virtual_dir`/`list_virtual_dir`, the same functions
 `TrainctlFS` calls -- these tests check the REST-specific wiring (status codes, JSON
 listing shape, error-boundary translation), not the virtual tree's content, which
 `tests/fuse/*` already covers.
@@ -12,8 +12,9 @@ from fastapi.testclient import TestClient
 from trainctl.config import TrainctlConfig
 from trainctl.load_backend import load_backend
 from trainctl.rest.app import build_app
-from trainctl.runtime import virtual_fs
 from trainctl.runtime.runtime import TrainctlRuntime
+from trainctl.runtime.virtual_fs.live_files import LIVE_FILES
+from trainctl.runtime.virtual_fs.virtual_file_content import virtual_file_content
 
 
 def _client() -> tuple[TestClient, TrainctlRuntime]:
@@ -24,14 +25,14 @@ def _client() -> tuple[TestClient, TrainctlRuntime]:
     return TestClient(build_app(runtime)), runtime
 
 
-def test_get_file_matches_virtual_fs_generate_content() -> None:
+def test_get_file_matches_virtual_file_content() -> None:
     client, runtime = _client()
     runtime._model_class_name = "DemoModule"
 
     response = client.get("/files/model/class")
 
     assert response.status_code == 200
-    assert response.text == virtual_fs.generate(runtime, "/model/class").decode()
+    assert response.text == virtual_file_content(runtime, "/model/class").decode()
 
 
 def test_get_file_json_content_type_for_json_path() -> None:
@@ -79,9 +80,7 @@ def test_get_file_live_view_timeout_maps_to_504(
     def _raise_timeout(rt: object) -> bytes:
         raise TimeoutError("no safe point reached")
 
-    monkeypatch.setitem(
-        virtual_fs._LIVE_FILES, "/model/summary-live.txt", _raise_timeout
-    )
+    monkeypatch.setitem(LIVE_FILES, "/model/summary-live.txt", _raise_timeout)
 
     response = client.get("/files/model/summary-live.txt")
 
@@ -94,9 +93,7 @@ def test_get_file_other_failure_maps_to_500(monkeypatch: pytest.MonkeyPatch) -> 
     def _raise_value_error(rt: object) -> bytes:
         raise ValueError("requires an in-flight batch")
 
-    monkeypatch.setitem(
-        virtual_fs._LIVE_FILES, "/model/summary-live.txt", _raise_value_error
-    )
+    monkeypatch.setitem(LIVE_FILES, "/model/summary-live.txt", _raise_value_error)
 
     response = client.get("/files/model/summary-live.txt")
 

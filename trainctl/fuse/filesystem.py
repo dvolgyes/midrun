@@ -27,7 +27,10 @@ from typing import TYPE_CHECKING, Any
 import mfusepy
 from loguru import logger
 
-from trainctl.runtime import virtual_fs
+from trainctl.runtime.virtual_fs.is_live_file import is_live_file
+from trainctl.runtime.virtual_fs.is_virtual_dir import is_virtual_dir
+from trainctl.runtime.virtual_fs.list_virtual_dir import list_virtual_dir
+from trainctl.runtime.virtual_fs.virtual_file_content import virtual_file_content
 
 if TYPE_CHECKING:
     from trainctl.runtime.runtime import TrainctlRuntime
@@ -62,7 +65,7 @@ class TrainctlFS(mfusepy.Operations):
             "st_gid": os.getgid(),
             "st_mtime": int(time.time() * 1e9),
         }
-        if virtual_fs.is_virtual_dir(self._runtime, path):
+        if is_virtual_dir(self._runtime, path):
             return {"st_mode": (stat.S_IFDIR | 0o755), "st_nlink": 2, **owner}
         with self._handles_lock:
             handle = self._newest_handle.get(path)
@@ -74,7 +77,7 @@ class TrainctlFS(mfusepy.Operations):
                 "st_size": len(content),
                 **owner,
             }
-        if virtual_fs.is_live_file(path):
+        if is_live_file(path):
             # st_size is unknowable without running the blocking capture; never trigger
             # it just to stat() the file -- only open()/read() do that.
             return {
@@ -83,7 +86,7 @@ class TrainctlFS(mfusepy.Operations):
                 "st_size": 0,
                 **owner,
             }
-        content = virtual_fs.generate(self._runtime, path)
+        content = virtual_file_content(self._runtime, path)
         if content is None:
             raise mfusepy.FuseOSError(errno.ENOENT)
         return {
@@ -95,13 +98,13 @@ class TrainctlFS(mfusepy.Operations):
 
     def readdir(self, path: str, fh: int) -> list[str]:
         del fh
-        return [".", "..", *virtual_fs.list_dir(self._runtime, path)]
+        return [".", "..", *list_virtual_dir(self._runtime, path)]
 
     def open(self, path: str, flags: int) -> int:
         if flags & os.O_ACCMODE != os.O_RDONLY:
             raise mfusepy.FuseOSError(errno.EROFS)
         try:
-            content = virtual_fs.generate(self._runtime, path)
+            content = virtual_file_content(self._runtime, path)
         except TimeoutError as exc:
             logger.warning("trainctl FUSE read of {} timed out: {}", path, exc)
             raise mfusepy.FuseOSError(errno.ETIMEDOUT) from exc
