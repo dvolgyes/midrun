@@ -6,14 +6,13 @@ Trainer/model state. REST and FUSE only read published `RuntimeSnapshot`s or enq
 `Command`s; this module is what actually executes them, from inside Lightning hooks.
 """
 
-import json
 import os
 import secrets
 import shutil
 import socket
 import threading
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, NoReturn, SupportsIndex
@@ -26,13 +25,10 @@ from trainctl.hooks.manager.bootstrap_hooks_tree import bootstrap_hooks_tree
 from trainctl.hooks.session import HandleResult, HookSession
 from trainctl.lightning_backend import LightningBackend
 from trainctl.logging.logging_session import LoggingSession
-from trainctl.runtime import forward_input
 from trainctl.runtime.artifacts import ArtifactStore
 from trainctl.runtime.bind_free_socket import bind_free_socket
 from trainctl.runtime.bind_socket import bind_socket
-from trainctl.runtime.command_args.validate_command_args import (
-    validate_command_args,
-)
+from trainctl.runtime.command_args.validate_command_args import validate_command_args
 from trainctl.runtime.commands.command import Command
 from trainctl.runtime.commands.command_queue import CommandQueue
 from trainctl.runtime.commands.next_id import next_id
@@ -45,12 +41,7 @@ from trainctl.runtime.distributed_initialized import distributed_initialized
 from trainctl.runtime.events import SafePoint
 from trainctl.runtime.finite_guard import DataloaderFiniteGuard, FiniteCheckReport
 from trainctl.runtime.gate import RunGate
-from trainctl.runtime.graph_inspectors.torchview_capture import torchview_capture
-from trainctl.runtime.graph_inspectors.torchviz_capture import torchviz_capture
-from trainctl.runtime.graph_inspectors.torchviz_capture_live import (
-    torchviz_capture_live,
-)
-from trainctl.runtime.hparam_registry.check_and_assign import check_and_assign
+from trainctl.runtime.handlers.command_handlers import COMMAND_HANDLERS
 from trainctl.runtime.hparam_registry.collect_tunable_hparams import (
     collect_tunable_hparams,
 )
@@ -62,12 +53,6 @@ from trainctl.runtime.hparam_registry.tunable_hparam_spec import TunableHparamSp
 from trainctl.runtime.is_rank_zero import is_rank_zero
 from trainctl.runtime.live_capture import LiveCaptureBroker
 from trainctl.runtime.new_hooks_session_id import new_hooks_session_id
-from trainctl.runtime.optimizer_surgery.find_surgery_adapter import (
-    find_surgery_adapter,
-)
-from trainctl.runtime.optimizer_surgery.resolve_optimizer_parameters import (
-    resolve_optimizer_parameters,
-)
 from trainctl.runtime.phase_of_stage import phase_of_stage
 from trainctl.runtime.pipeline_pressure import PipelinePressureTracker
 from trainctl.runtime.profiler import ProfilerRun
@@ -77,17 +62,8 @@ from trainctl.runtime.state.initial_snapshot import initial_snapshot
 from trainctl.runtime.state.rank_info import RankInfo
 from trainctl.runtime.state.scalar_metric import ScalarMetric
 from trainctl.runtime.state.state_store import StateStore
-from trainctl.runtime.torchinfo_inspector.basic_summary_json import (
-    basic_summary_json,
-)
-from trainctl.runtime.torchinfo_inspector.basic_summary_text import (
-    basic_summary_text,
-)
-from trainctl.runtime.torchinfo_inspector.torchinfo_rich_summary import (
-    torchinfo_rich_summary,
-)
-from trainctl.runtime.torchlens_available import torchlens_available
-from trainctl.runtime.torchlens_capture import torchlens_capture
+from trainctl.runtime.torchinfo_inspector.basic_summary_json import basic_summary_json
+from trainctl.runtime.torchinfo_inspector.basic_summary_text import basic_summary_text
 from trainctl.runtime.trainer_stage_name import trainer_stage_name
 from trainctl.runtime.wait_own_rest_ready import wait_own_rest_ready
 from trainctl.torch_debug.manager import TorchDebugManager
@@ -544,7 +520,7 @@ class TrainctlRuntime:
         safe_point: SafePoint | None,
     ) -> None:
         self.command_queue.mark_executing(command)
-        handler = _HANDLERS.get(command.kind)
+        handler = COMMAND_HANDLERS.get(command.kind)
         if handler is None:
             self.command_queue.mark_result(
                 command, succeeded=False, error=f"unknown command kind {command.kind!r}"
@@ -566,7 +542,7 @@ class TrainctlRuntime:
         """Records batch-start timing/state. Called from `on_train_batch_start`.
 
         Enters a cooperative hold directly (bypassing the command queue, like
-        `_handle_hold` does from inside a command) if the dataloader finite guard is
+        `handle_hold` does from inside a command) if the dataloader finite guard is
         enabled and finds a non-finite tensor in `batch` on any rank.
         """
         trainer = pl_module.trainer
@@ -1006,463 +982,3 @@ class TrainctlRuntime:
 # selection: REST and torch_debug candidates at attempt N are both `N * _PORT_OFFSET_STEP`
 # above their configured base port (e.g. offset 200 pairs REST 8290 with debug 26199).
 _PORT_OFFSET_STEP = 100
-
-
-# ---- command handlers -----------------------------------------------------------------
-
-
-def _optimizer_summary_payload(trainer: Any) -> dict[str, Any]:
-    return {
-        str(index): {
-            "type": type(optimizer).__name__,
-            "param_groups": [{"lr": group["lr"]} for group in optimizer.param_groups],
-        }
-        for index, optimizer in enumerate(trainer.optimizers)
-    }
-
-
-def _handle_hold(
-    runtime: TrainctlRuntime,
-    pl_module: Any,
-    trainer: Any,
-    command: Command,
-    safe_point: SafePoint | None,
-) -> dict:
-    del pl_module
-    runtime.gate.enter(
-        command.id, str(safe_point), trainer.current_epoch, trainer.global_step
-    )
-    return {"hold": "entered", "reason": command.args["reason"]}
-
-
-def _handle_stop(
-    runtime: TrainctlRuntime,
-    pl_module: Any,
-    trainer: Any,
-    command: Command,
-    safe_point: SafePoint | None,
-) -> dict:
-    del pl_module, command, safe_point
-    trainer.should_stop = True
-    # Cancel queued holds before the release, so no later safe point holds the run again.
-    queue = runtime.command_queue
-    cancelled = [
-        held.id
-        for held in queue.list_all()
-        if held.kind == "hold" and queue.cancel(held.id)
-    ]
-    runtime.gate.release()
-    return {"stop": "requested", "cancelled_holds": cancelled}
-
-
-def _handle_checkpoint(
-    runtime: TrainctlRuntime,
-    pl_module: Any,
-    trainer: Any,
-    command: Command,
-    safe_point: SafePoint | None,
-) -> dict:
-    del pl_module, safe_point
-    label = command.args["label"]
-    # Every rank saves, as Lightning requires, so every rank must use rank 0's path.
-    path = runtime.rank_sync.broadcast(runtime.artifacts.checkpoint_path(label))
-    trainer.save_checkpoint(str(path))
-    return {"checkpoint_path": str(path)}
-
-
-def _handle_snapshot(
-    runtime: TrainctlRuntime,
-    pl_module: Any,
-    trainer: Any,
-    command: Command,
-    safe_point: SafePoint | None,
-) -> dict:
-    del safe_point
-    kind = command.args["kind"]
-    if kind == "runtime":
-        payload = asdict(runtime.state.read())
-    elif kind == "model_summary":
-        payload = {
-            "class": type(pl_module).__name__,
-            "hparams": dict(getattr(pl_module, "hparams", {})),
-        }
-    elif kind == "optimizer_summary":
-        payload = _optimizer_summary_payload(trainer)
-    elif kind == "scheduler_summary":
-        configs = getattr(trainer, "lr_scheduler_configs", [])
-        payload = {
-            str(index): {"type": type(getattr(config, "scheduler", config)).__name__}
-            for index, config in enumerate(configs)
-        }
-    else:
-        raise ValueError(f"unknown snapshot kind {kind!r}")
-    return runtime.artifacts.write_snapshot(kind, payload)
-
-
-def _handle_set_learning_rate(
-    runtime: TrainctlRuntime,
-    pl_module: Any,
-    trainer: Any,
-    command: Command,
-    safe_point: SafePoint | None,
-) -> dict:
-    del pl_module, safe_point
-    value = command.args["value"]
-    optimizer_index = command.args["optimizer"]
-    optimizer = _optimizer_at(trainer.optimizers, optimizer_index)
-    param_group = command.args["param_group"]
-    if param_group != "*" and not runtime.config.optimizer_surgery_enabled:
-        raise ValueError(
-            "per-group learning-rate selection requires optimizer_surgery_enabled"
-        )
-    if param_group == "*":
-        groups = list(enumerate(optimizer.param_groups))
-    else:
-        index = param_group
-        if index >= len(optimizer.param_groups):
-            raise ValueError(f"optimizer {optimizer_index} has no param_group {index}")
-        groups = [(index, optimizer.param_groups[index])]
-    changes: dict[str, Any] = {}
-    for index, group in groups:
-        changes[str(index)] = {"before": group["lr"], "after": value}
-        group["lr"] = value
-    result: dict[str, Any] = {"optimizer": optimizer_index, "groups": changes}
-    if getattr(trainer, "lr_scheduler_configs", None):
-        result["warning"] = (
-            "optimizer has an active LR scheduler; this value may be overwritten "
-            "on its next scheduler step"
-        )
-    return result
-
-
-def _optimizer_at[T](optimizers: Sequence[T], index: int) -> T:
-    if index >= len(optimizers):
-        raise ValueError(
-            f"optimizer {index} does not exist; the run has {len(optimizers)} optimizer(s)"
-        )
-    return optimizers[index]
-
-
-def _handle_reset_momentum(
-    runtime: TrainctlRuntime,
-    pl_module: Any,
-    trainer: Any,
-    command: Command,
-    safe_point: SafePoint | None,
-) -> dict:
-    del safe_point
-    if not runtime.config.optimizer_surgery_enabled:
-        raise ValueError("reset_momentum requires optimizer_surgery_enabled")
-    optimizer_index = command.args["optimizer"]
-    optimizer = _optimizer_at(trainer.optimizers, optimizer_index)
-    adapter = find_surgery_adapter(optimizer)
-    if adapter is None:
-        raise ValueError(
-            "optimizer_surgery_unsupported: no reset_momentum adapter for "
-            f"{type(optimizer).__module__}.{type(optimizer).__name__}"
-        )
-    parameters = resolve_optimizer_parameters(
-        pl_module, optimizer, command.args["selector"]
-    )
-    result = adapter.reset_momentum(optimizer, parameters)
-    return {"optimizer": optimizer_index, **result}
-
-
-def _handle_set_dataloader_finite_check(
-    runtime: TrainctlRuntime,
-    pl_module: Any,
-    trainer: Any,
-    command: Command,
-    safe_point: SafePoint | None,
-) -> dict:
-    del pl_module, trainer, safe_point
-    enabled = command.args["enabled"]
-    runtime.finite_guard.enabled = enabled
-    return {"enabled": enabled}
-
-
-def _handle_set_hparam(
-    runtime: TrainctlRuntime,
-    pl_module: Any,
-    trainer: Any,
-    command: Command,
-    safe_point: SafePoint | None,
-) -> dict:
-    del safe_point
-    name = command.args["name"]
-    spec = runtime._tunable_hparam_specs.get(name)
-    if spec is None:
-        raise ValueError(f"unknown or non-tunable hparam: {name!r}")
-    parent, leaf = resolve_hparam_path(pl_module, trainer, spec.path)
-    result = check_and_assign(spec, parent, leaf, command.args["value"])
-    return {"name": name, **asdict(result)}
-
-
-def _handle_save_current_batch(
-    runtime: TrainctlRuntime,
-    pl_module: Any,
-    trainer: Any,
-    command: Command,
-    safe_point: SafePoint | None,
-) -> dict:
-    del pl_module, trainer, command, safe_point
-    import io
-
-    import torch
-
-    buffer = io.BytesIO()
-    torch.save(runtime.current_step.batch, buffer)
-    return runtime.artifacts.write_debug_capture(
-        "current-batch", {"batch.pt": buffer.getvalue()}
-    )
-
-
-def _handle_save_current_loss(
-    runtime: TrainctlRuntime,
-    pl_module: Any,
-    trainer: Any,
-    command: Command,
-    safe_point: SafePoint | None,
-) -> dict:
-    del pl_module, trainer, command, safe_point
-    import io
-
-    import torch
-
-    buffer = io.BytesIO()
-    torch.save(runtime.current_step.loss, buffer)
-    return runtime.artifacts.write_debug_capture(
-        "current-loss", {"loss.pt": buffer.getvalue()}
-    )
-
-
-def _handle_save_partial_gradients(
-    runtime: TrainctlRuntime,
-    pl_module: Any,
-    trainer: Any,
-    command: Command,
-    safe_point: SafePoint | None,
-) -> dict:
-    del trainer, command, safe_point
-    summary = {
-        name: {
-            "grad_is_none": parameter.grad is None,
-            "grad_norm": (
-                float(parameter.grad.norm()) if parameter.grad is not None else None
-            ),
-            "grad_shape": (
-                list(parameter.grad.shape) if parameter.grad is not None else None
-            ),
-        }
-        for name, parameter in pl_module.named_parameters()
-    }
-    return runtime.artifacts.write_debug_capture(
-        "partial-gradients", {"gradients.json": json.dumps(summary, indent=2)}
-    )
-
-
-def _handle_save_optimizer_summary(
-    runtime: TrainctlRuntime,
-    pl_module: Any,
-    trainer: Any,
-    command: Command,
-    safe_point: SafePoint | None,
-) -> dict:
-    del pl_module, command, safe_point
-    payload = _optimizer_summary_payload(trainer)
-    return runtime.artifacts.write_debug_capture(
-        "optimizer-summary", {"optimizer.json": json.dumps(payload, indent=2)}
-    )
-
-
-def _handle_release_exception(
-    runtime: TrainctlRuntime,
-    pl_module: Any,
-    trainer: Any,
-    command: Command,
-    safe_point: SafePoint | None,
-) -> dict:
-    del pl_module, trainer, safe_point
-    if runtime.state.read().exception is None:
-        raise ValueError("release_exception: no exception hold is active")
-    runtime._exception_hold = None
-    return {"released": command.id}
-
-
-def _handle_torchinfo_capture(
-    runtime: TrainctlRuntime,
-    pl_module: Any,
-    trainer: Any,
-    command: Command,
-    safe_point: SafePoint | None,
-) -> dict:
-    del trainer, command, safe_point
-    if runtime.current_step.batch is None:
-        raise ValueError("torchinfo_capture requires an in-flight batch")
-    target = forward_input.resolve(pl_module, runtime.current_step.batch)
-    files = torchinfo_rich_summary(pl_module, target)
-    return runtime.artifacts.write_debug_capture("torchinfo-summary", files)
-
-
-def _handle_profile(
-    runtime: TrainctlRuntime,
-    pl_module: Any,
-    trainer: Any,
-    command: Command,
-    safe_point: SafePoint | None,
-) -> dict:
-    del pl_module, trainer, safe_point
-    if runtime.profiler_run is not None:
-        raise ValueError("a profiler run is already armed")
-    warmup_steps = command.args["warmup_steps"]
-    active_steps = command.args["active_steps"]
-    level = command.args["level"]
-    then_hold = command.args["then_hold"]
-    run = ProfilerRun(command.id, warmup_steps, active_steps, level, then_hold)
-    run.start()
-    runtime.profiler_run = run
-    return {
-        "armed": True,
-        "warmup_steps": warmup_steps,
-        "active_steps": active_steps,
-        "level": level,
-        "then_hold": then_hold,
-    }
-
-
-def _handle_set_lightning_profiler(
-    runtime: TrainctlRuntime,
-    pl_module: Any,
-    trainer: Any,
-    command: Command,
-    safe_point: SafePoint | None,
-) -> dict:
-    """Installs (or removes) one of Lightning's own profilers as `trainer.profiler`.
-
-    Unlike `profile` (a bounded `torch.profiler` capture over N batches, finalized
-    into a debug-capture artifact), Lightning's profilers wrap Lightning's own named
-    hooks (`training_step`, `backward`, `optimizer_step`, dataloader-next, callbacks,
-    ...) and accumulate continuously until swapped out or read. `trainer.profiler` is
-    a plain attribute Lightning re-reads on every hook call, so swapping it here takes
-    effect immediately, without restarting the Trainer.
-
-    `command.args["level"]` selects `off`, `simple`, `advanced`, or `pytorch`.
-    Selecting a level other than the current one -- or reselecting the current one --
-    always installs a fresh profiler instance, discarding any previously accumulated
-    durations (an implicit reset).
-    """
-    del pl_module, safe_point
-    level = command.args["level"]
-    profilers = runtime.backend.PL.profilers
-    if level == "off":
-        trainer.profiler = profilers.PassThroughProfiler()
-        runtime.lightning_profiler = None
-    else:
-        profiler_cls = {
-            "simple": profilers.SimpleProfiler,
-            "advanced": profilers.AdvancedProfiler,
-            "pytorch": profilers.PyTorchProfiler,
-        }[level]
-        profiler = profiler_cls()
-        trainer.profiler = profiler
-        runtime.lightning_profiler = profiler
-    runtime.lightning_profiler_level = level
-    return {"level": level}
-
-
-def _handle_torchview_capture(
-    runtime: TrainctlRuntime,
-    pl_module: Any,
-    trainer: Any,
-    command: Command,
-    safe_point: SafePoint | None,
-) -> dict:
-    del trainer, command, safe_point
-    if runtime.current_step.batch is None:
-        raise ValueError("torchview_capture requires an in-flight batch")
-    target = forward_input.resolve(pl_module, runtime.current_step.batch)
-    files = torchview_capture(pl_module, target)
-    return runtime.artifacts.write_debug_capture("torchview-graph", files)
-
-
-def _handle_torchviz_capture(
-    runtime: TrainctlRuntime,
-    pl_module: Any,
-    trainer: Any,
-    command: Command,
-    safe_point: SafePoint | None,
-) -> dict:
-    del trainer, safe_point
-    # Both options read saved tensors, which the failed backward of an exception hold
-    # has already freed, so they default to on only in a live capture.
-    live = runtime._exception_hold is None
-    show_attrs = command.args["show_attrs"]
-    show_attrs = live if show_attrs is None else show_attrs
-    show_saved = command.args["show_saved"]
-    show_saved = live if show_saved is None else show_saved
-    if not live:
-        # Diagnosing an actual backward failure: visualize the loss exactly as
-        # autograd left it when backward() raised, not an unrelated fresh graph.
-        if runtime.current_step.loss is None:
-            raise ValueError("torchviz_capture requires an in-flight loss")
-        files = torchviz_capture(
-            pl_module, runtime.current_step.loss, show_attrs, show_saved
-        )
-    else:
-        # A normal live capture: current_step.loss was already backwarded by
-        # Lightning itself by the time any command can run, so its graph is gone
-        # ("Trying to backward through the graph a second time") -- run a fresh,
-        # not-yet-backwarded forward pass instead.
-        if runtime.current_step.batch is None:
-            raise ValueError("torchviz_capture requires an in-flight batch")
-        target = forward_input.resolve(pl_module, runtime.current_step.batch)
-        files = torchviz_capture_live(pl_module, target, show_attrs, show_saved)
-    return runtime.artifacts.write_debug_capture("torchviz-graph", files)
-
-
-def _handle_torchlens_capture(
-    runtime: TrainctlRuntime,
-    pl_module: Any,
-    trainer: Any,
-    command: Command,
-    safe_point: SafePoint | None,
-) -> dict:
-    if runtime.current_step.batch is None:
-        raise ValueError("torchlens_capture requires an in-flight batch")
-    if not torchlens_available():
-        raise ImportError("torchlens_capture requires the torchlens package")
-    if not runtime.gate.is_held():
-        # torchlens instruments the model with hooks; auto-engage a hold so a human
-        # can inspect the result (or a failed capture's aftermath) before choosing to
-        # resume, rather than requiring a separate hold command submitted first.
-        runtime.gate.enter(
-            command.id, str(safe_point), trainer.current_epoch, trainer.global_step
-        )
-    target = forward_input.resolve(pl_module, runtime.current_step.batch)
-    files = torchlens_capture(pl_module, target)
-    return runtime.artifacts.write_debug_capture("torchlens-trace", files)
-
-
-_HANDLERS: dict[
-    str, Callable[[TrainctlRuntime, Any, Any, Command, SafePoint | None], dict]
-] = {
-    "hold": _handle_hold,
-    "stop": _handle_stop,
-    "checkpoint": _handle_checkpoint,
-    "snapshot": _handle_snapshot,
-    "set_learning_rate": _handle_set_learning_rate,
-    "reset_momentum": _handle_reset_momentum,
-    "set_dataloader_finite_check": _handle_set_dataloader_finite_check,
-    "set_hparam": _handle_set_hparam,
-    "save_current_batch": _handle_save_current_batch,
-    "save_current_loss": _handle_save_current_loss,
-    "save_partial_gradients": _handle_save_partial_gradients,
-    "save_optimizer_summary": _handle_save_optimizer_summary,
-    "release_exception": _handle_release_exception,
-    "torchinfo_capture": _handle_torchinfo_capture,
-    "profile": _handle_profile,
-    "torchview_capture": _handle_torchview_capture,
-    "torchviz_capture": _handle_torchviz_capture,
-    "torchlens_capture": _handle_torchlens_capture,
-    "set_lightning_profiler": _handle_set_lightning_profiler,
-}

@@ -1,0 +1,57 @@
+"""Runs the `torchviz_capture` command."""
+
+from typing import TYPE_CHECKING, Any
+
+from trainctl.runtime import forward_input
+from trainctl.runtime.commands.command import Command
+from trainctl.runtime.events import SafePoint
+from trainctl.runtime.graph_inspectors.torchviz_capture import torchviz_capture
+from trainctl.runtime.graph_inspectors.torchviz_capture_live import (
+    torchviz_capture_live,
+)
+
+if TYPE_CHECKING:
+    from trainctl.runtime.runtime import TrainctlRuntime
+
+
+def handle_torchviz_capture(
+    runtime: "TrainctlRuntime",
+    pl_module: Any,
+    trainer: Any,
+    command: Command,
+    safe_point: SafePoint | None,
+) -> dict:
+    """Writes a torchviz autograd graph as a debug capture.
+
+    In an exception hold, it draws the graph of the failed loss. Otherwise it draws the
+    graph of a new forward pass on the in-flight batch.
+
+    Raises:
+        ValueError: The loss or the batch that the capture needs is missing.
+    """
+    del trainer, safe_point
+    # Both options read saved tensors, which the failed backward of an exception hold
+    # has already freed, so they default to on only in a live capture.
+    live = runtime._exception_hold is None
+    show_attrs = command.args["show_attrs"]
+    show_attrs = live if show_attrs is None else show_attrs
+    show_saved = command.args["show_saved"]
+    show_saved = live if show_saved is None else show_saved
+    if not live:
+        # Diagnosing an actual backward failure: visualize the loss exactly as
+        # autograd left it when backward() raised, not an unrelated fresh graph.
+        if runtime.current_step.loss is None:
+            raise ValueError("torchviz_capture requires an in-flight loss")
+        files = torchviz_capture(
+            pl_module, runtime.current_step.loss, show_attrs, show_saved
+        )
+    else:
+        # A normal live capture: current_step.loss was already backwarded by
+        # Lightning itself by the time any command can run, so its graph is gone
+        # ("Trying to backward through the graph a second time") -- run a fresh,
+        # not-yet-backwarded forward pass instead.
+        if runtime.current_step.batch is None:
+            raise ValueError("torchviz_capture requires an in-flight batch")
+        target = forward_input.resolve(pl_module, runtime.current_step.batch)
+        files = torchviz_capture_live(pl_module, target, show_attrs, show_saved)
+    return runtime.artifacts.write_debug_capture("torchviz-graph", files)

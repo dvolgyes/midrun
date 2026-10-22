@@ -13,11 +13,11 @@ from fastapi.testclient import TestClient
 from trainctl.config import TrainctlConfig
 from trainctl.load_backend import load_backend
 from trainctl.rest.app import build_app
-from trainctl.runtime import runtime
 from trainctl.runtime.artifacts import ArtifactStore
 from trainctl.runtime.command_args.command_args_by_kind import COMMAND_ARGS
 from trainctl.runtime.commands.parse_when import parse_when
 from trainctl.runtime.events import SafePoint
+from trainctl.runtime.handlers.command_handlers import COMMAND_HANDLERS
 from trainctl.runtime.runtime import TrainctlRuntime
 
 
@@ -31,7 +31,7 @@ def _runtime_and_client(tmp_path: Path) -> tuple[TrainctlRuntime, TestClient]:
 
 
 def test_every_accepted_kind_has_a_handler() -> None:
-    assert set(COMMAND_ARGS) == set(runtime._HANDLERS)
+    assert set(COMMAND_ARGS) == set(COMMAND_HANDLERS)
 
 
 @pytest.mark.parametrize(

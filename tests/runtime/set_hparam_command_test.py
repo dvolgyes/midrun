@@ -1,7 +1,7 @@
 """Behavioral tests for the `set_hparam` command, end-to-end through `process_safe_point`.
 
 Exercises the full path a REST-submitted mutation takes: `POST /commands` enqueues,
-the training thread executes it at a safe point via `_handle_set_hparam`, and
+the training thread executes it at a safe point via `handle_set_hparam`, and
 `process_safe_point` refreshes `runtime.tunable_hparams` (read back at
 `GET /files/model/tunable-hparams.json`) -- not just `hparam_registry`'s functions in
 isolation.
