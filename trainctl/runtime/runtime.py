@@ -1359,9 +1359,14 @@ def _handle_torchviz_capture(
     safe_point: SafePoint | None,
 ) -> dict:
     del trainer, safe_point
+    # Both options read saved tensors, which the failed backward of an exception hold
+    # has already freed, so they default to on only in a live capture.
+    live = runtime._exception_hold is None
     show_attrs = command.args["show_attrs"]
+    show_attrs = live if show_attrs is None else show_attrs
     show_saved = command.args["show_saved"]
-    if runtime._exception_hold is not None:
+    show_saved = live if show_saved is None else show_saved
+    if not live:
         # Diagnosing an actual backward failure: visualize the loss exactly as
         # autograd left it when backward() raised, not an unrelated fresh graph.
         if runtime.current_step.loss is None:
@@ -1392,6 +1397,8 @@ def _handle_torchlens_capture(
 ) -> dict:
     if runtime.current_step.batch is None:
         raise ValueError("torchlens_capture requires an in-flight batch")
+    if not torchlens_inspector.available():
+        raise ImportError("torchlens_capture requires the torchlens package")
     if not runtime.gate.is_held():
         # torchlens instruments the model with hooks; auto-engage a hold so a human
         # can inspect the result (or a failed capture's aftermath) before choosing to

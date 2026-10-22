@@ -124,8 +124,9 @@ class _SetLightningProfilerArgs(_Args):
 class _TorchvizCaptureArgs(_Args):
     """Args of `torchviz_capture`."""
 
-    show_attrs: bool = True
-    show_saved: bool = True
+    # None: on in a live capture, off in an exception hold.
+    show_attrs: bool | None = None
+    show_saved: bool | None = None
 
 
 COMMAND_ARGS: Mapping[str, type[_Args]] = MappingProxyType(

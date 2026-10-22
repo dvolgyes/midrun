@@ -59,12 +59,16 @@ def test_torchview_available_true_when_installed() -> None:
     assert graph_inspectors.torchview_available() is True
 
 
-def test_torchview_available_false_without_package(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_torchview_available_false_without_package(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setitem(sys.modules, "torchview", None)
     assert graph_inspectors.torchview_available() is False
 
 
-def test_torchviz_available_false_without_package(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_torchviz_available_false_without_package(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setitem(sys.modules, "torchviz", None)
     assert graph_inspectors.torchviz_available() is False
 
@@ -168,6 +172,49 @@ def test_torchviz_capture_uses_current_step_loss_during_exception_hold(
     runtime._execute(model, trainer, cmd, safe_point=None)
 
     assert cmd.status == "succeeded"
+    assert (Path(cmd.result["path"]) / "graph.svg").exists()
+
+
+class _FailingBackward(torch.autograd.Function):
+    """Identity whose backward raises, after the nodes behind it freed their saved tensors."""
+
+    @staticmethod
+    def forward(ctx, x: torch.Tensor) -> torch.Tensor:
+        del ctx
+        return x.clone()
+
+    @staticmethod
+    def backward(ctx, grad: torch.Tensor) -> torch.Tensor:
+        del ctx, grad
+        raise RuntimeError("explode")
+
+
+def test_torchviz_capture_with_default_args_renders_a_loss_whose_backward_raised(
+    tmp_path: Path,
+) -> None:
+    from trainctl.runtime.state import ExceptionBreakpointInfo
+
+    runtime = _make_runtime(tmp_path)
+    trainer = _FakeTrainer()
+    model = _Model()
+    loss = (_FailingBackward.apply(torch.tanh(model(torch.randn(3, 4)))) ** 2).sum()
+    with pytest.raises(RuntimeError, match="explode"):
+        loss.backward()
+    runtime.current_step.loss = loss
+    runtime._exception_hold = ExceptionBreakpointInfo(
+        exception_type="RuntimeError",
+        exception_message="explode",
+        epoch=0,
+        global_step=0,
+        batch_idx=0,
+        rank=0,
+        started_at=0.0,
+    )
+
+    cmd = runtime.command_queue.submit("torchviz_capture", {}, parse_when("now"))
+    runtime._execute(model, trainer, cmd, safe_point=None)
+
+    assert cmd.status == "succeeded", cmd.error
     assert (Path(cmd.result["path"]) / "graph.svg").exists()
 
 

@@ -6,6 +6,7 @@ only when the package happens to be installed, and always skipped otherwise.
 """
 
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -60,13 +61,15 @@ def test_capture_raises_without_torchlens(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_torchlens_capture_auto_engages_hold_when_not_already_held(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """torchlens instruments the model with hooks, which is fragile enough that an
     operator should get a chance to inspect state before resuming -- so the command
     auto-engages a hold rather than rejecting outright, and (unlike a plain capture
     command) never auto-releases it, regardless of whether the capture itself then
     succeeds or fails."""
+    # An importable torchlens without a usable API: the capture fails after the hold.
+    monkeypatch.setitem(sys.modules, "torchlens", types.ModuleType("torchlens"))
     runtime = _make_runtime(tmp_path)
     trainer = _FakeTrainer()
     model = _Model()
@@ -79,6 +82,25 @@ def test_torchlens_capture_auto_engages_hold_when_not_already_held(
     runtime._execute(model, trainer, cmd, safe_point=None)
 
     assert runtime.gate.is_held()
+
+
+def test_torchlens_capture_without_torchlens_fails_and_engages_no_hold(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(sys.modules, "torchlens", None)
+    runtime = _make_runtime(tmp_path)
+    trainer = _FakeTrainer()
+    model = _Model()
+    runtime.current_step.begin(
+        batch=torch.randn(3, 4), batch_idx=0, epoch=0, global_step=0, started_ns=0
+    )
+
+    cmd = runtime.command_queue.submit("torchlens_capture", {}, parse_when("now"))
+    runtime._execute(model, trainer, cmd, safe_point=None)
+
+    assert cmd.status == "failed"
+    assert "torchlens" in cmd.error
+    assert not runtime.gate.is_held()
 
 
 @pytest.mark.skipif(not _INSTALLED, reason="torchlens not installed")
