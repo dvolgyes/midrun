@@ -41,7 +41,7 @@ def _banner(log_dir: Path) -> str:
 
     Trainctl's FUSE mount and artifact store colocate directly under `log_dir`
     (alongside TensorBoard's own event files) by default -- see
-    `trainctl.runtime.runtime._default_base_dir`.
+    `trainctl.runtime.default_base_dir`.
     """
     mnt = log_dir / "procfs"
     artifacts = log_dir / "artifacts"

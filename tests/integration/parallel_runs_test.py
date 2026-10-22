@@ -3,7 +3,7 @@ subprocesses at the same time, each starting its own Trainctl REST server and
 `torch.distributed` debug server while requesting trainctl's *default* ports.
 
 Exercises the concern raised for concurrent runs sharing a host: REST port
-collision avoidance (`runtime.runtime._bind_free_socket`), torch_debug port
+collision avoidance (`runtime.bind_free_socket`), torch_debug port
 collision avoidance (`TorchDebugManager._select_free_port`), and MASTER_PORT
 isolation for `torch.distributed.init_process_group` -- and proves an API
 client can address each run's own server without cross-talk.

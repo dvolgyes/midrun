@@ -45,8 +45,8 @@ def test_rest_starts_when_the_paired_torch_debug_server_fails(
     def _failing_start(port: int | None = None) -> None:
         raise RuntimeError(f"debug server cannot start on {port}")
 
-    monkeypatch.setattr(runtime_module, "_distributed_initialized", lambda: True)
-    monkeypatch.setattr(runtime_module, "_is_rank_zero", lambda: True)
+    monkeypatch.setattr(runtime_module, "distributed_initialized", lambda: True)
+    monkeypatch.setattr(runtime_module, "is_rank_zero", lambda: True)
     config = TrainctlConfig(
         fuse_enabled=False, artifact_dir=tmp_path / "artifacts", rest_port=18495
     )

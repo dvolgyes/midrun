@@ -28,6 +28,8 @@ from trainctl.lightning_backend import LightningBackend
 from trainctl.logging.logging_session import LoggingSession
 from trainctl.runtime import forward_input
 from trainctl.runtime.artifacts import ArtifactStore
+from trainctl.runtime.bind_free_socket import bind_free_socket
+from trainctl.runtime.bind_socket import bind_socket
 from trainctl.runtime.command_args.validate_command_args import (
     validate_command_args,
 )
@@ -38,6 +40,8 @@ from trainctl.runtime.cuda_memory.cuda_memory_history_state import (
     CudaMemoryHistoryState,
 )
 from trainctl.runtime.current_step import CurrentStep
+from trainctl.runtime.default_base_dir import default_base_dir
+from trainctl.runtime.distributed_initialized import distributed_initialized
 from trainctl.runtime.events import SafePoint
 from trainctl.runtime.finite_guard import DataloaderFiniteGuard, FiniteCheckReport
 from trainctl.runtime.gate import RunGate
@@ -55,13 +59,16 @@ from trainctl.runtime.hparam_registry.get_field import get_field
 from trainctl.runtime.hparam_registry.hparam_value import HparamValue
 from trainctl.runtime.hparam_registry.resolve_hparam_path import resolve_hparam_path
 from trainctl.runtime.hparam_registry.tunable_hparam_spec import TunableHparamSpec
+from trainctl.runtime.is_rank_zero import is_rank_zero
 from trainctl.runtime.live_capture import LiveCaptureBroker
+from trainctl.runtime.new_hooks_session_id import new_hooks_session_id
 from trainctl.runtime.optimizer_surgery.find_surgery_adapter import (
     find_surgery_adapter,
 )
 from trainctl.runtime.optimizer_surgery.resolve_optimizer_parameters import (
     resolve_optimizer_parameters,
 )
+from trainctl.runtime.phase_of_stage import phase_of_stage
 from trainctl.runtime.pipeline_pressure import PipelinePressureTracker
 from trainctl.runtime.profiler import ProfilerRun
 from trainctl.runtime.rank_sync import RankSync
@@ -81,6 +88,8 @@ from trainctl.runtime.torchinfo_inspector.torchinfo_rich_summary import (
 )
 from trainctl.runtime.torchlens_available import torchlens_available
 from trainctl.runtime.torchlens_capture import torchlens_capture
+from trainctl.runtime.trainer_stage_name import trainer_stage_name
+from trainctl.runtime.wait_own_rest_ready import wait_own_rest_ready
 from trainctl.torch_debug.manager import TorchDebugManager
 
 _ALLOWED_DURING_HOLD = frozenset(
@@ -254,21 +263,21 @@ class TrainctlRuntime:
                 return
             self._started = True
 
-        self._is_rank_zero = _is_rank_zero()
+        self._is_rank_zero = is_rank_zero()
         self.rank_sync = RankSync.create()
         self._gather_ranks(pl_module)
         self._detect_backward_interception(pl_module)
 
         # `trainer.log_dir` is a collective under DDP, so every rank resolves it here,
         # before any rank-0-only start.
-        base_dir = _default_base_dir(pl_module, self.run_id)
+        base_dir = default_base_dir(pl_module, self.run_id)
         self._guarded(
             "artifact directory", lambda: self._resolve_artifact_dir(base_dir)
         )
 
         # torch.distributed.debug needs an initialized process group; a plain
         # single-process run has none, and must still get its REST server.
-        torch_debug = self.config.torch_debug_enabled and _distributed_initialized()
+        torch_debug = self.config.torch_debug_enabled and distributed_initialized()
         if self.config.torch_debug_enabled and not torch_debug:
             logger.info(
                 "trainctl: pytorch distributed debug server skipped: "
@@ -342,8 +351,8 @@ class TrainctlRuntime:
         """
         if self._hook_session is not None:
             return
-        base_dir = _default_base_dir(pl_module, self.run_id)
-        session_id = _new_hooks_session_id()
+        base_dir = default_base_dir(pl_module, self.run_id)
+        session_id = new_hooks_session_id()
         logging_session = LoggingSession(session_id)
         # Set before the bootstrap can fail, so on_exception's finalize closes the bridge.
         self._logging_session = logging_session
@@ -401,7 +410,11 @@ class TrainctlRuntime:
         """
         if self._hook_session is None:
             return None
-        stage = stage_override if stage_override is not None else _stage_string(trainer)
+        stage = (
+            stage_override
+            if stage_override is not None
+            else trainer_stage_name(trainer)
+        )
         return self._hook_session.handle(
             hook,
             stage=stage,
@@ -771,7 +784,7 @@ class TrainctlRuntime:
         self.state.update(
             status=status,
             stage=stage,
-            phase=_phase_of(stage),
+            phase=phase_of_stage(stage),
             epoch=trainer.current_epoch,
             global_step=trainer.global_step,
             batch_idx=batch_idx,
@@ -874,7 +887,7 @@ class TrainctlRuntime:
             if not self.torch_debug.port_is_free(debug_candidate):
                 continue
             try:
-                sock = _bind_socket(
+                sock = bind_socket(
                     self.config.rest_host, self.config.rest_port + offset
                 )
             except OSError:
@@ -947,7 +960,7 @@ class TrainctlRuntime:
         self._fuse_watcher = None
 
     def _start_rest(self) -> None:
-        sock, port = _bind_free_socket(
+        sock, port = bind_free_socket(
             self.config.rest_host, self.config.rest_port, self.config.rest_port_search
         )
         self._start_rest_on_socket(sock, port)
@@ -969,7 +982,7 @@ class TrainctlRuntime:
             daemon=True,
         )
         thread.start()
-        if not _wait_own_rest_ready(
+        if not wait_own_rest_ready(
             f"http://{self.config.rest_host}:{port}/health", self.run_id, timeout=10
         ):
             raise RuntimeError("REST server did not become ready in time")
@@ -989,120 +1002,10 @@ class TrainctlRuntime:
         self._rest_port = None
 
 
-def _distributed_initialized() -> bool:
-    import torch.distributed as dist
-
-    return bool(dist.is_available() and dist.is_initialized())
-
-
-def _is_rank_zero() -> bool:
-    import torch.distributed as dist
-
-    if _distributed_initialized():
-        return dist.get_rank() == 0
-    return True
-
-
-def _phase_of(stage: str | None) -> str:
-    if stage is None:
-        return "idle"
-    if stage in ("sanity_check", "validate"):
-        return "validate"
-    if stage in ("train", "test", "predict"):
-        return stage
-    return "idle"
-
-
-def _default_base_dir(pl_module: Any, run_id: str) -> Path:
-    """Resolves the default directory for Trainctl's FUSE mount and artifact store.
-
-    Colocates under the Lightning run's own `trainer.log_dir` (alongside checkpoints
-    and logger output) whenever a Trainer is attached and reports one; falls back to a
-    per-uid runtime/tmp directory, scoped by run id, when no Trainer is attached yet or
-    no log directory is available.
-    """
-    trainer = getattr(pl_module, "trainer", None)
-    log_dir = getattr(trainer, "log_dir", None) if trainer is not None else None
-    if log_dir:
-        return Path(log_dir)
-    xdg = os.environ.get("XDG_RUNTIME_DIR")
-    root = Path(xdg) / "trainctl" if xdg else Path(f"/tmp/trainctl-{os.getuid()}")  # noqa: S108 -- per-uid tmp root
-    return root / run_id
-
-
-def _new_hooks_session_id() -> str:
-    """A collision-resistant session id: `commands.next_id` is process-local only."""
-    return f"{time.time_ns()}-{os.getpid()}-{secrets.token_hex(4)}"
-
-
-def _stage_string(trainer: Any) -> str | None:
-    """`trainer.state.fn`'s value (`fit`/`validate`/`test`/`predict`), or `None`."""
-    fn = trainer.state.fn
-    return fn.value if fn is not None else None
-
-
 # Shared offset step for `TrainctlRuntime._start_rest_and_torch_debug`'s paired port
 # selection: REST and torch_debug candidates at attempt N are both `N * _PORT_OFFSET_STEP`
 # above their configured base port (e.g. offset 200 pairs REST 8290 with debug 26199).
 _PORT_OFFSET_STEP = 100
-
-
-def _bind_socket(host: str, port: int) -> socket.socket:
-    """Binds and holds a listening socket on exactly `port`. Raises `OSError` if taken.
-
-    Unlike a probe-then-release check, the socket is kept open and handed straight to
-    uvicorn (`Server.run(sockets=[...])`), so there is no gap between "found free" and
-    "actually listening" for a second concurrent caller to race into.
-    """
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    try:
-        sock.bind((host, port))
-    except OSError:
-        sock.close()
-        raise
-    sock.listen(2048)  # matches uvicorn.Config's own default backlog
-    return sock
-
-
-def _bind_free_socket(
-    host: str, start: int, search_range: int
-) -> tuple[socket.socket, int]:
-    """Binds and holds a listening socket on the first free candidate port in
-    `[start, start + search_range)`, tried sequentially. See `_bind_socket`.
-    """
-    for candidate in range(start, start + search_range):
-        try:
-            return _bind_socket(host, candidate), candidate
-        except OSError:
-            continue
-    raise RuntimeError(f"no free REST port in [{start}, {start + search_range})")
-
-
-def _wait_own_rest_ready(url: str, run_id: str, timeout: float) -> bool:
-    """Polls `url` until it reports the expected `run_id`, or `timeout` elapses.
-
-    Checking identity (not just reachability) guards against a narrow residual
-    race: some other server -- another Trainctl run, most plausibly -- already
-    answering on this exact host:port would otherwise look indistinguishable
-    from our own server being ready.
-    """
-    import urllib.request
-
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(  # noqa: S310 -- own localhost server
-                url, timeout=1
-            ) as response:
-                payload = json.loads(response.read())
-        except Exception:  # noqa: BLE001 -- readiness probe boundary, not business logic
-            time.sleep(0.2)
-            continue
-        if payload.get("run_id") == run_id:
-            return True
-        time.sleep(0.2)
-    return False
 
 
 # ---- command handlers -----------------------------------------------------------------
