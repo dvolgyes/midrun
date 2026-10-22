@@ -5,6 +5,9 @@ object on every `open()`; the mount uses FUSE direct I/O (see `TrainctlRuntime._
 so the kernel never serves a stale cached read. A generated file's bytes are
 materialized once per `open()` and reused for the `read()` calls against that handle
 (see `TrainctlFS.open`/`read`/`release`), matching the open-handle cache policy.
+While a path is open, `getattr` reports the length of its newest handle's bytes: the
+kernel limits splice and sendfile reads (system `cat`, `shutil.copyfile`) to that size,
+and the mount turns the kernel attribute cache off so `fstat` asks again.
 Checkpoints, snapshots, and debug captures are real files on the regular filesystem
 under `TrainctlRuntime.artifacts.root` (a sibling of this mount, not projected into
 it) -- see `meta/artifacts-path`.
@@ -34,11 +37,13 @@ class TrainctlFS(mfusepy.Operations):
     """Read-only, direct-I/O mfusepy `Operations` backed by a `TrainctlRuntime`."""
 
     use_ns = True
+    _newest_handle: dict[str, int]
 
     def __init__(self, runtime: "TrainctlRuntime") -> None:
         self._runtime = runtime
         self._ready = threading.Event()
         self._handles: dict[int, bytes] = {}
+        self._newest_handle: dict[str, int] = {}
         self._next_fh = 1
         self._handles_lock = threading.Lock()
 
@@ -59,6 +64,16 @@ class TrainctlFS(mfusepy.Operations):
         }
         if virtual_fs.is_virtual_dir(self._runtime, path):
             return {"st_mode": (stat.S_IFDIR | 0o755), "st_nlink": 2, **owner}
+        with self._handles_lock:
+            handle = self._newest_handle.get(path)
+            content = self._handles[handle] if handle is not None else None
+        if content is not None:
+            return {
+                "st_mode": (stat.S_IFREG | 0o444),
+                "st_nlink": 1,
+                "st_size": len(content),
+                **owner,
+            }
         if virtual_fs.is_live_file(path):
             # st_size is unknowable without running the blocking capture; never trigger
             # it just to stat() the file -- only open()/read() do that.
@@ -98,6 +113,7 @@ class TrainctlFS(mfusepy.Operations):
             handle = self._next_fh
             self._next_fh += 1
             self._handles[handle] = content
+            self._newest_handle[path] = handle
         return handle
 
     def read(self, path: str, size: int, offset: int, fh: int) -> bytes:
@@ -107,9 +123,10 @@ class TrainctlFS(mfusepy.Operations):
         return content[offset : offset + size]
 
     def release(self, path: str, fh: int) -> int:
-        del path
         with self._handles_lock:
             self._handles.pop(fh, None)
+            if self._newest_handle.get(path) == fh:
+                del self._newest_handle[path]
         return 0
 
     def statfs(self, path: str) -> dict[str, int]:
