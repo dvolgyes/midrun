@@ -27,7 +27,8 @@ from trainctl.rest.schemas import (
 )
 from trainctl.runtime import cuda_memory, inspectors_registry, virtual_fs
 from trainctl.runtime.command_args import InvalidCommandError
-from trainctl.runtime.commands import Command, parse_when
+from trainctl.runtime.commands.command import Command
+from trainctl.runtime.commands.parse_when import parse_when
 
 _STATIC_DIR = Path(__file__).parent / "static"
 _MEDIA_TYPES = {".json": "application/json"}

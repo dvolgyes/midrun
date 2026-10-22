@@ -15,7 +15,7 @@ from trainctl.load_backend import load_backend
 from trainctl.rest.app import build_app
 from trainctl.runtime import command_args, runtime
 from trainctl.runtime.artifacts import ArtifactStore
-from trainctl.runtime.commands import parse_when
+from trainctl.runtime.commands.parse_when import parse_when
 from trainctl.runtime.events import SafePoint
 from trainctl.runtime.runtime import TrainctlRuntime
 

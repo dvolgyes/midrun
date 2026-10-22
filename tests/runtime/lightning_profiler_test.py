@@ -7,7 +7,7 @@ import pytest
 from trainctl.config import TrainctlConfig
 from trainctl.load_backend import load_backend
 from trainctl.runtime.artifacts import ArtifactStore
-from trainctl.runtime.commands import parse_when
+from trainctl.runtime.commands.parse_when import parse_when
 from trainctl.runtime.runtime import TrainctlRuntime
 
 

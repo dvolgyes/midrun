@@ -12,7 +12,7 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
 
-from trainctl.runtime.commands import next_id
+from trainctl.runtime.commands.next_id import next_id
 
 # Allowed checkpoint labels and capture filenames: one plain path component.
 ARTIFACT_NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"

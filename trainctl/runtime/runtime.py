@@ -37,7 +37,9 @@ from trainctl.runtime import (
     torchlens_inspector,
 )
 from trainctl.runtime.artifacts import ArtifactStore
-from trainctl.runtime.commands import Command, CommandQueue, next_id
+from trainctl.runtime.commands.command import Command
+from trainctl.runtime.commands.command_queue import CommandQueue
+from trainctl.runtime.commands.next_id import next_id
 from trainctl.runtime.current_step import CurrentStep
 from trainctl.runtime.events import SafePoint
 from trainctl.runtime.finite_guard import DataloaderFiniteGuard, FiniteCheckReport
