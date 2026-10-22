@@ -14,9 +14,14 @@ import torch
 
 from trainctl.config import TrainctlConfig
 from trainctl.load_backend import load_backend
-from trainctl.runtime import graph_inspectors
 from trainctl.runtime.artifacts import ArtifactStore
 from trainctl.runtime.commands.parse_when import parse_when
+from trainctl.runtime.graph_inspectors.torchview_available import (
+    torchview_available,
+)
+from trainctl.runtime.graph_inspectors.torchview_capture import torchview_capture
+from trainctl.runtime.graph_inspectors.torchviz_available import torchviz_available
+from trainctl.runtime.graph_inspectors.torchviz_capture import torchviz_capture
 from trainctl.runtime.runtime import TrainctlRuntime
 
 pytestmark = pytest.mark.skipif(
@@ -56,26 +61,26 @@ class _FakeTrainer:
 
 
 def test_torchview_available_true_when_installed() -> None:
-    assert graph_inspectors.torchview_available() is True
+    assert torchview_available() is True
 
 
 def test_torchview_available_false_without_package(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setitem(sys.modules, "torchview", None)
-    assert graph_inspectors.torchview_available() is False
+    assert torchview_available() is False
 
 
 def test_torchviz_available_false_without_package(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setitem(sys.modules, "torchviz", None)
-    assert graph_inspectors.torchviz_available() is False
+    assert torchviz_available() is False
 
 
 def test_torchview_capture_renders_svg_and_dot() -> None:
     model = _Model()
-    files = graph_inspectors.torchview_capture(model, torch.randn(3, 4))
+    files = torchview_capture(model, torch.randn(3, 4))
     assert files["graph.svg"].startswith(b"<?xml") or b"<svg" in files["graph.svg"]
     assert "digraph" in files["graph.dot"]
 
@@ -84,7 +89,7 @@ def test_torchviz_capture_renders_svg_and_dot() -> None:
     model = _Model()
     x = torch.randn(3, 4, requires_grad=True)
     loss = model(x).sum()
-    files = graph_inspectors.torchviz_capture(model, loss)
+    files = torchviz_capture(model, loss)
     assert b"<svg" in files["graph.svg"] or files["graph.svg"].startswith(b"<?xml")
     assert "digraph" in files["graph.dot"]
 

@@ -10,7 +10,7 @@ import sys
 import pytest
 import torch
 
-from trainctl.runtime import graph_inspectors
+from trainctl.runtime.graph_inspectors.torchview_dot import torchview_dot
 
 
 class _Model(torch.nn.Module):
@@ -26,11 +26,11 @@ def test_torchview_dot_returns_source_without_dot_binary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("shutil.which", lambda _name: None)
-    source = graph_inspectors.torchview_dot(_Model(), torch.randn(3, 4))
+    source = torchview_dot(_Model(), torch.randn(3, 4))
     assert "digraph" in source
 
 
 def test_torchview_dot_raises_without_package(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "torchview", None)
     with pytest.raises(ImportError):
-        graph_inspectors.torchview_dot(_Model(), torch.randn(3, 4))
+        torchview_dot(_Model(), torch.randn(3, 4))

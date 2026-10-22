@@ -29,7 +29,6 @@ from trainctl.logging import LoggingSession
 from trainctl.runtime import (
     command_args,
     forward_input,
-    graph_inspectors,
     hparam_registry,
 )
 from trainctl.runtime.artifacts import ArtifactStore
@@ -43,6 +42,11 @@ from trainctl.runtime.current_step import CurrentStep
 from trainctl.runtime.events import SafePoint
 from trainctl.runtime.finite_guard import DataloaderFiniteGuard, FiniteCheckReport
 from trainctl.runtime.gate import RunGate
+from trainctl.runtime.graph_inspectors.torchview_capture import torchview_capture
+from trainctl.runtime.graph_inspectors.torchviz_capture import torchviz_capture
+from trainctl.runtime.graph_inspectors.torchviz_capture_live import (
+    torchviz_capture_live,
+)
 from trainctl.runtime.live_capture import LiveCaptureBroker
 from trainctl.runtime.optimizer_surgery import find_adapter, resolve_parameters
 from trainctl.runtime.pipeline_pressure import PipelinePressureTracker
@@ -1463,7 +1467,7 @@ def _handle_torchview_capture(
     if runtime.current_step.batch is None:
         raise ValueError("torchview_capture requires an in-flight batch")
     target = forward_input.resolve(pl_module, runtime.current_step.batch)
-    files = graph_inspectors.torchview_capture(pl_module, target)
+    files = torchview_capture(pl_module, target)
     return runtime.artifacts.write_debug_capture("torchview-graph", files)
 
 
@@ -1487,7 +1491,7 @@ def _handle_torchviz_capture(
         # autograd left it when backward() raised, not an unrelated fresh graph.
         if runtime.current_step.loss is None:
             raise ValueError("torchviz_capture requires an in-flight loss")
-        files = graph_inspectors.torchviz_capture(
+        files = torchviz_capture(
             pl_module, runtime.current_step.loss, show_attrs, show_saved
         )
     else:
@@ -1498,9 +1502,7 @@ def _handle_torchviz_capture(
         if runtime.current_step.batch is None:
             raise ValueError("torchviz_capture requires an in-flight batch")
         target = forward_input.resolve(pl_module, runtime.current_step.batch)
-        files = graph_inspectors.torchviz_capture_live(
-            pl_module, target, show_attrs, show_saved
-        )
+        files = torchviz_capture_live(pl_module, target, show_attrs, show_saved)
     return runtime.artifacts.write_debug_capture("torchviz-graph", files)
 
 

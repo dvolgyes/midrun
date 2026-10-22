@@ -14,12 +14,12 @@ from typing import TYPE_CHECKING, Any
 
 from trainctl.runtime import (
     forward_input,
-    graph_inspectors,
     inspectors_registry,
 )
 from trainctl.runtime.cuda_memory.cheap_cuda_memory_stats import (
     cheap_cuda_memory_stats,
 )
+from trainctl.runtime.graph_inspectors.torchview_dot import torchview_dot
 from trainctl.runtime.torchinfo_inspector.torchinfo_rich_summary import (
     torchinfo_rich_summary,
 )
@@ -224,7 +224,7 @@ def _live_model_graph(rt: "TrainctlRuntime") -> bytes:
     def compute(pl_module: Any) -> str:
         batch = _require_in_flight_batch(rt, "model/graph.dot")
         target = forward_input.resolve(pl_module, batch)
-        return graph_inspectors.torchview_dot(pl_module, target)
+        return torchview_dot(pl_module, target)
 
     return _text(rt.live_captures.request(compute, timeout=_LIVE_CAPTURE_TIMEOUT_S))
 
