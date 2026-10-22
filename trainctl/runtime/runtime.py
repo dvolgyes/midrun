@@ -655,6 +655,9 @@ class TrainctlRuntime:
             for group in optimizer.param_groups
         )
         stage = trainer.state.stage.value if trainer.state.stage is not None else None
+        if batch_idx is None and self.current_step.batch is not None:
+            # A publish inside a batch, such as from a hold, shows that batch.
+            batch_idx = self.current_step.batch_idx
         pending = sum(
             1 for command in self.command_queue.list_all() if command.status == "queued"
         )
@@ -1251,6 +1254,8 @@ def _handle_release_exception(
     safe_point: SafePoint | None,
 ) -> dict:
     del pl_module, trainer, safe_point
+    if runtime.state.read().exception is None:
+        raise ValueError("release_exception: no exception hold is active")
     runtime._exception_hold = None
     return {"released": command.id}
 

@@ -55,8 +55,9 @@ def _wait_until(predicate, timeout: float = 5.0) -> None:
 
 def _wait_for_command(runtime: TrainctlRuntime, command_id: str) -> Command:
     _wait_until(
-        lambda: runtime.command_queue.get(command_id).status
-        not in ("queued", "executing")
+        lambda: (
+            runtime.command_queue.get(command_id).status not in ("queued", "executing")
+        )
     )
     return runtime.command_queue.get(command_id)
 
@@ -163,7 +164,8 @@ def test_save_partial_gradients_reports_grad_presence_and_norm(tmp_path: Path) -
     runtime._gather_ranks(pl_module)
 
     thread = threading.Thread(
-        target=runtime.handle_backward_exception, args=(pl_module, "loss", ValueError("boom"))
+        target=runtime.handle_backward_exception,
+        args=(pl_module, "loss", ValueError("boom")),
     )
     thread.start()
     try:
@@ -195,7 +197,8 @@ def test_save_optimizer_summary_during_exception_hold(tmp_path: Path) -> None:
     runtime._gather_ranks(pl_module)
 
     thread = threading.Thread(
-        target=runtime.handle_backward_exception, args=(pl_module, "loss", ValueError("boom"))
+        target=runtime.handle_backward_exception,
+        args=(pl_module, "loss", ValueError("boom")),
     )
     thread.start()
     try:
@@ -226,7 +229,8 @@ def test_disallowed_command_is_not_executed_during_exception_hold(
     runtime._gather_ranks(pl_module)
 
     thread = threading.Thread(
-        target=runtime.handle_backward_exception, args=(pl_module, "loss", ValueError("boom"))
+        target=runtime.handle_backward_exception,
+        args=(pl_module, "loss", ValueError("boom")),
     )
     thread.start()
     try:
@@ -275,3 +279,15 @@ def test_detect_backward_interception_flags_unknown_strategy(tmp_path: Path) -> 
     assert snapshot.backward_interception_supported is False
     assert snapshot.backward_interception_reason is not None
     assert "_CustomStrategy" in snapshot.backward_interception_reason
+
+
+def test_release_exception_fails_without_an_exception_hold(tmp_path: Path) -> None:
+    runtime = _make_runtime(tmp_path)
+    trainer = _FakeTrainer()
+    pl_module = _FakePLModule(trainer)
+
+    cmd = runtime.command_queue.submit("release_exception", {}, parse_when("now"))
+    runtime._execute(pl_module, trainer, cmd, safe_point=None)
+
+    assert cmd.status == "failed"
+    assert "no exception hold" in cmd.error

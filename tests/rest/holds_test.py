@@ -14,6 +14,7 @@ from trainctl.config import TrainctlConfig
 from trainctl.lightning_backend import load_backend
 from trainctl.rest.app import build_app
 from trainctl.runtime.artifacts import ArtifactStore
+from trainctl.runtime.commands import parse_when
 from trainctl.runtime.runtime import TrainctlRuntime
 
 
@@ -76,4 +77,41 @@ def test_negative_hold_timeout_is_rejected(tmp_path: Path) -> None:
     response = client.post("/holds", json={"timeout_s": -1})
 
     assert response.status_code == 422, response.text
+    assert runtime.command_queue.list_all() == []
+
+
+def test_cancel_of_a_command_that_is_not_a_hold_is_rejected(tmp_path: Path) -> None:
+    runtime = _runtime(tmp_path)
+    client = TestClient(build_app(runtime))
+    command = runtime.command_queue.submit(
+        "snapshot", {"kind": "runtime"}, parse_when("now")
+    )
+
+    response = client.post(f"/holds/{command.id}/cancel")
+
+    assert response.status_code == 404, response.text
+    assert runtime.command_queue.get(command.id).status == "queued"
+
+
+def test_holds_lists_the_commands_that_wait_while_held(tmp_path: Path) -> None:
+    runtime = _runtime(tmp_path)
+    client = TestClient(build_app(runtime))
+    command = runtime.command_queue.submit("save_current_batch", {}, parse_when("now"))
+    assert client.get("/holds").json()["waiting"] == []
+
+    runtime.gate.enter("hold_1", "train_batch_end", epoch=0, step=0)
+
+    waiting = client.get("/holds").json()["waiting"]
+    assert [entry["id"] for entry in waiting] == [command.id]
+
+
+def test_release_exception_without_an_exception_hold_is_rejected(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime(tmp_path)
+    client = TestClient(build_app(runtime))
+
+    response = client.post("/commands", json={"kind": "release_exception"})
+
+    assert response.status_code == 409, response.text
     assert runtime.command_queue.list_all() == []

@@ -182,6 +182,11 @@ The REST API checks the kind and the arguments of a command when it receives the
 missing or unknown argument, and a value of the wrong type with status 400. It does not convert values: the string
 `"false"` is not a boolean, and `7.9` is not an integer.
 
+While the run is held, only some command kinds run. `GET $URL/holds` lists the other queued commands under `waiting`.
+They run after the hold ends. After `release_exception` they never run, because the run then ends with the exception.
+`release_exception` returns status 409 when no exception hold is active. `POST $URL/holds/<id>/cancel` cancels only a
+hold that is not active yet.
+
 Other routes: `/run`, `/metrics`, `/optimizers`, `/artifacts`, `/telemetry/pipeline`, `/inspectors`,
 `/debug/cuda-memory/snapshot`, `/files/<path>` (the same tree as `procfs/`).
 

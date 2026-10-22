@@ -130,3 +130,24 @@ def test_stop_ends_a_held_run(tmp_path) -> None:
 
     _fit_while(model, drive, tmp_path)
     assert stopped.is_set()
+
+
+def test_run_shows_the_batch_index_while_held_before_the_optimizer_step(
+    tmp_path,
+) -> None:
+    model = _EndlessModel()
+    gate = model._trainctl.gate
+    seen: list[object] = []
+
+    def drive(client: TestClient) -> None:
+        client.post(
+            "/holds",
+            json={"when": {"safe_point": "before_optimizer_step"}, "timeout_s": 5},
+        )
+        assert _wait_until(gate.is_held)
+        seen.append(client.get("/run").json()["batch_idx"])
+        client.post("/control/continue")
+
+    _fit_while(model, drive, tmp_path)
+    assert len(seen) == 1
+    assert isinstance(seen[0], int)

@@ -55,7 +55,11 @@ _ROUTE_GROUPS: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
                 "/commands",
                 "Submit a command (set_learning_rate, checkpoint, snapshot, stop, ...)",
             ),
-            ("GET", "/holds", "List holds, and the currently active one if any"),
+            (
+                "GET",
+                "/holds",
+                "List holds, the active one if any, and the commands that wait for it",
+            ),
             (
                 "POST",
                 "/holds",
@@ -204,6 +208,8 @@ def build_app(runtime: "TrainctlRuntime") -> FastAPI:
 
     @app.post("/commands")
     def submit_command(body: CommandIn) -> dict[str, Any]:
+        if body.kind == "release_exception" and runtime.state.read().exception is None:
+            raise HTTPException(status_code=409, detail="no exception hold is active")
         when = _parse_when_or_400(body.execution.when)
         command = runtime.command_queue.submit(body.kind, body.args, when)
         runtime.gate.notify()
@@ -211,13 +217,19 @@ def build_app(runtime: "TrainctlRuntime") -> FastAPI:
 
     @app.get("/holds")
     def list_holds() -> dict[str, Any]:
-        holds = [
-            _command_dict(command)
-            for command in runtime.command_queue.list_all()
-            if command.kind == "hold"
-        ]
+        commands = runtime.command_queue.list_all()
         active = runtime.gate.active_hold()
-        return {"holds": holds, "active": asdict(active) if active else None}
+        held = active is not None or runtime.state.read().exception is not None
+        return {
+            "holds": [_command_dict(c) for c in commands if c.kind == "hold"],
+            "active": asdict(active) if active else None,
+            # A hold runs only some kinds; the other queued commands wait for its end.
+            "waiting": [
+                _command_dict(c)
+                for c in commands
+                if held and c.kind != "hold" and c.status == "queued"
+            ],
+        }
 
     # Async, so a request that waits for its hold uses no worker thread.
     @app.post("/holds", response_model=None)
@@ -232,10 +244,15 @@ def build_app(runtime: "TrainctlRuntime") -> FastAPI:
 
     @app.post("/holds/{command_id}/cancel")
     def cancel_hold(command_id: str) -> dict[str, Any]:
-        if not runtime.command_queue.cancel(command_id):
+        command = runtime.command_queue.get(command_id)
+        if (
+            command is None
+            or command.kind != "hold"
+            or not runtime.command_queue.cancel(command_id)
+        ):
             raise HTTPException(
                 status_code=404,
-                detail="hold not cancellable (unknown id or already resolved)",
+                detail="hold not cancellable (unknown id, not a hold, or already resolved)",
             )
         return {"cancelled": command_id}
 
