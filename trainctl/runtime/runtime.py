@@ -122,7 +122,10 @@ class TrainctlRuntime:
     def __init__(self, config: TrainctlConfig, backend: LightningBackend) -> None:
         self.config = config
         self.backend = backend
-        self.run_id = next_id("run")
+        # commands.next_id is process-local, so two processes would share a run id.
+        self.run_id = (
+            f"run-{time.strftime('%Y%m%dT%H%M%S')}-{os.getpid()}-{secrets.token_hex(4)}"
+        )
         self.started_at = time.time()
         self.state = StateStore(
             initial_snapshot(self.run_id, backend.name, backend.version)

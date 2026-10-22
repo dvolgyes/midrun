@@ -79,10 +79,7 @@ def test_two_parallel_trainings_get_distinct_ports_and_no_cross_talk(
         info_a = _wait_for_status(proc_a, status_a)
         info_b = _wait_for_status(proc_b, status_b)
 
-        # run_id is process-local (trainctl.runtime.commands.next_id), so two
-        # independent processes may legitimately produce the same run_id; the
-        # field that actually distinguishes concurrent runs sharing a host is
-        # artifacts_path (trainctl.runtime.state.RuntimeSnapshot.artifacts_path).
+        assert info_a["run_id"] != info_b["run_id"]
         assert info_a["artifacts_path"] != info_b["artifacts_path"]
         assert info_a["rest_port"] != info_b["rest_port"]
         assert info_a["torch_debug_url"] is not None
