@@ -13,6 +13,8 @@ import os
 import time
 import urllib.request
 
+from loguru import logger
+
 
 class TorchDebugManager:
     """Starts, tracks readiness of, and stops the PyTorch distributed debug server.
@@ -121,6 +123,14 @@ class TorchDebugManager:
                 del os.environ["RANK"]
         self._selected_port = candidate if is_frontend else None
         self._started = True
+        if is_frontend:
+            logger.warning(
+                "trainctl: the pytorch distributed debug servers listen on all network"
+                " interfaces without authentication (the frontend on port {}, and a"
+                " worker server on each rank); set torch_debug_enabled=False on an"
+                " untrusted network",
+                candidate,
+            )
 
     @staticmethod
     def port_is_free(port: int) -> bool:

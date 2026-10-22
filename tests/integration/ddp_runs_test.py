@@ -237,6 +237,7 @@ def test_the_torch_debug_server_runs_on_every_rank_with_one_frontend(launch) -> 
     assert rank1["torch_debug_url"] is None
     assert httpx2.get(rank0["torch_debug_url"], timeout=10).status_code == 200
     assert run.wait(timeout=60) == 0
+    assert "listen on all network interfaces" in run.log_text()
 
 
 if __name__ == "__main__":
