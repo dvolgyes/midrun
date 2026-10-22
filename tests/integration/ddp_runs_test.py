@@ -16,6 +16,8 @@ Environment variables of the script:
     TRAINCTL_TEST_MAX_STEPS: Optional, default -1 (until stopped or `max_time`).
     TRAINCTL_TEST_PG_TIMEOUT_S: Optional, the process-group timeout. Default 60.
     TRAINCTL_TEST_STEP_SLEEP_S: Optional, a sleep in each training step. Default 0.
+    TRAINCTL_TEST_FAIL_BACKWARD_AT_STEP: Optional, the global step whose backward
+        raises on every rank. Default -1 (never).
     TRAINCTL_TEST_REST_PORT: Optional, default 18500.
     TRAINCTL_TEST_TORCH_DEBUG_PORT: Optional, default 18600.
 """
@@ -45,6 +47,24 @@ _ENV = os.environ
 _FUSE_AVAILABLE = Path("/dev/fuse").exists() and shutil.which("fusermount3")
 
 
+class _FailingBackward(torch.autograd.Function):
+    """Identity in forward; raises in backward."""
+
+    @staticmethod
+    def forward(
+        ctx: torch.autograd.function.FunctionCtx, x: torch.Tensor
+    ) -> torch.Tensor:
+        del ctx
+        return x.clone()
+
+    @staticmethod
+    def backward(
+        ctx: torch.autograd.function.FunctionCtx, grad: torch.Tensor
+    ) -> torch.Tensor:
+        del ctx, grad
+        raise RuntimeError("trainctl test: backward failed")
+
+
 class _DdpModel(TrainctlMixin, pl.LightningModule):
     """Tiny classifier that records, for each step, what its rank observes.
 
@@ -66,6 +86,9 @@ class _DdpModel(TrainctlMixin, pl.LightningModule):
         )
         self._test_dir = test_dir
         self._step_sleep = float(_ENV.get("TRAINCTL_TEST_STEP_SLEEP_S", "0"))
+        self._fail_backward_at = int(
+            _ENV.get("TRAINCTL_TEST_FAIL_BACKWARD_AT_STEP", "-1")
+        )
         self.loss_scale = 1.0
         self.net = nn.Sequential(nn.Linear(8, 16), nn.ReLU(), nn.Linear(16, 2))
 
@@ -88,6 +111,8 @@ class _DdpModel(TrainctlMixin, pl.LightningModule):
             fh.write(json.dumps(record) + "\n")
         time.sleep(self._step_sleep)
         loss: torch.Tensor = nn.functional.cross_entropy(self(x), y) * self.loss_scale
+        if self.global_step == self._fail_backward_at:
+            loss = _FailingBackward.apply(loss)
         return loss
 
     def configure_optimizers(self) -> torch.optim.Optimizer:
@@ -238,6 +263,15 @@ def test_the_torch_debug_server_runs_on_every_rank_with_one_frontend(launch) -> 
     assert httpx2.get(rank0["torch_debug_url"], timeout=10).status_code == 200
     assert run.wait(timeout=60) == 0
     assert "listen on all network interfaces" in run.log_text()
+
+
+def test_a_backward_exception_on_every_rank_ends_the_run(launch) -> None:
+    # Only rank 0 has REST, so an exception hold on another rank could never end.
+    run = launch(
+        TRAINCTL_TEST_FAIL_BACKWARD_AT_STEP="3", TRAINCTL_TEST_PG_TIMEOUT_S="20"
+    )
+    assert run.wait(timeout=60) != 0
+    assert "trainctl test: backward failed" in run.log_text()
 
 
 if __name__ == "__main__":

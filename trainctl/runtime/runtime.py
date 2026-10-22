@@ -599,8 +599,11 @@ class TrainctlRuntime:
         `break_on_backward_exception` is disabled. Diagnostic only: gradient state at
         this point is not a valid complete gradient set, and distributed collectives
         may already be inconsistent across ranks -- see `ExceptionBreakpointInfo`.
+
+        Only rank 0 holds: the other ranks have no REST server, so nothing could
+        release their hold, and they re-raise at once.
         """
-        if not self.config.break_on_backward_exception:
+        if not self.config.break_on_backward_exception or not self._is_rank_zero:
             return
         trainer = pl_module.trainer
         self.current_step.loss = loss
