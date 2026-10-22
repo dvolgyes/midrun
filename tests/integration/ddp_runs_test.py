@@ -274,5 +274,18 @@ def test_a_backward_exception_on_every_rank_ends_the_run(launch) -> None:
     assert "trainctl test: backward failed" in run.log_text()
 
 
+def test_the_run_state_lists_every_rank(launch) -> None:
+    run = launch(TRAINCTL_TEST_MAX_STEPS="40", TRAINCTL_TEST_STEP_SLEEP_S="0.1")
+    rank0, rank1 = run.status(0), run.status(1)
+    url = f"http://127.0.0.1:{rank0['rest_port']}/run"
+    snapshot = httpx2.get(url, timeout=10).json()
+    assert snapshot["world_size"] == 2
+    assert [(r["global_rank"], r["pid"]) for r in snapshot["ranks"]] == [
+        (0, rank0["pid"]),
+        (1, rank1["pid"]),
+    ]
+    assert run.wait(timeout=60) == 0
+
+
 if __name__ == "__main__":
     main()

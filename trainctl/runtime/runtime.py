@@ -46,6 +46,7 @@ from trainctl.runtime.live_capture import LiveCaptureBroker
 from trainctl.runtime.optimizer_surgery import find_adapter, resolve_parameters
 from trainctl.runtime.pipeline_pressure import PipelinePressureTracker
 from trainctl.runtime.profiler import ProfilerRun
+from trainctl.runtime.rank_sync import RankSync
 from trainctl.runtime.state import (
     ExceptionBreakpointInfo,
     RankInfo,
@@ -120,6 +121,7 @@ class TrainctlRuntime:
     """
 
     _unreadable_hparams_reported: set[str]
+    _rank_sync: RankSync
 
     def __init__(self, config: TrainctlConfig, backend: LightningBackend) -> None:
         self.config = config
@@ -157,6 +159,7 @@ class TrainctlRuntime:
         self._model_summary: str = ""
 
         self._local_rank_info: RankInfo | None = None
+        self._rank_sync = RankSync()
 
         self.pipeline = PipelinePressureTracker(window=config.pipeline_pressure_window)
         self.current_step = CurrentStep()
@@ -211,6 +214,7 @@ class TrainctlRuntime:
             self._started = True
 
         self._is_rank_zero = _is_rank_zero()
+        self._rank_sync = RankSync.create()
         self._gather_ranks(pl_module)
         self._detect_backward_interception(pl_module)
 
@@ -692,7 +696,7 @@ class TrainctlRuntime:
             epoch=trainer.current_epoch,
             global_step=trainer.global_step,
             batch_idx=batch_idx,
-            ranks=(self._current_rank_info(),),
+            ranks=self._current_ranks(),
             metrics=metrics,
             learning_rates=learning_rates,
             pending_commands=pending,
@@ -721,6 +725,18 @@ class TrainctlRuntime:
         )
         return replace(self._local_rank_info, worker_pids=worker_pids)
 
+    def _current_ranks(self) -> tuple[RankInfo, ...]:
+        """Every rank's info, with this rank's `worker_pids` refreshed.
+
+        The other ranks' entries are the ones gathered at setup, so their
+        `worker_pids` are not live.
+        """
+        local = self._current_rank_info()
+        return tuple(
+            local if info.global_rank == local.global_rank else info
+            for info in self.state.read().ranks
+        )
+
     def _gather_ranks(self, pl_module: Any) -> None:
         import torch.distributed as dist
 
@@ -740,7 +756,8 @@ class TrainctlRuntime:
             device=device,
         )
         self._local_rank_info = rank_info
-        self.state.update(world_size=world_size, ranks=(rank_info,))
+        ranks = tuple(self._rank_sync.all_gather(rank_info))
+        self.state.update(world_size=world_size, ranks=ranks)
 
     # ---- service management ------------------------------------------------------
 
