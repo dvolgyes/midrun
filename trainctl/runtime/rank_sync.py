@@ -2,6 +2,7 @@
 
 from typing import cast
 
+import torch
 import torch.distributed as dist
 
 
@@ -51,3 +52,22 @@ class RankSync:
         gathered: list[object] = [None] * self.world_size
         dist.all_gather_object(gathered, obj, group=self._group)
         return cast("list[T]", gathered)
+
+    def broadcast[T](self, obj: T) -> T:
+        """Returns rank 0's `obj` on every rank; the other ranks' `obj` is discarded.
+
+        Rank 0 gets back its own object, not a copy.
+        """
+        if self._group is None:
+            return obj
+        message: list[object] = [obj]
+        dist.broadcast_object_list(message, src=0, group=self._group)
+        return obj if dist.get_rank(self._group) == 0 else cast("T", message[0])
+
+    def any_rank(self, flag: bool) -> bool:
+        """Returns whether `flag` is true on at least one rank."""
+        if self._group is None:
+            return flag
+        value = torch.tensor([int(flag)])
+        dist.all_reduce(value, op=dist.ReduceOp.MAX, group=self._group)
+        return bool(value.item())

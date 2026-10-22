@@ -18,6 +18,8 @@ Environment variables of the script:
     TRAINCTL_TEST_STEP_SLEEP_S: Optional, a sleep in each training step. Default 0.
     TRAINCTL_TEST_FAIL_BACKWARD_AT_STEP: Optional, the global step whose backward
         raises on every rank. Default -1 (never).
+    TRAINCTL_TEST_NAN_ON_RANK1_AT_STEP: Optional, the global step whose batch has a
+        NaN on rank 1 only. It also turns on the dataloader finite check. Default -1.
     TRAINCTL_TEST_REST_PORT: Optional, default 18500.
     TRAINCTL_TEST_TORCH_DEBUG_PORT: Optional, default 18600.
 """
@@ -76,6 +78,7 @@ class _DdpModel(TrainctlMixin, pl.LightningModule):
     trainctl_tunable_hparams = {"loss_scale": {"min": 0.0, "max": 10.0}}
 
     def __init__(self, test_dir: Path) -> None:
+        nan_at = int(_ENV.get("TRAINCTL_TEST_NAN_ON_RANK1_AT_STEP", "-1"))
         super().__init__(
             rest_port=int(_ENV.get("TRAINCTL_TEST_REST_PORT", "18500")),
             torch_debug_port=int(_ENV.get("TRAINCTL_TEST_TORCH_DEBUG_PORT", "18600")),
@@ -83,7 +86,9 @@ class _DdpModel(TrainctlMixin, pl.LightningModule):
             torch_debug_enabled=_ENV.get("TRAINCTL_TEST_TORCH_DEBUG", "0") == "1",
             hooks_enabled=False,
             inspection_strict=True,
+            dataloader_finite_check_enabled=nan_at >= 0,
         )
+        self._nan_at = nan_at
         self._test_dir = test_dir
         self._step_sleep = float(_ENV.get("TRAINCTL_TEST_STEP_SLEEP_S", "0"))
         self._fail_backward_at = int(
@@ -95,6 +100,13 @@ class _DdpModel(TrainctlMixin, pl.LightningModule):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         logits: torch.Tensor = self.net(x)
         return logits
+
+    def on_train_batch_start(  # pylint: disable=arguments-differ
+        self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
+    ) -> None:
+        if self.trainer.global_rank == 1 and self.global_step == self._nan_at:
+            batch[0][0, 0] = float("nan")
+        super().on_train_batch_start(batch, batch_idx)
 
     def training_step(  # pylint: disable=arguments-differ
         self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
@@ -206,6 +218,33 @@ class _DdpRun:
             f"rank {rank} did not start within {timeout}s:\n{self.log_text()}"
         )
 
+    def steps(self, rank: int) -> list[dict]:
+        lines = (self.test_dir / f"steps-rank{rank}.jsonl").read_text().splitlines()
+        return [json.loads(line) for line in lines]
+
+    def get(self, path: str) -> dict:
+        url = f"http://127.0.0.1:{self.status(0)['rest_port']}{path}"
+        response = httpx2.get(url, timeout=10)
+        response.raise_for_status()
+        return response.json()
+
+    def post(self, path: str, body: dict) -> dict:
+        url = f"http://127.0.0.1:{self.status(0)['rest_port']}{path}"
+        response = httpx2.post(url, json=body, timeout=10)
+        response.raise_for_status()
+        return response.json()
+
+    def wait_until(self, predicate, timeout: float = 30.0) -> None:
+        deadline = time.monotonic() + timeout
+        while not predicate():
+            if time.monotonic() > deadline:
+                raise AssertionError(f"condition not met within {timeout}s")
+            if self.proc.poll() is not None:
+                raise AssertionError(
+                    f"run exited with {self.proc.returncode}:\n{self.log_text()}"
+                )
+            time.sleep(0.1)
+
     def wait(self, timeout: float) -> int:
         try:
             return self.proc.wait(timeout=timeout)
@@ -285,6 +324,84 @@ def test_the_run_state_lists_every_rank(launch) -> None:
         (1, rank1["pid"]),
     ]
     assert run.wait(timeout=60) == 0
+
+
+def test_a_learning_rate_and_hparam_change_reach_every_rank(launch) -> None:
+    run = launch(TRAINCTL_TEST_MAX_STEPS="60", TRAINCTL_TEST_STEP_SLEEP_S="0.05")
+    run.status(1)
+    run.post("/commands", {"kind": "set_learning_rate", "args": {"value": 0.05}})
+    run.post(
+        "/commands",
+        {"kind": "set_hparam", "args": {"name": "loss_scale", "value": 2.0}},
+    )
+    assert run.wait(timeout=60) == 0
+    for rank in (0, 1):
+        last = run.steps(rank)[-1]
+        assert (rank, last["lr"], last["loss_scale"]) == (rank, 0.05, 2.0)
+
+
+def test_a_checkpoint_completes_on_every_rank(launch) -> None:
+    run = launch(
+        TRAINCTL_TEST_MAX_STEPS="60",
+        TRAINCTL_TEST_STEP_SLEEP_S="0.05",
+        TRAINCTL_TEST_PG_TIMEOUT_S="20",
+    )
+    run.status(1)
+    command_id = run.post("/checkpoints", {"label": "manual"})["id"]
+    run.wait_until(lambda: run.get(f"/commands/{command_id}")["status"] != "queued")
+    command = run.get(f"/commands/{command_id}")
+    assert command["status"] == "succeeded", command
+    assert Path(command["result"]["checkpoint_path"]).is_file()
+    assert run.wait(timeout=60) == 0
+
+
+def test_stop_ends_every_rank(launch) -> None:
+    run = launch(TRAINCTL_TEST_STEP_SLEEP_S="0.05", TRAINCTL_TEST_PG_TIMEOUT_S="20")
+    run.status(1)
+    run.post("/control/stop", {})
+    assert run.wait(timeout=30) == 0
+
+
+def test_stop_while_held_ends_every_rank(launch) -> None:
+    run = launch(TRAINCTL_TEST_STEP_SLEEP_S="0.05", TRAINCTL_TEST_PG_TIMEOUT_S="20")
+    run.status(1)
+    run.post("/control/pause", {})
+    run.wait_until(lambda: run.get("/run")["status"] == "held")
+    run.post("/control/stop", {})
+    assert run.wait(timeout=30) == 0
+
+
+def test_a_hold_outlasts_the_process_group_timeout(launch) -> None:
+    run = launch(TRAINCTL_TEST_STEP_SLEEP_S="0.05", TRAINCTL_TEST_PG_TIMEOUT_S="10")
+    run.status(1)
+    run.post("/control/pause", {})
+    run.wait_until(lambda: run.get("/run")["status"] == "held")
+    held_steps = [len(run.steps(rank)) for rank in (0, 1)]
+    time.sleep(15)
+    assert [len(run.steps(rank)) for rank in (0, 1)] == held_steps
+    assert run.post("/control/continue", {})["released"]
+    run.wait_until(lambda: all(len(run.steps(r)) > held_steps[r] + 5 for r in (0, 1)))
+    run.post("/control/stop", {})
+    assert run.wait(timeout=30) == 0
+
+
+def test_a_bad_batch_on_one_rank_holds_every_rank(launch) -> None:
+    run = launch(
+        TRAINCTL_TEST_NAN_ON_RANK1_AT_STEP="5",
+        TRAINCTL_TEST_STEP_SLEEP_S="0.05",
+        TRAINCTL_TEST_PG_TIMEOUT_S="20",
+    )
+    run.status(1)
+    run.wait_until(lambda: run.get("/run")["status"] == "held")
+    held_steps = [len(run.steps(rank)) for rank in (0, 1)]
+    time.sleep(2)
+    assert [len(run.steps(rank)) for rank in (0, 1)] == held_steps == [5, 5]
+    snapshots = Path(run.status(1)["artifacts_path"]) / "snapshots"
+    assert list(snapshots.glob("*/anomaly_input_nonfinite.json"))
+    assert run.post("/control/continue", {})["released"]
+    run.wait_until(lambda: all(len(run.steps(r)) > 10 for r in (0, 1)))
+    run.post("/control/stop", {})
+    assert run.wait(timeout=30) == 0
 
 
 if __name__ == "__main__":

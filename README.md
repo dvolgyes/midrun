@@ -276,9 +276,13 @@ description of each option.
 
 ## Limits
 
-- REST, the dashboard and the FUSE view run only on global rank zero. In a distributed run, commands run on rank zero
-  only. Do not change the learning rate or a hyperparameter, write a checkpoint or stop the run through trainctl when
-  more than one rank runs.
+- REST, the dashboard and the FUSE view run only on global rank zero. In a distributed run, rank zero sends the due
+  commands to the other ranks at each safe point, through a separate gloo process group. `stop`, `checkpoint`,
+  `set_learning_rate`, `reset_momentum`, `set_dataloader_finite_check` and `set_hparam` run on every rank, and a hold
+  stops every rank. The other commands run on rank zero only. Each safe point costs one small broadcast, about 0.5 ms on
+  two local ranks. If a command on rank zero takes longer than 30 minutes, the other ranks time out.
+- After a backward exception in a distributed run, only rank zero holds. The other ranks raise the exception at once, so
+  Lightning soon stops the job.
 - trainctl does not support `strategy="ddp_spawn"` or the other spawn-based strategies, because they pickle the model.
   Use `strategy="ddp"`.
 - In a distributed run, the `torch.distributed.debug` server listens on all network interfaces and has no

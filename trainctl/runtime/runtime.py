@@ -73,6 +73,18 @@ _ALLOWED_DURING_HOLD = frozenset(
         "set_lightning_profiler",
     }
 )
+# The command kinds that every rank runs, because they change state that each rank
+# holds a copy of. The other kinds act on rank 0's services and run there only.
+_ALL_RANK_KINDS = frozenset(
+    {
+        "stop",
+        "checkpoint",
+        "set_learning_rate",
+        "reset_momentum",
+        "set_dataloader_finite_check",
+        "set_hparam",
+    }
+)
 _ALLOWED_DURING_EXCEPTION = frozenset(
     {
         "save_current_batch",
@@ -118,10 +130,12 @@ class TrainctlRuntime:
         tunable_hparams: Current value/type of each hparam the model opted into via
             `trainctl_tunable_hparams`, refreshed at every safe point. Entries
             declared via the dict form also carry `min`/`max`/`label`.
+        rank_sync: Control-plane collectives with the other ranks of a distributed
+            run.
     """
 
     _unreadable_hparams_reported: set[str]
-    _rank_sync: RankSync
+    rank_sync: RankSync
 
     def __init__(self, config: TrainctlConfig, backend: LightningBackend) -> None:
         self.config = config
@@ -159,7 +173,7 @@ class TrainctlRuntime:
         self._model_summary: str = ""
 
         self._local_rank_info: RankInfo | None = None
-        self._rank_sync = RankSync()
+        self.rank_sync = RankSync()
 
         self.pipeline = PipelinePressureTracker(window=config.pipeline_pressure_window)
         self.current_step = CurrentStep()
@@ -214,7 +228,7 @@ class TrainctlRuntime:
             self._started = True
 
         self._is_rank_zero = _is_rank_zero()
-        self._rank_sync = RankSync.create()
+        self.rank_sync = RankSync.create()
         self._gather_ranks(pl_module)
         self._detect_backward_interception(pl_module)
 
@@ -395,19 +409,18 @@ class TrainctlRuntime:
         """Publishes state, executes due commands, and blocks here if a hold is active.
 
         Called only from the Lightning training thread, at one of the safe points
-        listed in `trainctl.runtime.events.SafePoint`.
+        listed in `trainctl.runtime.events.SafePoint`. In a distributed run, every
+        rank calls it at the same safe points, because it is a collective.
         """
         trainer = pl_module.trainer
-        self._run_due_commands(pl_module, trainer, safe_point, allowed=None)
+        held = self._run_due_commands(pl_module, trainer, safe_point, allowed=None)
         if safe_point is SafePoint.BEFORE_OPTIMIZER_STEP:
             self.live_captures.serve(pl_module)
         self._publish(
-            pl_module,
-            status="held" if self.gate.is_held() else "running",
-            batch_idx=batch_idx,
+            pl_module, status="held" if held else "running", batch_idx=batch_idx
         )
         self._refresh_tunable_hparams(pl_module, trainer)
-        if self.gate.is_held():
+        if held:
             self._hold_loop(pl_module, trainer)
 
     def _refresh_tunable_hparams(self, pl_module: Any, trainer: Any) -> None:
@@ -436,14 +449,18 @@ class TrainctlRuntime:
         self.tunable_hparams = fresh
 
     def _hold_loop(self, pl_module: Any, trainer: Any) -> None:
-        while self.gate.is_held():
-            self._run_due_commands(
-                pl_module, trainer, safe_point=None, allowed=_ALLOWED_DURING_HOLD
-            )
+        """Blocks every rank while rank 0's gate is held.
+
+        Rank 0 sends its hold state about ten times a second, so the other ranks wait
+        in the control group's broadcast and not in a training collective, which
+        would reach the process-group timeout.
+        """
+        while self._run_due_commands(
+            pl_module, trainer, safe_point=None, allowed=_ALLOWED_DURING_HOLD
+        ):
             self._publish(pl_module, status="held")
-            if not self.gate.is_held():
-                break
-            self.gate.wait_for_control_event(timeout=0.1)
+            if self._is_rank_zero:
+                self.gate.wait_for_control_event(timeout=0.1)
         self._publish(pl_module, status="running")
 
     def _run_due_commands(
@@ -452,13 +469,36 @@ class TrainctlRuntime:
         trainer: Any,
         safe_point: SafePoint | None,
         allowed: frozenset[str] | None,
-    ) -> None:
-        epoch = trainer.current_epoch
-        step = trainer.global_step
-        for command in self.command_queue.due(safe_point, epoch, step):
-            if allowed is not None and command.kind not in allowed:
-                continue
-            self._execute(pl_module, trainer, command, safe_point)
+    ) -> bool:
+        """Runs the due commands on every rank and returns whether rank 0 is held.
+
+        Only rank 0 has the command queue and the gate, so it sends its due commands
+        and its hold state to the other ranks. They run only `_ALL_RANK_KINDS`. This
+        is a collective: every rank must call it at the same safe point.
+        """
+        due = self._due_commands(
+            safe_point, trainer.current_epoch, trainer.global_step, allowed
+        )
+        commands, held = self.rank_sync.broadcast((due, self.gate.is_held()))
+        if not commands:
+            return held
+        for command in commands:
+            if self._is_rank_zero or command.kind in _ALL_RANK_KINDS:
+                self._execute(pl_module, trainer, command, safe_point)
+        # A command can enter or release a hold, so rank 0 sends its state again.
+        return self.rank_sync.broadcast(self.gate.is_held())
+
+    def _due_commands(
+        self,
+        safe_point: SafePoint | None,
+        epoch: int,
+        global_step: int,
+        allowed: frozenset[str] | None,
+    ) -> tuple[Command, ...]:
+        due = self.command_queue.due(safe_point, epoch, global_step)
+        return tuple(
+            command for command in due if allowed is None or command.kind in allowed
+        )
 
     def _execute(
         self,
@@ -491,7 +531,7 @@ class TrainctlRuntime:
 
         Enters a cooperative hold directly (bypassing the command queue, like
         `_handle_hold` does from inside a command) if the dataloader finite guard is
-        enabled and finds a non-finite tensor in `batch`.
+        enabled and finds a non-finite tensor in `batch` on any rank.
         """
         trainer = pl_module.trainer
         now = time.perf_counter_ns()
@@ -503,7 +543,8 @@ class TrainctlRuntime:
         )
         if self.finite_guard.enabled:
             report = self.finite_guard.check(batch)
-            if report is not None:
+            # Every rank holds when one rank's batch is bad, so a collective call.
+            if self.rank_sync.any_rank(report is not None):
                 self._handle_bad_batch(pl_module, trainer, batch_idx, report)
 
     def before_backward(self, loss: Any) -> None:
@@ -566,29 +607,39 @@ class TrainctlRuntime:
                 trainer.global_step,
             )
             self._publish(pl_module, status="held")
-            self._hold_loop(pl_module, trainer)
+            # Only rank 0 profiles, so with more ranks the hold starts at the next
+            # safe point, where every rank learns of it.
+            if self.rank_sync.world_size == 1:
+                self._hold_loop(pl_module, trainer)
 
     def _handle_bad_batch(
-        self, pl_module: Any, trainer: Any, batch_idx: int, report: FiniteCheckReport
+        self,
+        pl_module: Any,
+        trainer: Any,
+        batch_idx: int,
+        report: FiniteCheckReport | None,
     ) -> None:
-        rank = self._local_rank_info.global_rank if self._local_rank_info else 0
-        self.artifacts.write_snapshot(
-            "anomaly_input_nonfinite",
-            {
-                "reason": "nonfinite_dataloader_tensor",
-                "rank": rank,
-                "epoch": trainer.current_epoch,
-                "global_step": trainer.global_step,
-                "batch_idx": batch_idx,
-                "tensors": [asdict(bad) for bad in report.bad_tensors],
-            },
-        )
-        self.gate.enter(
-            next_id("anomaly"),
-            "train_batch_start",
-            trainer.current_epoch,
-            trainer.global_step,
-        )
+        """Records this rank's bad batch, if any, and holds every rank."""
+        if report is not None:
+            rank = self._local_rank_info.global_rank if self._local_rank_info else 0
+            self.artifacts.write_snapshot(
+                "anomaly_input_nonfinite",
+                {
+                    "reason": "nonfinite_dataloader_tensor",
+                    "rank": rank,
+                    "epoch": trainer.current_epoch,
+                    "global_step": trainer.global_step,
+                    "batch_idx": batch_idx,
+                    "tensors": [asdict(bad) for bad in report.bad_tensors],
+                },
+            )
+        if self._is_rank_zero:
+            self.gate.enter(
+                next_id("anomaly"),
+                "train_batch_start",
+                trainer.current_epoch,
+                trainer.global_step,
+            )
         self._publish(pl_module, status="held", batch_idx=batch_idx)
         self._hold_loop(pl_module, trainer)
 
@@ -627,10 +678,15 @@ class TrainctlRuntime:
         self._publish(pl_module, status="running")
 
     def _exception_hold_loop(self, pl_module: Any, trainer: Any) -> None:
+        # Only rank 0 holds here, so this loop runs its commands without a collective.
         while self._exception_hold is not None:
-            self._run_due_commands(
-                pl_module, trainer, safe_point=None, allowed=_ALLOWED_DURING_EXCEPTION
-            )
+            for command in self._due_commands(
+                None,
+                trainer.current_epoch,
+                trainer.global_step,
+                allowed=_ALLOWED_DURING_EXCEPTION,
+            ):
+                self._execute(pl_module, trainer, command, safe_point=None)
             self._publish(pl_module, status="exception_held")
             if self._exception_hold is None:
                 break
@@ -756,7 +812,7 @@ class TrainctlRuntime:
             device=device,
         )
         self._local_rank_info = rank_info
-        ranks = tuple(self._rank_sync.all_gather(rank_info))
+        ranks = tuple(self.rank_sync.all_gather(rank_info))
         self.state.update(world_size=world_size, ranks=ranks)
 
     # ---- service management ------------------------------------------------------
@@ -1082,7 +1138,8 @@ def _handle_checkpoint(
 ) -> dict:
     del pl_module, safe_point
     label = command.args["label"]
-    path = runtime.artifacts.checkpoint_path(label)
+    # Every rank saves, as Lightning requires, so every rank must use rank 0's path.
+    path = runtime.rank_sync.broadcast(runtime.artifacts.checkpoint_path(label))
     trainer.save_checkpoint(str(path))
     return {"checkpoint_path": str(path)}
 
