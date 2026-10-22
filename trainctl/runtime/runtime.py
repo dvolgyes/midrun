@@ -804,6 +804,7 @@ class TrainctlRuntime:
                 str(mountpoint),
                 foreground=True,
                 direct_io=True,
+                ro=True,
                 attr_timeout=0,
                 fsname=mountpoint_check.FUSE_FSNAME,
             )

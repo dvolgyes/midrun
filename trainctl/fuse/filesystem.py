@@ -98,7 +98,8 @@ class TrainctlFS(mfusepy.Operations):
         return [".", "..", *virtual_fs.list_dir(self._runtime, path)]
 
     def open(self, path: str, flags: int) -> int:
-        del flags
+        if flags & os.O_ACCMODE != os.O_RDONLY:
+            raise mfusepy.FuseOSError(errno.EROFS)
         try:
             content = virtual_fs.generate(self._runtime, path)
         except TimeoutError as exc:
