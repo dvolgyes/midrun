@@ -162,8 +162,9 @@ By default a command runs at the next point where it is safe. To run it later, a
 ```
 
 Safe points are `train_batch_end`, `train_epoch_end`, `validation_epoch_end`, `before_optimizer_step` and `fit_end`.
-Instead of `epoch`, you can give `global_step`. With only `safe_point`, the command runs at the next occurrence of that
-safe point.
+Instead of `epoch`, you can give `global_step`. Without `safe_point`, the `epoch` or `global_step` condition applies at
+any safe point. With only `safe_point`, the command runs at the next occurrence of that safe point. The REST API rejects
+any other `when` value with status 400.
 
 | Command kind | What it does |
 | -- | -- |
