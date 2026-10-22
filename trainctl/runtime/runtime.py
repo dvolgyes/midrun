@@ -26,11 +26,7 @@ from trainctl.hooks.manager import bootstrap_hooks_tree
 from trainctl.hooks.session import HandleResult, HookSession
 from trainctl.lightning_backend import LightningBackend
 from trainctl.logging.logging_session import LoggingSession
-from trainctl.runtime import (
-    command_args,
-    forward_input,
-    hparam_registry,
-)
+from trainctl.runtime import command_args, forward_input
 from trainctl.runtime.artifacts import ArtifactStore
 from trainctl.runtime.commands.command import Command
 from trainctl.runtime.commands.command_queue import CommandQueue
@@ -47,6 +43,15 @@ from trainctl.runtime.graph_inspectors.torchviz_capture import torchviz_capture
 from trainctl.runtime.graph_inspectors.torchviz_capture_live import (
     torchviz_capture_live,
 )
+from trainctl.runtime.hparam_registry.check_and_assign import check_and_assign
+from trainctl.runtime.hparam_registry.collect_tunable_hparams import (
+    collect_tunable_hparams,
+)
+from trainctl.runtime.hparam_registry.describe_hparam import describe_hparam
+from trainctl.runtime.hparam_registry.get_field import get_field
+from trainctl.runtime.hparam_registry.hparam_value import HparamValue
+from trainctl.runtime.hparam_registry.resolve_hparam_path import resolve_hparam_path
+from trainctl.runtime.hparam_registry.tunable_hparam_spec import TunableHparamSpec
 from trainctl.runtime.live_capture import LiveCaptureBroker
 from trainctl.runtime.optimizer_surgery.find_surgery_adapter import (
     find_surgery_adapter,
@@ -208,8 +213,8 @@ class TrainctlRuntime:
         self.lightning_profiler: Any | None = None
         self.lightning_profiler_level: str = "off"
         self.live_captures = LiveCaptureBroker()
-        self.tunable_hparams: dict[str, hparam_registry.HparamValue] = {}
-        self._tunable_hparam_specs: dict[str, hparam_registry.TunableHparamSpec] = {}
+        self.tunable_hparams: dict[str, HparamValue] = {}
+        self._tunable_hparam_specs: dict[str, TunableHparamSpec] = {}
         self._unreadable_hparams_reported = set()
 
         self._hook_session: HookSession | None = None
@@ -289,9 +294,7 @@ class TrainctlRuntime:
         self._model_hparams = dict(getattr(pl_module, "hparams", {}))
         self._model_summary = basic_summary_text(pl_module)
         self._model_summary_json = basic_summary_json(pl_module)
-        self._tunable_hparam_specs = hparam_registry.collect_tunable_hparams(
-            type(pl_module)
-        )
+        self._tunable_hparam_specs = collect_tunable_hparams(type(pl_module))
         self._publish(pl_module, status="held" if self.gate.is_held() else "running")
 
     def teardown(self, pl_module: Any, stage: str) -> None:
@@ -449,13 +452,11 @@ class TrainctlRuntime:
         `cuda_memory_history`/`profiler_run`'s thread-safety idiom. A single
         unreadable knob is logged once and skipped rather than blanking the rest.
         """
-        fresh: dict[str, hparam_registry.HparamValue] = {}
+        fresh: dict[str, HparamValue] = {}
         for name, spec in self._tunable_hparam_specs.items():
             try:
-                parent, leaf = hparam_registry.resolve(pl_module, trainer, spec.path)
-                described = hparam_registry.describe(
-                    hparam_registry.get_field(parent, leaf)
-                )
+                parent, leaf = resolve_hparam_path(pl_module, trainer, spec.path)
+                described = describe_hparam(get_field(parent, leaf))
                 fresh[name] = replace(
                     described, min=spec.min, max=spec.max, label=spec.label
                 )
@@ -1286,8 +1287,8 @@ def _handle_set_hparam(
     spec = runtime._tunable_hparam_specs.get(name)
     if spec is None:
         raise ValueError(f"unknown or non-tunable hparam: {name!r}")
-    parent, leaf = hparam_registry.resolve(pl_module, trainer, spec.path)
-    result = hparam_registry.check_and_assign(spec, parent, leaf, command.args["value"])
+    parent, leaf = resolve_hparam_path(pl_module, trainer, spec.path)
+    result = check_and_assign(spec, parent, leaf, command.args["value"])
     return {"name": name, **asdict(result)}
 
 
