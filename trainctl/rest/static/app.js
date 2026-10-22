@@ -157,8 +157,25 @@ function renderRunLocation(hostname, artifactsPath) {
   node.append("/");
 }
 
+/** Marks the page as out of date when GET /run fails; the next successful
+ * poll replaces the badge again. */
+function showRunStatusError(err) {
+  const badge = byId("status-badge");
+  badge.textContent =
+    err instanceof TypeError ? "disconnected" : "status unavailable";
+  badge.className = "badge status-disconnected";
+  badge.title = err.message;
+}
+
 async function refreshRunStatus() {
-  const run = await fetchJSON("/run");
+  let run;
+  try {
+    run = await fetchJSON("/run");
+  } catch (err) {
+    showRunStatusError(err);
+    throw err;
+  }
+  byId("status-badge").title = "";
   setText("status-badge", `${run.status} · ${run.phase}`);
   byId("status-badge").className = `badge status-${run.status}`;
   setText("run-epoch", run.epoch);
@@ -204,7 +221,7 @@ async function runAction(action, message) {
   } catch (err) {
     setText("action-status", `error: ${err.message}`);
   }
-  await refreshRunStatus();
+  await refreshRunStatus().catch((err) => console.error(err));
 }
 
 // ---- model overview ---------------------------------------------------------
@@ -292,16 +309,18 @@ function setupControls() {
     }
   });
 
-  byId("reset-momentum-btn").addEventListener("click", async () => {
-    const result = await submitCommand("reset_momentum", {});
-    if (result.status !== "succeeded")
-      alert(`reset_momentum failed: ${result.error}`);
-  });
+  byId("reset-momentum-btn").addEventListener("click", () =>
+    runControlCommand("reset_momentum", {}, "momentum reset"),
+  );
 
-  byId("finite-check-toggle").addEventListener("change", (event) => {
-    submitCommand("set_dataloader_finite_check", {
-      enabled: event.target.checked,
-    });
+  byId("finite-check-toggle").addEventListener("change", async (event) => {
+    const enabled = event.target.checked;
+    const ok = await runControlCommand(
+      "set_dataloader_finite_check",
+      { enabled },
+      `finite-value check ${enabled ? "on" : "off"}`,
+    );
+    if (!ok) event.target.checked = !enabled;
   });
 
   byId("tunable-hparams-set-all-btn").addEventListener("click", async () => {
@@ -318,6 +337,20 @@ function setupControls() {
       ? `${succeeded}/${results.length} updated`
       : "";
   });
+}
+
+/** Runs one control command and reports its outcome in #controls-status. */
+async function runControlCommand(kind, args, message) {
+  setText("controls-status", "setting…");
+  try {
+    const result = await submitCommand(kind, args);
+    const ok = result.status === "succeeded";
+    setText("controls-status", ok ? message : `failed: ${result.error}`);
+    return ok;
+  } catch (err) {
+    setText("controls-status", `error: ${err.message}`);
+    return false;
+  }
 }
 
 /** Submits one tunable-hparam row's current input value; used by the shared
@@ -364,10 +397,16 @@ async function refreshControlsState() {
 // replaced), so an in-progress edit not yet sent via "Set all" would otherwise
 // be silently overwritten by the next poll's server value -- `dirty` (set on
 // the `input`/`change` events) marks a row whose edit must survive rebuilding.
+// Each row's status line (the outcome of its last "Set all") also survives.
 function renderTunableHparams(tunable) {
   const container = byId("tunable-hparams-list");
   const pending = new Map();
+  const statuses = new Map();
   for (const row of container.querySelectorAll("[data-hparam-name]")) {
+    statuses.set(
+      row.dataset.hparamName,
+      row.querySelector(".status-line").textContent,
+    );
     const input = row.querySelector("input, textarea");
     if (input?.dataset.dirty === "1") {
       pending.set(row.dataset.hparamName, {
@@ -389,11 +428,16 @@ function renderTunableHparams(tunable) {
   }
   for (const name of names)
     container.append(
-      renderTunableHparamRow(name, tunable[name], pending.get(name)),
+      renderTunableHparamRow(
+        name,
+        tunable[name],
+        pending.get(name),
+        statuses.get(name),
+      ),
     );
 }
 
-function renderTunableHparamRow(name, info, pending) {
+function renderTunableHparamRow(name, info, pending, statusText) {
   const input = buildInputForType(info);
   if (pending) {
     if (info.type === "bool") input.checked = pending.checked;
@@ -405,7 +449,10 @@ function renderTunableHparamRow(name, info, pending) {
   };
   input.addEventListener("input", markDirty);
   input.addEventListener("change", markDirty);
-  const status = el("span", { className: "status-line" });
+  const status = el("span", {
+    className: "status-line",
+    textContent: statusText ?? "",
+  });
   const row = el("div", { className: "tunable-row" }, [
     el("div", { className: "tunable-row-header" }, [
       el("span", {
@@ -448,8 +495,13 @@ function buildInputForType(info) {
 
 function readInputValue(input, type) {
   if (type === "bool") return input.checked;
-  if (type === "int") return Number.parseInt(input.value, 10);
-  if (type === "float") return Number.parseFloat(input.value);
+  if (type === "int" || type === "float") {
+    const value = input.value.trim() === "" ? NaN : Number(input.value);
+    if (!Number.isFinite(value)) throw new Error("enter a number");
+    if (type === "int" && !Number.isInteger(value))
+      throw new Error("enter a whole number");
+    return value;
+  }
   if (type === "str") return input.value;
   return JSON.parse(input.value); // tensor: a JSON array
 }
@@ -645,13 +697,29 @@ async function renderArtifactManifest(container, manifest) {
 }
 
 function setupInspectorControls() {
+  const output = byId("live-view-output");
+  const showLiveViewError = (err) =>
+    output.replaceChildren(
+      el("p", {
+        className: "status-line",
+        textContent: `error: ${err.message}`,
+      }),
+    );
   byId("live-summary-btn").addEventListener("click", async () => {
-    const text = await fetchFile("/model/summary-live.txt");
-    byId("live-view-output").replaceChildren(el("pre", { textContent: text }));
+    try {
+      const text = await fetchFile("/model/summary-live.txt");
+      output.replaceChildren(el("pre", { textContent: text }));
+    } catch (err) {
+      showLiveViewError(err);
+    }
   });
   byId("live-graph-btn").addEventListener("click", async () => {
-    const dot = await fetchFile("/model/graph.dot");
-    await renderDot(dot, byId("live-view-output"));
+    try {
+      const dot = await fetchFile("/model/graph.dot");
+      await renderDot(dot, output);
+    } catch (err) {
+      showLiveViewError(err);
+    }
   });
 
   byId("profile-form").addEventListener("submit", async (event) => {

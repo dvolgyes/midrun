@@ -4,6 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>trainctl</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%235b9dff'/%3E%3Cpath d='M3 12l3.5-4.5 2.5 2.5 4-6' stroke='%23051224' stroke-width='1.8' fill='none'/%3E%3C/svg%3E"
+    />
     <link rel="stylesheet" href="/static/style.css" />
     <script src="https://cdn.jsdelivr.net/npm/@viz-js/viz@3.14.0/lib/viz-standalone.js"></script>
   </head>
@@ -90,6 +94,7 @@
             <input id="finite-check-toggle" type="checkbox" />
             Dataloader finite-value check
           </label>
+          <span id="controls-status" class="status-line"></span>
         </div>
         <h3>Live-tunable hyperparameters</h3>
         <div id="tunable-hparams-list" class="kv-list"></div>
