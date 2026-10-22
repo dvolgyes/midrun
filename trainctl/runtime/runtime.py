@@ -22,7 +22,7 @@ from typing import Any
 from loguru import logger
 
 from trainctl.config import TrainctlConfig
-from trainctl.fuse import process_guard
+from trainctl.fuse import mountpoint_check, process_guard
 from trainctl.hooks.dispatch import HandleResult
 from trainctl.hooks.manager import bootstrap_hooks_tree
 from trainctl.hooks.session import HookSession
@@ -778,11 +778,10 @@ class TrainctlRuntime:
 
         from trainctl.fuse.filesystem import TrainctlFS
 
-        mountpoint = (
+        mountpoint = mountpoint_check.prepare_mountpoint(
             self.config.fuse_mountpoint
             or _default_base_dir(pl_module, self.run_id) / "procfs"
         )
-        mountpoint.mkdir(parents=True, exist_ok=True)
         ops = TrainctlFS(self)
 
         def _run() -> None:
@@ -791,7 +790,7 @@ class TrainctlRuntime:
                 str(mountpoint),
                 foreground=True,
                 direct_io=True,
-                fsname=process_guard.FUSE_FSNAME,
+                fsname=mountpoint_check.FUSE_FSNAME,
             )
 
         thread = threading.Thread(target=_run, name="trainctl-fuse", daemon=True)

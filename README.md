@@ -224,6 +224,9 @@ a small watcher process unmounts `procfs/` when the training process exits. If t
 fusermount3 -uz $RUN/procfs
 ```
 
+A new run also removes a stale trainctl mount at its mountpoint. trainctl does not mount on a directory that contains
+files or another mount.
+
 ## Shell hooks
 
 trainctl makes a script for each Lightning callback in `hooks/light/` and `hooks/heavy/`. All scripts are disabled at
