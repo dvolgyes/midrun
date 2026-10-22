@@ -24,7 +24,7 @@ from trainctl.rest.schemas.debug_capture_in import DebugCaptureIn
 from trainctl.rest.schemas.hold_in import HoldIn
 from trainctl.rest.schemas.snapshot_in import SnapshotIn
 from trainctl.runtime import inspectors_registry, virtual_fs
-from trainctl.runtime.command_args import InvalidCommandError
+from trainctl.runtime.command_args.validate_command_args import InvalidCommandError
 from trainctl.runtime.commands.command import Command
 from trainctl.runtime.commands.parse_when import parse_when
 from trainctl.runtime.cuda_memory.cheap_cuda_memory_stats import (

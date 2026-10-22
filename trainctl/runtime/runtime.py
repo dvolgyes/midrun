@@ -26,8 +26,11 @@ from trainctl.hooks.manager import bootstrap_hooks_tree
 from trainctl.hooks.session import HandleResult, HookSession
 from trainctl.lightning_backend import LightningBackend
 from trainctl.logging.logging_session import LoggingSession
-from trainctl.runtime import command_args, forward_input
+from trainctl.runtime import forward_input
 from trainctl.runtime.artifacts import ArtifactStore
+from trainctl.runtime.command_args.validate_command_args import (
+    validate_command_args,
+)
 from trainctl.runtime.commands.command import Command
 from trainctl.runtime.commands.command_queue import CommandQueue
 from trainctl.runtime.commands.next_id import next_id
@@ -172,7 +175,7 @@ class TrainctlRuntime:
         self.state = StateStore(
             initial_snapshot(self.run_id, backend.name, backend.version)
         )
-        self.command_queue = CommandQueue(command_args.validate)
+        self.command_queue = CommandQueue(validate_command_args)
         self.gate = RunGate()
         self.artifacts: ArtifactStore | None = None
         self.torch_debug = TorchDebugManager(
