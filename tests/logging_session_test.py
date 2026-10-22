@@ -1,5 +1,6 @@
 """Behavioral tests for LoggingSession's standard-logging bridge and run-file sink."""
 
+import inspect
 import logging
 
 import pytest
@@ -107,6 +108,73 @@ def test_custom_numeric_level_is_forwarded_without_a_name_lookup() -> None:
         std_logger.log(35, "custom level")
         assert records[0]["level"].no == 35
         assert records[0]["message"] == "custom level"
+    finally:
+        session.close()
+        logger.remove(sink_id)
+
+
+def test_standard_levels_are_forwarded_by_name() -> None:
+    std_logger = logging.getLogger(_NAME)
+    std_logger.setLevel(logging.INFO)
+    session = LoggingSession("session-level")
+    records, sink_id = _capture_records()
+    try:
+        session.install()
+        std_logger.info("info")
+        std_logger.warning("warning")
+        assert [record["level"].name for record in records] == ["INFO", "WARNING"]
+    finally:
+        session.close()
+        logger.remove(sink_id)
+
+
+def _log_here(std_logger: logging.Logger) -> int:
+    std_logger.info("from the caller")
+    return inspect.currentframe().f_lineno - 1
+
+
+def _log_for_my_caller(std_logger: logging.Logger) -> None:
+    std_logger.info("for the caller", stacklevel=2)
+
+
+@pytest.mark.parametrize("stacklevel", [1, 2])
+def test_the_record_names_the_standard_logging_caller(stacklevel: int) -> None:
+    std_logger = logging.getLogger(_NAME)
+    std_logger.setLevel(logging.INFO)
+    session = LoggingSession("session-caller")
+    records, sink_id = _capture_records()
+    try:
+        session.install()
+        if stacklevel == 1:
+            line, function = _log_here(std_logger), "_log_here"
+        else:
+            _log_for_my_caller(std_logger)
+            line = inspect.currentframe().f_lineno - 1
+            function = "test_the_record_names_the_standard_logging_caller"
+        assert (records[0]["name"], records[0]["function"], records[0]["line"]) == (
+            __name__,
+            function,
+            line,
+        )
+    finally:
+        session.close()
+        logger.remove(sink_id)
+
+
+def test_a_record_without_its_caller_on_the_stack_is_still_forwarded() -> None:
+    std_logger = logging.getLogger(_NAME)
+    session = LoggingSession("session-elsewhere")
+    records, sink_id = _capture_records()
+    try:
+        session.install()
+        std_logger.handle(
+            std_logger.makeRecord(
+                _NAME, logging.WARNING, "elsewhere.py", 7, "queued", None, None
+            )
+        )
+        assert records[0]["message"] == "queued"
+        assert records[0]["function"] == "emit"
+        assert records[0]["extra"]["std_pathname"] == "elsewhere.py"
     finally:
         session.close()
         logger.remove(sink_id)

@@ -7,6 +7,7 @@ logger (`LoggingSession.bind()`) is routed into that session's run-file sink --
 pre-existing, unbound `trainctl.*` diagnostics are unaffected by this module.
 """
 
+import inspect
 import logging
 import threading
 from pathlib import Path
@@ -19,6 +20,8 @@ _BRIDGED_LOGGERS: tuple[str, ...] = (
     "pytorch_lightning",
     "lightning.fabric",
 )
+# Standard-library level names that Loguru also defines, with the same numbers.
+_SHARED_LEVEL_NAMES = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
 
 
 def _resolve_logger(name: str) -> logging.Logger:
@@ -55,6 +58,11 @@ class _LoguruBridgeHandler(logging.Handler):
     standard-library logger would otherwise recurse forever; the guard drops that
     nested call instead of forwarding it.
 
+    A standard level keeps its name (`INFO`, not `Level 20`), and the Loguru record
+    names the caller that the standard record names (so `stacklevel` is honored).
+    A record whose caller frame is not on the current stack (for example, one that a
+    queue listener handles) keeps this handler as its caller.
+
     Attributes:
         session_id: The owning `LoggingSession`'s identity, used to detect an
             overlapping install onto an already-bridged logger.
@@ -77,8 +85,24 @@ class _LoguruBridgeHandler(logging.Handler):
                 std_lineno=record.lineno,
                 std_funcname=record.funcName,
             )
-            bound.opt(exception=record.exc_info).log(
-                record.levelno, record.getMessage()
+            level = (
+                record.levelname
+                if record.levelname in _SHARED_LEVEL_NAMES
+                else record.levelno
+            )
+            caller = (record.pathname, record.lineno, record.funcName)
+            frame, depth = inspect.currentframe(), 0
+            while frame is not None and caller != (
+                frame.f_code.co_filename,
+                frame.f_lineno,
+                frame.f_code.co_name,
+            ):
+                frame, depth = frame.f_back, depth + 1
+            if frame is None:
+                depth = 0
+            del frame
+            bound.opt(exception=record.exc_info, depth=depth).log(
+                level, record.getMessage()
             )
         finally:
             self._guard.active = False
