@@ -201,17 +201,21 @@ class TrainctlRuntime:
             "artifact directory", lambda: self._resolve_artifact_dir(pl_module)
         )
 
-        if (
-            self._is_rank_zero
-            and self.config.torch_debug_enabled
-            and self.config.rest_enabled
-        ):
+        # torch.distributed.debug needs an initialized process group; a plain
+        # single-process run has none, and must still get its REST server.
+        torch_debug = self.config.torch_debug_enabled and _distributed_initialized()
+        if self.config.torch_debug_enabled and not torch_debug:
+            logger.info(
+                "trainctl: pytorch distributed debug server skipped: "
+                "torch.distributed is not initialized"
+            )
+        if self._is_rank_zero and torch_debug and self.config.rest_enabled:
             self._guarded(
                 "REST server + pytorch distributed debug server (paired ports)",
                 self._start_rest_and_torch_debug,
             )
         else:
-            if self.config.torch_debug_enabled:
+            if torch_debug:
                 self._guarded(
                     "pytorch distributed debug server", self._start_torch_debug
                 )
@@ -837,10 +841,16 @@ class TrainctlRuntime:
         self._rest_port = None
 
 
+def _distributed_initialized() -> bool:
+    import torch.distributed as dist
+
+    return bool(dist.is_available() and dist.is_initialized())
+
+
 def _is_rank_zero() -> bool:
     import torch.distributed as dist
 
-    if dist.is_available() and dist.is_initialized():
+    if _distributed_initialized():
         return dist.get_rank() == 0
     return True
 
