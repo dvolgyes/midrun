@@ -10,7 +10,8 @@ import torch
 from trainctl.config import TrainctlConfig
 from trainctl.load_backend import load_backend
 from trainctl.runtime.artifacts import ArtifactStore
-from trainctl.runtime.finite_guard import DataloaderFiniteGuard, iter_batch_tensors
+from trainctl.runtime.finite_guard import DataloaderFiniteGuard
+from trainctl.runtime.iter_batch_tensors import iter_batch_tensors
 from trainctl.runtime.runtime import TrainctlRuntime
 
 _Pair = namedtuple("_Pair", ["inputs", "targets"])
