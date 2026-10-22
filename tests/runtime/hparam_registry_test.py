@@ -1,6 +1,6 @@
 """Behavioral tests for the generic tunable-hyperparameter registry.
 
-`resolve`/`describe`/`cast_and_assign` are plain functions over arbitrary
+`resolve`/`describe`/`check_and_assign` are plain functions over arbitrary
 parent/leaf attribute pairs, independent of `TrainctlRuntime` --
 `tests/runtime/set_hparam_command_test.py` covers the end-to-end command path.
 """
@@ -108,53 +108,103 @@ def test_describe_unsupported_type_raises() -> None:
         hparam_registry.describe([1, 2, 3])
 
 
-def test_cast_and_assign_bool_before_int_ordering() -> None:
+def _assign(parent: object, leaf: str, value: object) -> hparam_registry.HparamValue:
+    spec = hparam_registry.TunableHparamSpec(path=leaf)
+    return hparam_registry.check_and_assign(spec, parent, leaf, value)
+
+
+def _current(model: _Model, leaf: str) -> object:
+    value = getattr(model, leaf)
+    return value.clone() if isinstance(value, torch.Tensor) else value
+
+
+@pytest.mark.parametrize(
+    ("leaf", "value"),
+    [
+        ("flag", 0),
+        ("flag", "false"),
+        ("count", "5"),
+        ("count", 7.9),
+        ("count", True),
+        ("label", 123),
+        ("label", {"a": 1}),
+        ("weight", "abc"),
+        ("weight", True),
+    ],
+)
+def test_check_and_assign_rejects_a_value_of_another_type(
+    leaf: str, value: object
+) -> None:
+    model = _Model()
+    model.count = 1
+    before = _current(model, leaf)
+
+    with pytest.raises(ValueError, match="hparam; got"):
+        _assign(model, leaf, value)
+
+    after = getattr(model, leaf)
+    if isinstance(before, torch.Tensor):
+        assert torch.equal(after, before)
+    else:
+        assert after == before
+
+
+def test_check_and_assign_bool() -> None:
     model = _Model()
 
-    result = hparam_registry.cast_and_assign(model, "flag", 0)
+    result = _assign(model, "flag", False)
 
     assert result.type == "bool"
     assert result.value is False
     assert model.flag is False
 
 
-def test_cast_and_assign_int() -> None:
+def test_check_and_assign_int() -> None:
     model = _Model()
     model.count = 1
 
-    result = hparam_registry.cast_and_assign(model, "count", "5")
+    result = _assign(model, "count", 5)
 
     assert result.type == "int"
     assert result.value == 5
 
 
-def test_cast_and_assign_float() -> None:
+def test_check_and_assign_float_accepts_an_int() -> None:
     model = _Model()
 
-    result = hparam_registry.cast_and_assign(
-        model.hparams, "augmentation_strength", "0.75"
-    )
+    result = _assign(model.hparams, "augmentation_strength", 1)
 
     assert result.type == "float"
-    assert result.value == pytest.approx(0.75)
+    assert model.hparams.augmentation_strength == 1.0
+    assert isinstance(model.hparams.augmentation_strength, float)
 
 
-def test_cast_and_assign_str() -> None:
+@pytest.mark.parametrize("value", [float("nan"), float("inf")])
+def test_check_and_assign_float_rejects_a_non_finite_value(value: float) -> None:
     model = _Model()
 
-    result = hparam_registry.cast_and_assign(model, "label", 123)
+    with pytest.raises(ValueError, match="finite"):
+        _assign(model.hparams, "augmentation_strength", value)
+
+    assert model.hparams.augmentation_strength == 0.5
+
+
+def test_check_and_assign_str() -> None:
+    model = _Model()
+
+    result = _assign(model, "label", "candidate")
 
     assert result.type == "str"
-    assert result.value == "123"
+    assert result.value == "candidate"
 
 
-def test_cast_and_assign_tensor_matches_dtype_moves_device_and_preserves_identity() -> (
+def test_check_and_assign_tensor_matches_dtype_moves_device_and_preserves_identity() -> (
     None
 ):
     model = _Model()
     original = model.weight
 
-    result = hparam_registry.cast_and_assign(model, "weight", [4.0, 5.0, 6.0])
+    result = _assign(model, "weight", [4.0, 5.0, 6.0])
 
     assert model.weight is original
     assert torch.equal(model.weight, torch.tensor([4.0, 5.0, 6.0]))
@@ -162,19 +212,38 @@ def test_cast_and_assign_tensor_matches_dtype_moves_device_and_preserves_identit
     assert result.device == "cpu"
 
 
-def test_cast_and_assign_tensor_shape_mismatch_raises() -> None:
+def test_check_and_assign_tensor_shape_mismatch_raises() -> None:
     model = _Model()
 
     with pytest.raises(ValueError, match="shape mismatch"):
-        hparam_registry.cast_and_assign(model, "weight", [1.0, 2.0])
+        _assign(model, "weight", [1.0, 2.0])
 
 
-def test_cast_and_assign_unsupported_current_type_raises() -> None:
+def test_check_and_assign_tensor_rejects_nan_elements() -> None:
+    model = _Model()
+
+    with pytest.raises(ValueError, match="finite"):
+        _assign(model, "weight", [1.0, float("nan"), 3.0])
+
+    assert torch.equal(model.weight, torch.tensor([1.0, 2.0, 3.0]))
+
+
+def test_check_and_assign_checks_the_type_before_the_bounds() -> None:
+    model = _Model()
+    spec = hparam_registry.TunableHparamSpec(path="augmentation_strength", min=0, max=1)
+
+    with pytest.raises(ValueError, match="is a float hparam; got str"):
+        hparam_registry.check_and_assign(
+            spec, model.hparams, "augmentation_strength", "0.7"
+        )
+
+
+def test_check_and_assign_unsupported_current_type_raises() -> None:
     model = _Model()
     model.unsupported = object()
 
     with pytest.raises(ValueError, match="unsupported"):
-        hparam_registry.cast_and_assign(model, "unsupported", 1)
+        _assign(model, "unsupported", 1)
 
 
 # ---- collect_tunable_hparams: MRO merge ------------------------------------
@@ -265,7 +334,7 @@ def test_collect_tunable_hparams_non_dict_metadata_raises_type_error() -> None:
         hparam_registry.collect_tunable_hparams(_NonDictMetadataForm)
 
 
-# ---- dict-nested paths (get_field/set_field/resolve/cast_and_assign) ------
+# ---- dict-nested paths (get_field/set_field/resolve/check_and_assign) -----
 
 
 class _NestedModel:
@@ -285,21 +354,21 @@ def test_resolve_walks_into_nested_dict() -> None:
     assert leaf == "warmup_steps"
 
 
-def test_cast_and_assign_reads_and_writes_dict_nested_leaf() -> None:
+def test_check_and_assign_reads_and_writes_dict_nested_leaf() -> None:
     model = _NestedModel()
     inner = model.config["optimizer"]["lr_schedule"]
 
-    result = hparam_registry.cast_and_assign(inner, "warmup_steps", "200")
+    result = _assign(inner, "warmup_steps", 200)
 
     assert result.value == 200
     assert inner["warmup_steps"] == 200
 
 
-def test_cast_and_assign_preserves_dict_nested_tensor_identity_dtype_device() -> None:
+def test_check_and_assign_preserves_dict_nested_tensor_identity_dtype_device() -> None:
     model = _NestedModel()
     original = model.state["weight"]
 
-    result = hparam_registry.cast_and_assign(model.state, "weight", [3.0, 4.0])
+    result = _assign(model.state, "weight", [3.0, 4.0])
 
     assert model.state["weight"] is original
     assert torch.equal(model.state["weight"], torch.tensor([3.0, 4.0]))

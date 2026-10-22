@@ -12,7 +12,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
@@ -25,6 +25,7 @@ from trainctl.rest.schemas import (
     SnapshotIn,
 )
 from trainctl.runtime import cuda_memory, inspectors_registry, virtual_fs
+from trainctl.runtime.command_args import InvalidCommandError
 from trainctl.runtime.commands import Command, parse_when
 
 _STATIC_DIR = Path(__file__).parent / "static"
@@ -150,6 +151,14 @@ _ROUTE_GROUPS: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
 def build_app(runtime: "TrainctlRuntime") -> FastAPI:
     """Builds the REST app bound to one `TrainctlRuntime` instance."""
     app = FastAPI(title="trainctl")
+
+    @app.exception_handler(InvalidCommandError)
+    def reject_invalid_command(
+        request: Request, exc: InvalidCommandError
+    ) -> JSONResponse:
+        """Maps a command with an unknown kind or invalid args to status 400."""
+        del request
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
 
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:

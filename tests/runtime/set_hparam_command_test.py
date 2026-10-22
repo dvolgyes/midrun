@@ -9,6 +9,7 @@ isolation.
 
 from pathlib import Path
 
+import pytest
 import torch
 
 from trainctl.config import TrainctlConfig
@@ -177,3 +178,46 @@ def test_out_of_bounds_set_hparam_is_rejected_with_unchanged_value(
     assert "learning_rate" in result.error
     assert "1.0" in result.error
     assert model.learning_rate == 0.1
+
+
+@pytest.mark.parametrize(
+    ("value", "error"),
+    [
+        (float("nan"), "must be finite"),
+        ("0.5", "is a float hparam; got str '0.5'"),
+        (True, "is a float hparam; got bool True"),
+        (None, "is a float hparam; got NoneType None"),
+    ],
+)
+def test_set_hparam_rejects_a_value_of_another_type_or_nan(
+    tmp_path: Path, value: object, error: str
+) -> None:
+    runtime = _make_runtime(tmp_path)
+    model = _ready_bounded_model(runtime)
+
+    command = runtime.command_queue.submit(
+        "set_hparam", {"name": "learning_rate", "value": value}, parse_when("now")
+    )
+    runtime.process_safe_point(model, SafePoint.TRAIN_BATCH_END)
+
+    result = runtime.command_queue.get(command.id)
+    assert result.status == "failed"
+    assert error in result.error
+    assert model.learning_rate == 0.1
+
+
+def test_set_hparam_result_has_the_declared_bounds_and_label(tmp_path: Path) -> None:
+    runtime = _make_runtime(tmp_path)
+    model = _ready_bounded_model(runtime)
+
+    command = runtime.command_queue.submit(
+        "set_hparam", {"name": "learning_rate", "value": 0.5}, parse_when("now")
+    )
+    runtime.process_safe_point(model, SafePoint.TRAIN_BATCH_END)
+
+    result = runtime.command_queue.get(command.id).result
+    assert (result["min"], result["max"], result["label"]) == (
+        0.0,
+        1.0,
+        "Learning rate",
+    )

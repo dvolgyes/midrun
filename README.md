@@ -178,6 +178,10 @@ any other `when` value with status 400.
 | `torchinfo_capture`, `torchview_capture`, `torchviz_capture`, `torchlens_capture` | Capture a model summary or graph (optional extras). |
 | `profile`, `set_lightning_profiler` | Profile some training steps. |
 
+The REST API checks the kind and the arguments of a command when it receives the command. It rejects an unknown kind, a
+missing or unknown argument, and a value of the wrong type with status 400. It does not convert values: the string
+`"false"` is not a boolean, and `7.9` is not an integer.
+
 Other routes: `/run`, `/metrics`, `/optimizers`, `/artifacts`, `/telemetry/pipeline`, `/inspectors`,
 `/debug/cuda-memory/snapshot`, `/files/<path>` (the same tree as `procfs/`).
 
@@ -192,7 +196,8 @@ trainctl_tunable_hparams = {
 }  # or paths with limits
 ```
 
-The declared values are in `procfs/model/tunable-hparams.json`.
+The declared values are in `procfs/model/tunable-hparams.json`. A new value must have the type of the current value, but
+an integer is also a valid float. A float value must be finite.
 
 ## Read the run as files
 

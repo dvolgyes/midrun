@@ -101,14 +101,17 @@ def test_adam_adapter_zeroes_exp_avg_but_not_exp_avg_sq_or_step() -> None:
     before_sq = {
         id(p): optimizer.state[p]["exp_avg_sq"].clone() for p in model.parameters()
     }
-    before_step = {id(p): optimizer.state[p]["step"].clone() for p in model.parameters()}
+    before_step = {
+        id(p): optimizer.state[p]["step"].clone() for p in model.parameters()
+    }
 
     result = AdamSurgeryAdapter().reset_momentum(optimizer, list(model.parameters()))
 
     assert result["semantic"] == "exp_avg_zeroed"
     for p in model.parameters():
         assert torch.equal(
-            optimizer.state[p]["exp_avg"], torch.zeros_like(optimizer.state[p]["exp_avg"])
+            optimizer.state[p]["exp_avg"],
+            torch.zeros_like(optimizer.state[p]["exp_avg"]),
         )
         assert torch.equal(optimizer.state[p]["exp_avg_sq"], before_sq[id(p)])
         assert torch.equal(optimizer.state[p]["step"], before_step[id(p)])
@@ -203,33 +206,18 @@ def test_set_learning_rate_targets_single_param_group() -> None:
     assert optimizer.param_groups[1]["lr"] == 0.9
 
 
-def test_set_learning_rate_rejects_non_finite_value() -> None:
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -1.0])
+def test_set_learning_rate_rejects_a_non_finite_or_negative_value(
+    value: float,
+) -> None:
     runtime = _make_runtime()
-    model = torch.nn.Linear(2, 2)
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
-    trainer = _FakeTrainer(optimizers=[optimizer])
-    pl_module = _FakePLModule(trainer, model)
 
-    command = _submit_and_run(
-        runtime, pl_module, trainer, "set_learning_rate", {"value": float("nan")}
-    )
+    with pytest.raises(ValueError, match="invalid args for 'set_learning_rate'"):
+        runtime.command_queue.submit(
+            "set_learning_rate", {"value": value}, parse_when("now")
+        )
 
-    assert command.status == "failed"
-    assert optimizer.param_groups[0]["lr"] == 0.1
-
-
-def test_set_learning_rate_rejects_negative_value() -> None:
-    runtime = _make_runtime()
-    model = torch.nn.Linear(2, 2)
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
-    trainer = _FakeTrainer(optimizers=[optimizer])
-    pl_module = _FakePLModule(trainer, model)
-
-    command = _submit_and_run(
-        runtime, pl_module, trainer, "set_learning_rate", {"value": -1.0}
-    )
-
-    assert command.status == "failed"
+    assert runtime.command_queue.list_all() == []
 
 
 def test_set_learning_rate_warns_when_scheduler_active() -> None:
@@ -296,7 +284,8 @@ def test_reset_momentum_zeroes_adam_exp_avg_via_command() -> None:
     assert command.result["semantic"] == "exp_avg_zeroed"
     for p in model.parameters():
         assert torch.equal(
-            optimizer.state[p]["exp_avg"], torch.zeros_like(optimizer.state[p]["exp_avg"])
+            optimizer.state[p]["exp_avg"],
+            torch.zeros_like(optimizer.state[p]["exp_avg"]),
         )
 
 

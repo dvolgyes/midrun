@@ -85,12 +85,13 @@ def test_set_lightning_profiler_off_restores_pass_through(tmp_path: Path) -> Non
 
 def test_set_lightning_profiler_rejects_unknown_level(tmp_path: Path) -> None:
     runtime = _make_runtime(tmp_path)
-    trainer = _FakeTrainer()
 
-    cmd = _set_level(runtime, trainer, "nonsense")
+    with pytest.raises(ValueError, match="level"):
+        runtime.command_queue.submit(
+            "set_lightning_profiler", {"level": "nonsense"}, parse_when("now")
+        )
 
-    assert cmd.status == "failed"
-    assert "level" in cmd.error
+    assert runtime.command_queue.list_all() == []
 
 
 def test_set_lightning_profiler_reselecting_same_level_resets_accumulated_state(

@@ -1,4 +1,4 @@
-"""Generic named tunable-hyperparameter registry: resolve, describe, and type-preserving cast.
+"""Generic named tunable-hyperparameter registry: resolve, describe, and type-checked assign.
 
 A LightningModule opts knobs in via a class attribute `trainctl_tunable_hparams`,
 in either form:
@@ -19,8 +19,9 @@ wholesale. Everything not listed stays exactly as read-only as
 `TrainctlRuntime._model_hparams` already makes it.
 """
 
+import math
 from collections.abc import Mapping, MutableMapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import torch
@@ -205,40 +206,68 @@ def describe(value: Any) -> HparamValue:
     raise ValueError(f"unsupported tunable hparam type: {type(value).__name__}")
 
 
-def cast_and_assign(parent: Any, leaf: str, new_value: Any) -> HparamValue:
-    """Casts `new_value` to `parent.<leaf>`'s current type and assigns it in place.
+def check_and_assign(
+    spec: TunableHparamSpec, parent: Any, leaf: str, new_value: object
+) -> HparamValue:
+    """Checks `new_value` against `parent.<leaf>`'s current type and bounds, then assigns it.
 
-    A tensor knob is matched to the current tensor's dtype *and* device via
-    `torch.as_tensor`, then copied in place with `copy_` to preserve the tensor's
-    identity (any optimizer/autograd references to it stay valid) -- this holds
-    regardless of whether `leaf` is a plain attribute or a dict key (see
-    `get_field`/`set_field`), since `copy_` mutates the tensor object itself.
+    The value must already have the knob's type: no value is converted to another
+    type, so `"false"` is not a bool and `7.9` is not an int. An int is a valid value
+    for a float knob. A float value must be finite. A tensor knob takes a nested list
+    of its shape, matched to the current tensor's dtype and device, and copied in
+    place with `copy_` so that optimizer and autograd references to it stay valid.
+
+    Returns:
+        The new value, with `spec`'s declared bounds and label.
 
     Raises:
-        ValueError: the current value's type is unsupported, or a replacement
-            tensor's shape does not match the current tensor's shape.
+        ValueError: the value has the wrong type or shape, is not finite, violates
+            `spec`'s bounds, or the current value's type is unsupported.
     """
     current = get_field(parent, leaf)
+    value = _typed_value(current, leaf, new_value)
+    validate_bounds(spec, value)
     if isinstance(current, torch.Tensor):
+        current.copy_(value)
+    else:
+        set_field(parent, leaf, value)
+    return replace(
+        describe(get_field(parent, leaf)), min=spec.min, max=spec.max, label=spec.label
+    )
+
+
+def _typed_value(current: object, leaf: str, new_value: object) -> object:
+    kind = describe(current).type
+    if isinstance(current, torch.Tensor):
+        if isinstance(new_value, str) or (
+            isinstance(new_value, bool) and current.dtype != torch.bool
+        ):
+            raise ValueError(f"{leaf!r} is a tensor hparam; got {new_value!r}")
         tensor = torch.as_tensor(new_value, dtype=current.dtype, device=current.device)
         if tuple(tensor.shape) != tuple(current.shape):
             raise ValueError(
                 f"shape mismatch: {leaf!r} has shape {tuple(current.shape)}, "
                 f"got {tuple(tensor.shape)}"
             )
-        current.copy_(tensor)
-        return describe(current)
-    if isinstance(current, bool):  # must precede the int check: bool is an int subclass
-        set_field(parent, leaf, bool(new_value))
-    elif isinstance(current, int):
-        set_field(parent, leaf, int(new_value))
-    elif isinstance(current, float):
-        set_field(parent, leaf, float(new_value))
-    elif isinstance(current, str):
-        set_field(parent, leaf, str(new_value))
-    else:
-        raise ValueError(f"unsupported tunable hparam type: {type(current).__name__}")
-    return describe(get_field(parent, leaf))
+        if tensor.is_floating_point() and not bool(torch.isfinite(tensor).all()):
+            raise ValueError(f"{leaf!r}: every element must be finite")
+        return tensor
+    # bool is an int subclass, so a bool is never a valid int or float value.
+    valid = {
+        "bool": isinstance(new_value, bool),
+        "int": isinstance(new_value, int) and not isinstance(new_value, bool),
+        "float": isinstance(new_value, int | float) and not isinstance(new_value, bool),
+        "str": isinstance(new_value, str),
+    }[kind]
+    if not valid:
+        raise ValueError(
+            f"{leaf!r} is a {kind} hparam; got {type(new_value).__name__} {new_value!r}"
+        )
+    if kind == "float" and isinstance(new_value, int | float):
+        new_value = float(new_value)
+        if not math.isfinite(new_value):
+            raise ValueError(f"{leaf!r} must be finite, got {new_value!r}")
+    return new_value
 
 
 def validate_bounds(spec: TunableHparamSpec, value: Any) -> None:

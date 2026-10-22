@@ -7,14 +7,13 @@ Trainer/model state. REST and FUSE only read published `RuntimeSnapshot`s or enq
 """
 
 import json
-import math
 import os
 import secrets
 import shutil
 import socket
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any
@@ -29,6 +28,7 @@ from trainctl.hooks.session import HookSession
 from trainctl.lightning_backend import LightningBackend
 from trainctl.logging import LoggingSession
 from trainctl.runtime import (
+    command_args,
     cuda_memory,
     forward_input,
     graph_inspectors,
@@ -130,7 +130,7 @@ class TrainctlRuntime:
         self.state = StateStore(
             initial_snapshot(self.run_id, backend.name, backend.version)
         )
-        self.command_queue = CommandQueue()
+        self.command_queue = CommandQueue(command_args.validate)
         self.gate = RunGate()
         self.artifacts: ArtifactStore | None = None
         self.torch_debug = TorchDebugManager(
@@ -1003,7 +1003,7 @@ def _handle_hold(
     runtime.gate.enter(
         command.id, str(safe_point), trainer.current_epoch, trainer.global_step
     )
-    return {"hold": "entered", "reason": command.args.get("reason", "")}
+    return {"hold": "entered", "reason": command.args["reason"]}
 
 
 def _handle_stop(
@@ -1034,7 +1034,7 @@ def _handle_checkpoint(
     safe_point: SafePoint | None,
 ) -> dict:
     del pl_module, safe_point
-    label = command.args.get("label", "manual")
+    label = command.args["label"]
     path = runtime.artifacts.checkpoint_path(label)
     trainer.save_checkpoint(str(path))
     return {"checkpoint_path": str(path)}
@@ -1048,7 +1048,7 @@ def _handle_snapshot(
     safe_point: SafePoint | None,
 ) -> dict:
     del safe_point
-    kind = command.args.get("kind", "runtime")
+    kind = command.args["kind"]
     if kind == "runtime":
         payload = asdict(runtime.state.read())
     elif kind == "model_summary":
@@ -1077,12 +1077,10 @@ def _handle_set_learning_rate(
     safe_point: SafePoint | None,
 ) -> dict:
     del pl_module, safe_point
-    value = float(command.args["value"])
-    if not math.isfinite(value) or value < 0:
-        raise ValueError(f"learning rate must be finite and >= 0, got {value}")
-    optimizer_index = int(command.args.get("optimizer", 0))
-    optimizer = trainer.optimizers[optimizer_index]
-    param_group = command.args.get("param_group", "*")
+    value = command.args["value"]
+    optimizer_index = command.args["optimizer"]
+    optimizer = _optimizer_at(trainer.optimizers, optimizer_index)
+    param_group = command.args["param_group"]
     if param_group != "*" and not runtime.config.optimizer_surgery_enabled:
         raise ValueError(
             "per-group learning-rate selection requires optimizer_surgery_enabled"
@@ -1090,8 +1088,8 @@ def _handle_set_learning_rate(
     if param_group == "*":
         groups = list(enumerate(optimizer.param_groups))
     else:
-        index = int(param_group)
-        if not 0 <= index < len(optimizer.param_groups):
+        index = param_group
+        if index >= len(optimizer.param_groups):
             raise ValueError(f"optimizer {optimizer_index} has no param_group {index}")
         groups = [(index, optimizer.param_groups[index])]
     changes: dict[str, Any] = {}
@@ -1107,6 +1105,14 @@ def _handle_set_learning_rate(
     return result
 
 
+def _optimizer_at[T](optimizers: Sequence[T], index: int) -> T:
+    if index >= len(optimizers):
+        raise ValueError(
+            f"optimizer {index} does not exist; the run has {len(optimizers)} optimizer(s)"
+        )
+    return optimizers[index]
+
+
 def _handle_reset_momentum(
     runtime: TrainctlRuntime,
     pl_module: Any,
@@ -1117,17 +1123,15 @@ def _handle_reset_momentum(
     del safe_point
     if not runtime.config.optimizer_surgery_enabled:
         raise ValueError("reset_momentum requires optimizer_surgery_enabled")
-    optimizer_index = int(command.args.get("optimizer", 0))
-    optimizer = trainer.optimizers[optimizer_index]
+    optimizer_index = command.args["optimizer"]
+    optimizer = _optimizer_at(trainer.optimizers, optimizer_index)
     adapter = find_adapter(optimizer)
     if adapter is None:
         raise ValueError(
             "optimizer_surgery_unsupported: no reset_momentum adapter for "
             f"{type(optimizer).__module__}.{type(optimizer).__name__}"
         )
-    parameters = resolve_parameters(
-        pl_module, optimizer, command.args.get("selector", "all")
-    )
+    parameters = resolve_parameters(pl_module, optimizer, command.args["selector"])
     result = adapter.reset_momentum(optimizer, parameters)
     return {"optimizer": optimizer_index, **result}
 
@@ -1140,7 +1144,7 @@ def _handle_set_dataloader_finite_check(
     safe_point: SafePoint | None,
 ) -> dict:
     del pl_module, trainer, safe_point
-    enabled = bool(command.args["enabled"])
+    enabled = command.args["enabled"]
     runtime.finite_guard.enabled = enabled
     return {"enabled": enabled}
 
@@ -1157,10 +1161,8 @@ def _handle_set_hparam(
     spec = runtime._tunable_hparam_specs.get(name)
     if spec is None:
         raise ValueError(f"unknown or non-tunable hparam: {name!r}")
-    value = command.args["value"]
-    hparam_registry.validate_bounds(spec, value)
     parent, leaf = hparam_registry.resolve(pl_module, trainer, spec.path)
-    result = hparam_registry.cast_and_assign(parent, leaf, value)
+    result = hparam_registry.check_and_assign(spec, parent, leaf, command.args["value"])
     return {"name": name, **asdict(result)}
 
 
@@ -1278,10 +1280,10 @@ def _handle_profile(
     del pl_module, trainer, safe_point
     if runtime.profiler_run is not None:
         raise ValueError("a profiler run is already armed")
-    warmup_steps = int(command.args.get("warmup_steps", 0))
-    active_steps = int(command.args.get("active_steps", 1))
-    level = command.args.get("level", "basic")
-    then_hold = bool(command.args.get("then_hold", False))
+    warmup_steps = command.args["warmup_steps"]
+    active_steps = command.args["active_steps"]
+    level = command.args["level"]
+    then_hold = command.args["then_hold"]
     run = ProfilerRun(command.id, warmup_steps, active_steps, level, then_hold)
     run.start()
     runtime.profiler_run = run
@@ -1292,9 +1294,6 @@ def _handle_profile(
         "level": level,
         "then_hold": then_hold,
     }
-
-
-_LIGHTNING_PROFILER_LEVELS = frozenset({"off", "simple", "advanced", "pytorch"})
 
 
 def _handle_set_lightning_profiler(
@@ -1319,9 +1318,7 @@ def _handle_set_lightning_profiler(
     durations (an implicit reset).
     """
     del pl_module, safe_point
-    level = command.args.get("level", "off")
-    if level not in _LIGHTNING_PROFILER_LEVELS:
-        raise ValueError(f"unknown lightning profiler level {level!r}")
+    level = command.args["level"]
     profilers = runtime.backend.PL.profilers
     if level == "off":
         trainer.profiler = profilers.PassThroughProfiler()
@@ -1362,8 +1359,8 @@ def _handle_torchviz_capture(
     safe_point: SafePoint | None,
 ) -> dict:
     del trainer, safe_point
-    show_attrs = bool(command.args.get("show_attrs", True))
-    show_saved = bool(command.args.get("show_saved", True))
+    show_attrs = command.args["show_attrs"]
+    show_saved = command.args["show_saved"]
     if runtime._exception_hold is not None:
         # Diagnosing an actual backward failure: visualize the loss exactly as
         # autograd left it when backward() raised, not an unrelated fresh graph.

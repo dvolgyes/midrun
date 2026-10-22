@@ -9,6 +9,7 @@ their handlers itself.
 import itertools
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -161,14 +162,30 @@ class Command:
 
 
 class CommandQueue:
-    """Thread-safe registry of submitted commands and their due-ness evaluation."""
+    """Thread-safe registry of submitted commands and their due-ness evaluation.
 
-    def __init__(self) -> None:
+    `validate_args` checks each submission's kind and args, and returns the args with
+    defaults filled in. It raises ValueError for an invalid submission.
+    """
+
+    _validate_args: Callable[[str, dict[str, Any]], dict[str, Any]]
+    _lock: threading.Lock
+    _commands: dict[str, Command]
+
+    def __init__(
+        self, validate_args: Callable[[str, dict[str, Any]], dict[str, Any]]
+    ) -> None:
+        self._validate_args = validate_args
         self._lock = threading.Lock()
         self._commands: dict[str, Command] = {}
 
     def submit(self, kind: str, args: dict[str, Any], when: CommandWhen) -> Command:
-        """Registers a new queued command."""
+        """Registers a new queued command.
+
+        Raises:
+            ValueError: `kind` or `args` is invalid.
+        """
+        args = self._validate_args(kind, args)
         command = Command(
             id=next_id("cmd"), kind=kind, args=args, when=when, created_at=time.time()
         )
@@ -183,7 +200,11 @@ class CommandQueue:
 
         Returns:
             The command, and whether it was newly submitted.
+
+        Raises:
+            ValueError: `kind` or `args` is invalid.
         """
+        args = self._validate_args(kind, args)
         with self._lock:
             for command in self._commands.values():
                 if command.status in ("queued", "executing") and (
