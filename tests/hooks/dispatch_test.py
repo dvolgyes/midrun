@@ -9,7 +9,7 @@ import torch
 
 from trainctl.hooks.dispatch_heavy import dispatch_heavy
 from trainctl.hooks.dispatch_light import dispatch_light
-from trainctl.hooks.payload import OccurrenceContext
+from trainctl.hooks.payload.occurrence_context import OccurrenceContext
 
 _SHELL = Path(shutil.which("bash"))
 

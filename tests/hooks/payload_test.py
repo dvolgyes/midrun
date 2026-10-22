@@ -6,18 +6,16 @@ import json
 import numpy
 import torch
 
-from trainctl.hooks.payload import (
-    HeavyCaptureFailure,
-    OccurrenceContext,
-    build_heavy_manifest,
-    build_light_params,
-    collect_tensor_leaves,
-    describe_arguments,
-    export_tensors,
-    new_id,
-    prepare_heavy_export,
-    write_json_file,
-)
+from trainctl.hooks.payload.build_heavy_manifest import build_heavy_manifest
+from trainctl.hooks.payload.build_light_params import build_light_params
+from trainctl.hooks.payload.collect_tensor_leaves import collect_tensor_leaves
+from trainctl.hooks.payload.describe_arguments import describe_arguments
+from trainctl.hooks.payload.export_tensors import export_tensors
+from trainctl.hooks.payload.heavy_capture_failure import HeavyCaptureFailure
+from trainctl.hooks.payload.new_hook_id import new_hook_id
+from trainctl.hooks.payload.occurrence_context import OccurrenceContext
+from trainctl.hooks.payload.prepare_heavy_export import prepare_heavy_export
+from trainctl.hooks.payload.write_json_file import write_json_file
 
 
 def _context(**overrides) -> OccurrenceContext:
@@ -211,9 +209,9 @@ def test_build_light_params_drops_arguments_entirely_when_over_byte_budget() -> 
     assert "max_params_bytes" in reason
 
 
-def test_new_id_returns_distinct_hex_strings() -> None:
-    first = new_id()
-    second = new_id()
+def test_new_hook_id_returns_distinct_hex_strings() -> None:
+    first = new_hook_id()
+    second = new_hook_id()
     assert first != second
     assert bytes.fromhex(first)
     assert bytes.fromhex(second)

@@ -3,9 +3,7 @@
 from pathlib import Path
 from typing import Any
 
-from trainctl.hooks.payload import (
-    OccurrenceContext,
-)
+from trainctl.hooks.payload.occurrence_context import OccurrenceContext
 from trainctl.hooks.runner import ExecutionResult
 
 

@@ -12,12 +12,10 @@ from typing import Any
 
 from trainctl.hooks.is_hook_failure import is_hook_failure
 from trainctl.hooks.log_hook_failure import log_hook_failure
-from trainctl.hooks.payload import (
-    OccurrenceContext,
-    build_light_params,
-    new_id,
-    write_json_file,
-)
+from trainctl.hooks.payload.build_light_params import build_light_params
+from trainctl.hooks.payload.new_hook_id import new_hook_id
+from trainctl.hooks.payload.occurrence_context import OccurrenceContext
+from trainctl.hooks.payload.write_json_file import write_json_file
 from trainctl.hooks.resolve_enabled_script import resolve_enabled_script
 from trainctl.hooks.runner import ExecutionResult, run_script
 
@@ -52,7 +50,7 @@ def dispatch_light(
     """
     if resolve_enabled_script(live_dir, "light", context.hook) is None:
         return None
-    invocation_id = new_id()
+    invocation_id = new_hook_id()
     params, _truncated, _reason = build_light_params(
         context=context,
         occurrence_id=occurrence_id,

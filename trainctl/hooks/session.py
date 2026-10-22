@@ -15,7 +15,8 @@ from trainctl.hooks.catalog import CALLBACK_BY_NAME
 from trainctl.hooks.discovery import EpochScanState
 from trainctl.hooks.dispatch_heavy import dispatch_heavy
 from trainctl.hooks.dispatch_light import dispatch_light
-from trainctl.hooks.payload import OccurrenceContext, new_id
+from trainctl.hooks.payload.new_hook_id import new_hook_id
+from trainctl.hooks.payload.occurrence_context import OccurrenceContext
 from trainctl.hooks.runner import ExecutionResult
 
 
@@ -125,7 +126,7 @@ class HookSession:
             world_size=self.world_size,
         )
         self._tmp_root.mkdir(mode=0o700, parents=True, exist_ok=True)
-        occurrence_id = new_id()
+        occurrence_id = new_hook_id()
         args = arguments or {}
         light_result = dispatch_light(
             self.live_dir,

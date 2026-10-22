@@ -12,15 +12,13 @@ from typing import Any
 
 from trainctl.hooks.is_hook_failure import is_hook_failure
 from trainctl.hooks.log_hook_failure import log_hook_failure
-from trainctl.hooks.payload import (
-    HeavyCaptureFailure,
-    OccurrenceContext,
-    build_heavy_manifest,
-    export_tensors,
-    new_id,
-    prepare_heavy_export,
-    write_json_file,
-)
+from trainctl.hooks.payload.build_heavy_manifest import build_heavy_manifest
+from trainctl.hooks.payload.export_tensors import export_tensors
+from trainctl.hooks.payload.heavy_capture_failure import HeavyCaptureFailure
+from trainctl.hooks.payload.new_hook_id import new_hook_id
+from trainctl.hooks.payload.occurrence_context import OccurrenceContext
+from trainctl.hooks.payload.prepare_heavy_export import prepare_heavy_export
+from trainctl.hooks.payload.write_json_file import write_json_file
 from trainctl.hooks.resolve_enabled_script import resolve_enabled_script
 from trainctl.hooks.runner import ExecutionResult, run_script
 
@@ -54,7 +52,7 @@ def dispatch_heavy(
     """
     if resolve_enabled_script(live_dir, "heavy", context.hook) is None:
         return None
-    invocation_id = new_id()
+    invocation_id = new_hook_id()
     prepared = prepare_heavy_export(
         arguments,
         tensor_arg_names,
