@@ -48,7 +48,12 @@ from trainctl.runtime.graph_inspectors.torchviz_capture_live import (
     torchviz_capture_live,
 )
 from trainctl.runtime.live_capture import LiveCaptureBroker
-from trainctl.runtime.optimizer_surgery import find_adapter, resolve_parameters
+from trainctl.runtime.optimizer_surgery.find_surgery_adapter import (
+    find_surgery_adapter,
+)
+from trainctl.runtime.optimizer_surgery.resolve_optimizer_parameters import (
+    resolve_optimizer_parameters,
+)
 from trainctl.runtime.pipeline_pressure import PipelinePressureTracker
 from trainctl.runtime.profiler import ProfilerRun
 from trainctl.runtime.rank_sync import RankSync
@@ -1243,13 +1248,15 @@ def _handle_reset_momentum(
         raise ValueError("reset_momentum requires optimizer_surgery_enabled")
     optimizer_index = command.args["optimizer"]
     optimizer = _optimizer_at(trainer.optimizers, optimizer_index)
-    adapter = find_adapter(optimizer)
+    adapter = find_surgery_adapter(optimizer)
     if adapter is None:
         raise ValueError(
             "optimizer_surgery_unsupported: no reset_momentum adapter for "
             f"{type(optimizer).__module__}.{type(optimizer).__name__}"
         )
-    parameters = resolve_parameters(pl_module, optimizer, command.args["selector"])
+    parameters = resolve_optimizer_parameters(
+        pl_module, optimizer, command.args["selector"]
+    )
     result = adapter.reset_momentum(optimizer, parameters)
     return {"optimizer": optimizer_index, **result}
 

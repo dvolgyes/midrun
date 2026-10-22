@@ -7,12 +7,16 @@ from trainctl.config import TrainctlConfig
 from trainctl.load_backend import load_backend
 from trainctl.runtime.commands.command import Command
 from trainctl.runtime.commands.parse_when import parse_when
-from trainctl.runtime.optimizer_surgery import (
+from trainctl.runtime.optimizer_surgery.adam_surgery_adapter import (
     AdamSurgeryAdapter,
-    SGDSurgeryAdapter,
-    find_adapter,
-    resolve_parameters,
 )
+from trainctl.runtime.optimizer_surgery.find_surgery_adapter import (
+    find_surgery_adapter,
+)
+from trainctl.runtime.optimizer_surgery.resolve_optimizer_parameters import (
+    resolve_optimizer_parameters,
+)
+from trainctl.runtime.optimizer_surgery.sgd_surgery_adapter import SGDSurgeryAdapter
 from trainctl.runtime.runtime import TrainctlRuntime
 
 
@@ -77,10 +81,10 @@ def _submit_and_run(
 # ---- adapter unit tests ----
 
 
-def test_find_adapter_returns_none_for_unsupported_optimizer() -> None:
+def test_find_surgery_adapter_returns_none_for_unsupported_optimizer() -> None:
     model = torch.nn.Linear(2, 2)
     optimizer = torch.optim.Adagrad(model.parameters())
-    assert find_adapter(optimizer) is None
+    assert find_surgery_adapter(optimizer) is None
 
 
 def test_sgd_adapter_drops_momentum_buffer() -> None:
@@ -118,53 +122,55 @@ def test_adam_adapter_zeroes_exp_avg_but_not_exp_avg_sq_or_step() -> None:
         assert torch.equal(optimizer.state[p]["step"], before_step[id(p)])
 
 
-def test_resolve_parameters_all_returns_every_param() -> None:
+def test_resolve_optimizer_parameters_all_returns_every_param() -> None:
     model = _Model()
     optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
-    resolved = resolve_parameters(model, optimizer, "all")
+    resolved = resolve_optimizer_parameters(model, optimizer, "all")
     assert len(resolved) == len(list(model.parameters()))
 
 
-def test_resolve_parameters_by_name() -> None:
+def test_resolve_optimizer_parameters_by_name() -> None:
     model = _Model()
     optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
-    resolved = resolve_parameters(model, optimizer, {"parameter": "a.weight"})
+    resolved = resolve_optimizer_parameters(model, optimizer, {"parameter": "a.weight"})
     expected = dict(model.named_parameters())["a.weight"]
     assert len(resolved) == 1
     assert resolved[0] is expected
 
 
-def test_resolve_parameters_by_prefix() -> None:
+def test_resolve_optimizer_parameters_by_prefix() -> None:
     model = _Model()
     optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
-    resolved = resolve_parameters(model, optimizer, {"parameter_prefix": "a."})
+    resolved = resolve_optimizer_parameters(
+        model, optimizer, {"parameter_prefix": "a."}
+    )
     resolved_ids = {id(p) for p in resolved}
     names = {name for name, p in model.named_parameters() if id(p) in resolved_ids}
     assert names == {"a.weight", "a.bias"}
 
 
-def test_resolve_parameters_by_param_group() -> None:
+def test_resolve_optimizer_parameters_by_param_group() -> None:
     model = _Model()
     optimizer = torch.optim.SGD(
         [{"params": model.a.parameters()}, {"params": model.b.parameters()}], lr=0.1
     )
-    resolved = resolve_parameters(model, optimizer, {"param_group": 1})
+    resolved = resolve_optimizer_parameters(model, optimizer, {"param_group": 1})
     expected_ids = {id(p) for p in model.b.parameters()}
     assert {id(p) for p in resolved} == expected_ids
 
 
-def test_resolve_parameters_rejects_unknown_shape() -> None:
+def test_resolve_optimizer_parameters_rejects_unknown_shape() -> None:
     model = _Model()
     optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
     with pytest.raises(ValueError, match="invalid momentum-reset selector"):
-        resolve_parameters(model, optimizer, {"bogus": 1})
+        resolve_optimizer_parameters(model, optimizer, {"bogus": 1})
 
 
-def test_resolve_parameters_rejects_unknown_name() -> None:
+def test_resolve_optimizer_parameters_rejects_unknown_name() -> None:
     model = _Model()
     optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
     with pytest.raises(ValueError, match="no optimizer parameter named"):
-        resolve_parameters(model, optimizer, {"parameter": "does-not-exist"})
+        resolve_optimizer_parameters(model, optimizer, {"parameter": "does-not-exist"})
 
 
 # ---- command handler tests ----
