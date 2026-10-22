@@ -13,7 +13,7 @@ from trainctl.fuse.filesystem import TrainctlFS
 from trainctl.load_backend import load_backend
 from trainctl.runtime import virtual_fs
 from trainctl.runtime.runtime import TrainctlRuntime
-from trainctl.runtime.state import RankInfo
+from trainctl.runtime.state.rank_info import RankInfo
 
 
 def _fs_with_rank(worker_pids: tuple[int, ...] = (111, 222)) -> TrainctlFS:

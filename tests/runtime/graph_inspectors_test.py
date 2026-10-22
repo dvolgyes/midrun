@@ -151,7 +151,9 @@ def test_torchviz_capture_uses_current_step_loss_during_exception_hold(
 ) -> None:
     """During an active exception hold, the actual failed loss's graph is what's
     worth inspecting -- not a fresh, unrelated forward pass."""
-    from trainctl.runtime.state import ExceptionBreakpointInfo
+    from trainctl.runtime.state.exception_breakpoint_info import (
+        ExceptionBreakpointInfo,
+    )
 
     runtime = _make_runtime(tmp_path)
     trainer = _FakeTrainer()
@@ -192,7 +194,9 @@ class _FailingBackward(torch.autograd.Function):
 def test_torchviz_capture_with_default_args_renders_a_loss_whose_backward_raised(
     tmp_path: Path,
 ) -> None:
-    from trainctl.runtime.state import ExceptionBreakpointInfo
+    from trainctl.runtime.state.exception_breakpoint_info import (
+        ExceptionBreakpointInfo,
+    )
 
     runtime = _make_runtime(tmp_path)
     trainer = _FakeTrainer()
@@ -221,7 +225,9 @@ def test_torchviz_capture_with_default_args_renders_a_loss_whose_backward_raised
 def test_torchviz_capture_fails_without_in_flight_loss_during_exception_hold(
     tmp_path: Path,
 ) -> None:
-    from trainctl.runtime.state import ExceptionBreakpointInfo
+    from trainctl.runtime.state.exception_breakpoint_info import (
+        ExceptionBreakpointInfo,
+    )
 
     runtime = _make_runtime(tmp_path)
     trainer = _FakeTrainer()

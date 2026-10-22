@@ -3,7 +3,8 @@
 Single-owner, training-thread-only, mutable scratch state -- never published through
 FUSE/REST directly (it can hold live CUDA tensors and Python references with no
 serializable form). The public `RuntimeSnapshot` only ever receives scalar/serialized
-state derived from it, e.g. `trainctl.runtime.state.ExceptionBreakpointInfo`.
+state derived from it, e.g. `ExceptionBreakpointInfo` in
+`trainctl.runtime.state.exception_breakpoint_info`.
 """
 
 from dataclasses import dataclass

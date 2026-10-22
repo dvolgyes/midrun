@@ -22,7 +22,7 @@ from trainctl.runtime import (
 
 if TYPE_CHECKING:
     from trainctl.runtime.runtime import TrainctlRuntime
-    from trainctl.runtime.state import RankInfo
+    from trainctl.runtime.state.rank_info import RankInfo
 
 
 def _text(value: str) -> bytes:

@@ -11,7 +11,7 @@ from trainctl.fuse.filesystem import TrainctlFS
 from trainctl.load_backend import load_backend
 from trainctl.runtime import virtual_fs
 from trainctl.runtime.runtime import TrainctlRuntime
-from trainctl.runtime.state import ExceptionBreakpointInfo
+from trainctl.runtime.state.exception_breakpoint_info import ExceptionBreakpointInfo
 
 
 def _make_fs(**overrides: object) -> TrainctlFS:
