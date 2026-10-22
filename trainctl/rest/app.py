@@ -6,9 +6,7 @@ thread); the Lightning training thread executes commands from
 see the module docstring in `trainctl.runtime.runtime`.
 """
 
-import asyncio
 import json
-import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
@@ -18,14 +16,16 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
+from trainctl.rest.command_dict import command_dict
+from trainctl.rest.parse_when_or_400 import parse_when_or_400
 from trainctl.rest.schemas.checkpoint_in import CheckpointIn
 from trainctl.rest.schemas.command_in import CommandIn
 from trainctl.rest.schemas.debug_capture_in import DebugCaptureIn
 from trainctl.rest.schemas.hold_in import HoldIn
 from trainctl.rest.schemas.snapshot_in import SnapshotIn
+from trainctl.rest.wait_for_command import wait_for_command
 from trainctl.runtime import inspectors_registry
 from trainctl.runtime.command_args.validate_command_args import InvalidCommandError
-from trainctl.runtime.commands.command import Command
 from trainctl.runtime.commands.parse_when import parse_when
 from trainctl.runtime.cuda_memory.cheap_cuda_memory_stats import (
     cheap_cuda_memory_stats,
@@ -208,23 +208,23 @@ def build_app(runtime: "TrainctlRuntime") -> FastAPI:
 
     @app.get("/commands")
     def list_commands() -> list[dict[str, Any]]:
-        return [_command_dict(command) for command in runtime.command_queue.list_all()]
+        return [command_dict(command) for command in runtime.command_queue.list_all()]
 
     @app.get("/commands/{command_id}")
     def get_command(command_id: str) -> dict[str, Any]:
         command = runtime.command_queue.get(command_id)
         if command is None:
             raise HTTPException(status_code=404, detail="unknown command id")
-        return _command_dict(command)
+        return command_dict(command)
 
     @app.post("/commands")
     def submit_command(body: CommandIn) -> dict[str, Any]:
         if body.kind == "release_exception" and runtime.state.read().exception is None:
             raise HTTPException(status_code=409, detail="no exception hold is active")
-        when = _parse_when_or_400(body.execution.when)
+        when = parse_when_or_400(body.execution.when)
         command = runtime.command_queue.submit(body.kind, body.args, when)
         runtime.gate.notify()
-        return _command_dict(command)
+        return command_dict(command)
 
     @app.get("/holds")
     def list_holds() -> dict[str, Any]:
@@ -232,11 +232,11 @@ def build_app(runtime: "TrainctlRuntime") -> FastAPI:
         active = runtime.gate.active_hold()
         held = active is not None or runtime.state.read().exception is not None
         return {
-            "holds": [_command_dict(c) for c in commands if c.kind == "hold"],
+            "holds": [command_dict(c) for c in commands if c.kind == "hold"],
             "active": asdict(active) if active else None,
             # A hold runs only some kinds; the other queued commands wait for its end.
             "waiting": [
-                _command_dict(c)
+                command_dict(c)
                 for c in commands
                 if held and c.kind != "hold" and c.status == "queued"
             ],
@@ -245,13 +245,13 @@ def build_app(runtime: "TrainctlRuntime") -> FastAPI:
     # Async, so a request that waits for its hold uses no worker thread.
     @app.post("/holds", response_model=None)
     async def arm_hold(body: HoldIn) -> dict[str, Any] | JSONResponse:
-        when = _parse_when_or_400(body.when)
+        when = parse_when_or_400(body.when)
         command = runtime.command_queue.submit("hold", {"reason": body.reason}, when)
         runtime.gate.notify()
-        command = await _wait_for_command(runtime, command.id, timeout_s=body.timeout_s)
+        command = await wait_for_command(runtime, command.id, timeout_s=body.timeout_s)
         if command.status == "queued":
-            return JSONResponse(status_code=202, content=_command_dict(command))
-        return _command_dict(command)
+            return JSONResponse(status_code=202, content=command_dict(command))
+        return command_dict(command)
 
     @app.post("/holds/{command_id}/cancel")
     def cancel_hold(command_id: str) -> dict[str, Any]:
@@ -295,23 +295,23 @@ def build_app(runtime: "TrainctlRuntime") -> FastAPI:
     def control_stop() -> dict[str, Any]:
         command = runtime.command_queue.submit("stop", {}, parse_when("now"))
         runtime.gate.notify()
-        return _command_dict(command)
+        return command_dict(command)
 
     @app.post("/checkpoints")
     def create_checkpoint(body: CheckpointIn) -> dict[str, Any]:
-        when = _parse_when_or_400(body.when)
+        when = parse_when_or_400(body.when)
         command = runtime.command_queue.submit(
             "checkpoint", {"label": body.label}, when
         )
         runtime.gate.notify()
-        return _command_dict(command)
+        return command_dict(command)
 
     @app.post("/snapshots")
     def create_snapshot(body: SnapshotIn) -> dict[str, Any]:
-        when = _parse_when_or_400(body.when)
+        when = parse_when_or_400(body.when)
         command = runtime.command_queue.submit("snapshot", {"kind": body.kind}, when)
         runtime.gate.notify()
-        return _command_dict(command)
+        return command_dict(command)
 
     @app.get("/artifacts")
     def list_artifacts() -> dict[str, Any]:
@@ -415,52 +415,3 @@ def build_app(runtime: "TrainctlRuntime") -> FastAPI:
         return Response(content=content, media_type=media_type)
 
     return app
-
-
-def _command_dict(command: Command) -> dict[str, Any]:
-    return {
-        "id": command.id,
-        "kind": command.kind,
-        "args": command.args,
-        "status": command.status,
-        "result": command.result,
-        "error": command.error,
-        "created_at": command.created_at,
-    }
-
-
-async def _wait_for_command(
-    runtime: "TrainctlRuntime",
-    command_id: str,
-    timeout_s: float,
-    poll_interval_s: float = 0.05,
-) -> Command:
-    """Polls until `command_id` leaves `queued`, or `timeout_s` elapses.
-
-    A hold command moves straight from `queued` to `succeeded`/`failed` synchronously
-    on the training thread the instant `RunGate.enter` returns (see
-    `TrainctlRuntime._execute`), so this doubles as "wait for the hold to actually
-    engage." A command still `queued` when this returns hasn't reached its safe point
-    yet -- e.g. a `train_epoch_end` hold armed mid-epoch -- and stays pollable via
-    `GET /commands/{id}` or `GET /holds`.
-    """
-    deadline = time.monotonic() + timeout_s
-    command = runtime.command_queue.get(command_id)
-    while (
-        command is not None
-        and command.status == "queued"
-        and time.monotonic() < deadline
-    ):
-        await asyncio.sleep(poll_interval_s)
-        command = runtime.command_queue.get(command_id)
-    assert command is not None, (
-        f"command {command_id!r} vanished from the queue while waiting"
-    )
-    return command
-
-
-def _parse_when_or_400(raw: Any) -> Any:
-    try:
-        return parse_when(raw)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
