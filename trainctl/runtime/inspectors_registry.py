@@ -5,13 +5,16 @@ and the FUSE `/model/inspectors.json` projection so availability logic is never
 duplicated between the two surfaces.
 """
 
-from trainctl.runtime import graph_inspectors, torchinfo_inspector, torchlens_inspector
+from trainctl.runtime import graph_inspectors, torchlens_inspector
+from trainctl.runtime.torchinfo_inspector.torchinfo_available import (
+    torchinfo_available,
+)
 
 
 def availability_snapshot() -> dict[str, dict[str, bool]]:
     """Returns each optional-package inspector's current availability."""
     return {
-        "torchinfo": {"available": torchinfo_inspector.available()},
+        "torchinfo": {"available": torchinfo_available()},
         "torchview": {"available": graph_inspectors.torchview_available()},
         "torchviz": {"available": graph_inspectors.torchviz_available()},
         "torchlens": {"available": torchlens_inspector.available()},

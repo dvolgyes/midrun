@@ -16,10 +16,12 @@ from trainctl.runtime import (
     forward_input,
     graph_inspectors,
     inspectors_registry,
-    torchinfo_inspector,
 )
 from trainctl.runtime.cuda_memory.cheap_cuda_memory_stats import (
     cheap_cuda_memory_stats,
+)
+from trainctl.runtime.torchinfo_inspector.torchinfo_rich_summary import (
+    torchinfo_rich_summary,
 )
 
 if TYPE_CHECKING:
@@ -213,7 +215,7 @@ def _live_model_summary(rt: "TrainctlRuntime") -> bytes:
     def compute(pl_module: Any) -> str:
         batch = _require_in_flight_batch(rt, "model/summary-live.txt")
         target = forward_input.resolve(pl_module, batch)
-        return torchinfo_inspector.rich_summary(pl_module, target)["summary.txt"]
+        return torchinfo_rich_summary(pl_module, target)["summary.txt"]
 
     return _text(rt.live_captures.request(compute, timeout=_LIVE_CAPTURE_TIMEOUT_S))
 

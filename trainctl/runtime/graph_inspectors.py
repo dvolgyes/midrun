@@ -119,7 +119,7 @@ def torchviz_capture_live(
     backward (`retain_graph=False`) has freed its saved tensors -- this computes a
     new output whose graph has never been backwarded. Runs in eval mode (restored
     afterward) so it doesn't perturb BatchNorm running stats mid-training, matching
-    `torchinfo_inspector.rich_summary`'s own guarantee.
+    `torchinfo_rich_summary`'s own guarantee.
 
     Raises:
         ImportError: torchviz or the `dot` binary is unavailable.

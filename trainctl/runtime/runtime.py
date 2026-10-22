@@ -31,7 +31,6 @@ from trainctl.runtime import (
     forward_input,
     graph_inspectors,
     hparam_registry,
-    torchinfo_inspector,
     torchlens_inspector,
 )
 from trainctl.runtime.artifacts import ArtifactStore
@@ -55,6 +54,15 @@ from trainctl.runtime.state.initial_snapshot import initial_snapshot
 from trainctl.runtime.state.rank_info import RankInfo
 from trainctl.runtime.state.scalar_metric import ScalarMetric
 from trainctl.runtime.state.state_store import StateStore
+from trainctl.runtime.torchinfo_inspector.basic_summary_json import (
+    basic_summary_json,
+)
+from trainctl.runtime.torchinfo_inspector.basic_summary_text import (
+    basic_summary_text,
+)
+from trainctl.runtime.torchinfo_inspector.torchinfo_rich_summary import (
+    torchinfo_rich_summary,
+)
 from trainctl.torch_debug.manager import TorchDebugManager
 
 _ALLOWED_DURING_HOLD = frozenset(
@@ -269,8 +277,8 @@ class TrainctlRuntime:
         """Publishes the first full-fidelity snapshot once the Trainer is attached."""
         self._model_class_name = type(pl_module).__name__
         self._model_hparams = dict(getattr(pl_module, "hparams", {}))
-        self._model_summary = torchinfo_inspector.basic_summary_text(pl_module)
-        self._model_summary_json = torchinfo_inspector.basic_summary_json(pl_module)
+        self._model_summary = basic_summary_text(pl_module)
+        self._model_summary_json = basic_summary_json(pl_module)
         self._tunable_hparam_specs = hparam_registry.collect_tunable_hparams(
             type(pl_module)
         )
@@ -1373,7 +1381,7 @@ def _handle_torchinfo_capture(
     if runtime.current_step.batch is None:
         raise ValueError("torchinfo_capture requires an in-flight batch")
     target = forward_input.resolve(pl_module, runtime.current_step.batch)
-    files = torchinfo_inspector.rich_summary(pl_module, target)
+    files = torchinfo_rich_summary(pl_module, target)
     return runtime.artifacts.write_debug_capture("torchinfo-summary", files)
 
 

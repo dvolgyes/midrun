@@ -8,10 +8,18 @@ import torch
 
 from trainctl.config import TrainctlConfig
 from trainctl.load_backend import load_backend
-from trainctl.runtime import torchinfo_inspector
 from trainctl.runtime.artifacts import ArtifactStore
 from trainctl.runtime.commands.parse_when import parse_when
 from trainctl.runtime.runtime import TrainctlRuntime
+from trainctl.runtime.torchinfo_inspector.basic_summary_json import (
+    basic_summary_json,
+)
+from trainctl.runtime.torchinfo_inspector.basic_summary_text import (
+    basic_summary_text,
+)
+from trainctl.runtime.torchinfo_inspector.torchinfo_rich_summary import (
+    torchinfo_rich_summary,
+)
 
 
 class _Model(torch.nn.Module):
@@ -50,7 +58,7 @@ def test_basic_summary_json_counts_params_without_torchinfo(
 ) -> None:
     monkeypatch.setitem(sys.modules, "torchinfo", None)
     model = _Model()
-    payload = torchinfo_inspector.basic_summary_json(model)
+    payload = basic_summary_json(model)
     assert payload["total_params"] == 10
     assert payload["trainable_params"] == 10
     assert payload["non_trainable_params"] == 0
@@ -62,12 +70,12 @@ def test_basic_summary_text_falls_back_to_str_without_torchinfo(
 ) -> None:
     monkeypatch.setitem(sys.modules, "torchinfo", None)
     model = _Model()
-    assert torchinfo_inspector.basic_summary_text(model) == str(model)
+    assert basic_summary_text(model) == str(model)
 
 
 def test_basic_summary_text_uses_torchinfo_when_available() -> None:
     model = _Model()
-    text = torchinfo_inspector.basic_summary_text(model)
+    text = basic_summary_text(model)
     assert "Total params" in text
 
 
@@ -77,7 +85,7 @@ def test_rich_summary_raises_without_torchinfo(
     monkeypatch.setitem(sys.modules, "torchinfo", None)
     model = _Model()
     with pytest.raises(ImportError):
-        torchinfo_inspector.rich_summary(model, torch.randn(3, 4))
+        torchinfo_rich_summary(model, torch.randn(3, 4))
 
 
 def test_rich_summary_does_not_perturb_batchnorm_running_stats() -> None:
@@ -93,7 +101,7 @@ def test_rich_summary_does_not_perturb_batchnorm_running_stats() -> None:
     model.train()
     running_mean_before = model.bn.running_mean.clone()
 
-    torchinfo_inspector.rich_summary(model, torch.randn(8, 4) * 10 + 5)
+    torchinfo_rich_summary(model, torch.randn(8, 4) * 10 + 5)
 
     assert model.training is True
     assert torch.equal(running_mean_before, model.bn.running_mean)
