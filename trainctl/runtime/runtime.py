@@ -25,7 +25,7 @@ from trainctl.fuse import mountpoint_check, process_guard
 from trainctl.hooks.manager import bootstrap_hooks_tree
 from trainctl.hooks.session import HandleResult, HookSession
 from trainctl.lightning_backend import LightningBackend
-from trainctl.logging import LoggingSession
+from trainctl.logging.logging_session import LoggingSession
 from trainctl.runtime import (
     command_args,
     forward_input,

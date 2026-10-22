@@ -6,7 +6,9 @@ import logging
 import pytest
 from loguru import logger
 
-from trainctl.logging import LoggingSession, _LoguruBridgeHandler, install_root_bridge
+from trainctl.logging.install_root_bridge import install_root_bridge
+from trainctl.logging.logging_session import LoggingSession
+from trainctl.logging.loguru_bridge_handler import LoguruBridgeHandler
 
 _NAME = "lightning.pytorch"
 
@@ -218,9 +220,7 @@ def test_install_on_an_already_installed_session_is_a_noop() -> None:
     try:
         session.install()  # must not raise, must not re-save state
         std_logger = logging.getLogger(_NAME)
-        assert (
-            sum(isinstance(h, _LoguruBridgeHandler) for h in std_logger.handlers) == 1
-        )
+        assert sum(isinstance(h, LoguruBridgeHandler) for h in std_logger.handlers) == 1
     finally:
         session.close()
 
