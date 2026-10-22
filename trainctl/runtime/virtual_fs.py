@@ -118,7 +118,7 @@ _STATIC_FILES: dict[str, Callable[["TrainctlRuntime"], bytes]] = {
     "/meta/rest/port": lambda rt: _text(str(rt._rest_port) if rt._rest_port else ""),
     "/meta/rest/url": lambda rt: _text(rt.rest_url or ""),
     "/meta/pytorch-debug/enabled": lambda rt: _text(
-        _bool(rt.config.torch_debug_enabled)
+        _bool(rt.torch_debug.frontend_url is not None)
     ),
     "/meta/pytorch-debug/port": lambda rt: _text(
         str(rt.torch_debug._selected_port or "")
@@ -255,9 +255,7 @@ def _rank_field_values(rank: "RankInfo") -> dict[str, str]:
     }
 
 
-def _resolve_rank(
-    parts: list[str], ranks: tuple["RankInfo", ...]
-) -> "RankInfo | None":
+def _resolve_rank(parts: list[str], ranks: tuple["RankInfo", ...]) -> "RankInfo | None":
     index = _index_at(parts, 3, len(ranks))
     return ranks[index] if index is not None else None
 

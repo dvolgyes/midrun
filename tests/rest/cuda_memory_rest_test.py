@@ -88,3 +88,13 @@ def test_get_cuda_memory_history_rejects_a_max_entries_below_one(
         assert runtime.cuda_memory_history.enabled is False
     finally:
         cuda_memory.set_history(False, max_entries=None)
+
+
+def test_cuda_memory_snapshot_gives_a_url_for_its_files(tmp_path: Path) -> None:
+    client, _runtime = _client(tmp_path)
+
+    manifest = client.get("/debug/cuda-memory/snapshot").json()
+
+    summary = client.get(f"{manifest['files_url']}/summary.json")
+    assert summary.status_code == 200, summary.text
+    assert isinstance(summary.json(), dict)

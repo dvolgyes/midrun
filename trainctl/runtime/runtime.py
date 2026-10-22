@@ -119,6 +119,8 @@ class TrainctlRuntime:
             declared via the dict form also carry `min`/`max`/`label`.
     """
 
+    _unreadable_hparams_reported: set[str]
+
     def __init__(self, config: TrainctlConfig, backend: LightningBackend) -> None:
         self.config = config
         self.backend = backend
@@ -172,6 +174,7 @@ class TrainctlRuntime:
         self.live_captures = LiveCaptureBroker()
         self.tunable_hparams: dict[str, hparam_registry.HparamValue] = {}
         self._tunable_hparam_specs: dict[str, hparam_registry.TunableHparamSpec] = {}
+        self._unreadable_hparams_reported = set()
 
         self._hook_session: HookSession | None = None
         self._logging_session: LoggingSession | None = None
@@ -394,7 +397,7 @@ class TrainctlRuntime:
 
         Reassigns the whole dict rather than mutating it in place, matching
         `cuda_memory_history`/`profiler_run`'s thread-safety idiom. A single
-        unreadable knob is logged and skipped rather than blanking the rest.
+        unreadable knob is logged once and skipped rather than blanking the rest.
         """
         fresh: dict[str, hparam_registry.HparamValue] = {}
         for name, spec in self._tunable_hparam_specs.items():
@@ -407,7 +410,11 @@ class TrainctlRuntime:
                     described, min=spec.min, max=spec.max, label=spec.label
                 )
             except Exception as exc:  # noqa: BLE001 -- one broken knob must not blank the dict
-                logger.warning("trainctl tunable hparam {!r} unreadable: {}", name, exc)
+                if name not in self._unreadable_hparams_reported:
+                    self._unreadable_hparams_reported.add(name)
+                    logger.warning(
+                        "trainctl tunable hparam {!r} unreadable: {}", name, exc
+                    )
         self.tunable_hparams = fresh
 
     def _hold_loop(self, pl_module: Any, trainer: Any) -> None:

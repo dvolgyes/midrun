@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 import torch
+from loguru import logger
 
 from trainctl.config import TrainctlConfig
 from trainctl.lightning_backend import load_backend
@@ -101,6 +102,28 @@ def test_tunable_hparams_reflects_direct_attribute_changes_after_safe_point(
     runtime.process_safe_point(model, SafePoint.TRAIN_BATCH_END)
 
     assert runtime.tunable_hparams["augmentation_strength"].value == 0.3
+
+
+class _UnreadableHparamModel(_Model):
+    trainctl_tunable_hparams = ["missing_attribute"]
+
+
+def test_an_unreadable_hparam_is_reported_once(tmp_path: Path) -> None:
+    runtime = _make_runtime(tmp_path)
+    model = _UnreadableHparamModel()
+    model.trainer = _FakeTrainer()
+    runtime._gather_ranks(model)
+    messages: list[str] = []
+    sink_id = logger.add(messages.append, level="WARNING", format="{message}")
+    try:
+        runtime.on_fit_start(model)
+        runtime.process_safe_point(model, SafePoint.TRAIN_BATCH_END)
+        runtime.process_safe_point(model, SafePoint.TRAIN_BATCH_END)
+    finally:
+        logger.remove(sink_id)
+
+    assert len([m for m in messages if "missing_attribute" in m]) == 1
+    assert "missing_attribute" not in runtime.tunable_hparams
 
 
 def test_unregistered_model_has_no_tunable_hparams(tmp_path: Path) -> None:

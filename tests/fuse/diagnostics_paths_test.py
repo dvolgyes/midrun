@@ -24,7 +24,9 @@ def _make_fs(**overrides: object) -> TrainctlFS:
 
 def test_breakpoint_json_is_null_when_no_exception_held() -> None:
     fs = _make_fs()
-    assert json.loads(virtual_fs.generate(fs._runtime, "/state/breakpoint.json")) is None
+    assert (
+        json.loads(virtual_fs.generate(fs._runtime, "/state/breakpoint.json")) is None
+    )
 
 
 def test_breakpoint_json_reports_active_exception() -> None:
@@ -57,14 +59,19 @@ def test_dataloader_finite_check_json_reflects_guard_state() -> None:
 
 def test_pipeline_config_json_reflects_config() -> None:
     fs = _make_fs(pipeline_pressure_enabled=True, pipeline_pressure_window=64)
-    payload = json.loads(virtual_fs.generate(fs._runtime, "/state/pipeline/config.json"))
+    payload = json.loads(
+        virtual_fs.generate(fs._runtime, "/state/pipeline/config.json")
+    )
     assert payload == {"enabled": True, "window": 64}
     assert virtual_fs.is_virtual_dir(fs._runtime, "/state/pipeline")
 
 
 def test_pipeline_latest_json_is_null_before_first_batch() -> None:
     fs = _make_fs()
-    assert json.loads(virtual_fs.generate(fs._runtime, "/state/pipeline/latest.json")) is None
+    assert (
+        json.loads(virtual_fs.generate(fs._runtime, "/state/pipeline/latest.json"))
+        is None
+    )
 
 
 def test_pipeline_latest_and_summary_json_after_a_batch() -> None:
@@ -75,5 +82,18 @@ def test_pipeline_latest_and_summary_json_after_a_batch() -> None:
     latest = json.loads(virtual_fs.generate(fs._runtime, "/state/pipeline/latest.json"))
     assert latest["batch_total_ns"] == 1_000
 
-    summary = json.loads(virtual_fs.generate(fs._runtime, "/state/pipeline/summary.json"))
+    summary = json.loads(
+        virtual_fs.generate(fs._runtime, "/state/pipeline/summary.json")
+    )
     assert summary["samples"] == 1
+
+
+def test_pytorch_debug_enabled_is_false_until_the_server_runs() -> None:
+    config = TrainctlConfig(
+        rest_enabled=False, fuse_enabled=False, torch_debug_enabled=True
+    )
+    runtime = TrainctlRuntime(config, load_backend("lightning.pytorch"))
+
+    enabled = virtual_fs.generate(runtime, "/meta/pytorch-debug/enabled")
+
+    assert enabled == b"false\n"

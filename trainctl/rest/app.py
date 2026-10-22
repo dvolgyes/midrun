@@ -348,13 +348,15 @@ def build_app(runtime: "TrainctlRuntime") -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         stats = cuda_memory.cheap_stats()
-        return runtime.artifacts.write_debug_capture(
+        manifest = runtime.artifacts.write_debug_capture(
             "cuda-memory",
             {
                 "snapshot.pickle": snapshot_bytes,
                 "summary.json": json.dumps(stats, indent=2),
             },
         )
+        manifest["files_url"] = f"/artifact-files/debug/{manifest['id']}"
+        return manifest
 
     @app.get("/debug/cuda-memory/history")
     def cuda_memory_history(
