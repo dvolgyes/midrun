@@ -82,7 +82,8 @@ def bootstrap_hooks_tree(
         if record is None:
             raise HooksBootstrapError(
                 f"{marker_path} exists but is not a readable, compatible Trainctl hooks marker; "
-                "refusing to reuse or overwrite it"
+                "refusing to reuse or overwrite it. To start the hooks tree again, delete it and "
+                f"the hooks directory {live_dir}, then restart the run."
             )
         if source_dir is not None and record.get("source_dir") != str(source_dir):
             log.warning(

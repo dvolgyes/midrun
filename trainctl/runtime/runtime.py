@@ -282,6 +282,8 @@ class TrainctlRuntime:
         base_dir = _default_base_dir(pl_module, self.run_id)
         session_id = _new_hooks_session_id()
         logging_session = LoggingSession(session_id)
+        # Set before the bootstrap can fail, so on_exception's finalize closes the bridge.
+        self._logging_session = logging_session
         if self.config.intercept_lightning_logging:
             logging_session.install()
         if self.config.run_log_enabled:
@@ -304,7 +306,6 @@ class TrainctlRuntime:
         live_dir = bootstrap_hooks_tree(
             base_dir, self.config.hooks_source_dir, session_id=session_id, log=log
         )
-        self._logging_session = logging_session
         self._hook_session = HookSession(
             live_dir,
             session_id=session_id,

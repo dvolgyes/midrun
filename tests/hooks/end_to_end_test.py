@@ -15,6 +15,7 @@ import torch
 from lightning.pytorch.callbacks import ModelCheckpoint
 from torch.utils.data import DataLoader, TensorDataset
 
+from trainctl.hooks.manager import HooksBootstrapError
 from trainctl.mixin import TrainctlMixin
 
 _SHELL = shutil.which("bash")
@@ -359,3 +360,18 @@ def test_subclass_configure_callbacks_override_preserves_both(tmp_path) -> None:
     assert marker == [True]
     assert any(isinstance(cb, _OwnCallback) for cb in trainer.callbacks)
     assert any(type(cb).__name__ == "TrainctlHooksCallback" for cb in trainer.callbacks)
+
+
+def test_failed_hooks_bootstrap_lets_a_later_fit_run(tmp_path) -> None:
+    marker = tmp_path / _MARKER_NAME
+    marker.write_text("garbage")
+    model = _TinyModelLP(**_base_kwargs())
+
+    for _ in range(2):
+        with pytest.raises(HooksBootstrapError, match="delete it and the hooks"):
+            _make_trainer(tmp_path).fit(model, _make_loader())
+    assert model._trainctl._logging_session is None
+
+    marker.unlink()
+    _make_trainer(tmp_path).fit(model, _make_loader())
+    assert _read_marker(tmp_path)["session_id"]
