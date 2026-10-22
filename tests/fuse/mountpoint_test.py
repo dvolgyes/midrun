@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from trainctl.config import TrainctlConfig
-from trainctl.lightning_backend import load_backend
+from trainctl.load_backend import load_backend
 from trainctl.runtime.runtime import TrainctlRuntime
 
 # Mounts an empty filesystem with the given fsname and serves it until killed.

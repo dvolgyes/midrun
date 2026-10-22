@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from trainctl.config import TrainctlConfig
-from trainctl.lightning_backend import load_backend
+from trainctl.load_backend import load_backend
 from trainctl.rest.app import build_app
 from trainctl.runtime.artifacts import ArtifactStore
 from trainctl.runtime.commands import parse_when

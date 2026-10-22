@@ -9,7 +9,7 @@ import pytest
 import torch
 
 from trainctl.config import TrainctlConfig
-from trainctl.lightning_backend import load_backend
+from trainctl.load_backend import load_backend
 from trainctl.runtime.artifacts import ArtifactStore
 from trainctl.runtime.commands import Command, parse_when
 from trainctl.runtime.runtime import TrainctlRuntime

@@ -10,7 +10,7 @@ import pytest
 
 from trainctl.config import TrainctlConfig
 from trainctl.fuse.filesystem import TrainctlFS
-from trainctl.lightning_backend import load_backend
+from trainctl.load_backend import load_backend
 from trainctl.runtime import virtual_fs
 from trainctl.runtime.runtime import TrainctlRuntime
 from trainctl.runtime.state import RankInfo

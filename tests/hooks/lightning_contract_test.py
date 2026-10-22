@@ -11,7 +11,7 @@ import pytest
 
 from trainctl.hooks.catalog import CALLBACK_NAMES, CALLBACKS
 from trainctl.hooks.lightning import _HookMethods, build_hooks_callback_class
-from trainctl.lightning_backend import load_backend
+from trainctl.load_backend import load_backend
 
 _BACKEND_NAMES = ("lightning.pytorch", "pytorch_lightning")
 

@@ -101,7 +101,7 @@ _MOUNT_AND_WAIT = """
 import sys, time
 from pathlib import Path
 from trainctl.config import TrainctlConfig
-from trainctl.lightning_backend import load_backend
+from trainctl.load_backend import load_backend
 from trainctl.runtime.runtime import TrainctlRuntime
 
 class _Module:

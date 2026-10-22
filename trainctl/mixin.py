@@ -24,11 +24,9 @@ from pathlib import Path
 from typing import Any
 
 from trainctl.config import TrainctlConfig
+from trainctl.detect_lightning_backend_from_mro import detect_lightning_backend_from_mro
 from trainctl.hooks.lightning import build_hooks_callback_class
-from trainctl.lightning_backend import (
-    LightningBackend,
-    detect_lightning_backend_from_mro,
-)
+from trainctl.lightning_backend import LightningBackend
 from trainctl.runtime.events import SafePoint
 from trainctl.runtime.runtime import TrainctlRuntime
 

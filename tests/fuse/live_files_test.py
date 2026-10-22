@@ -16,7 +16,7 @@ import torch
 
 from trainctl.config import TrainctlConfig
 from trainctl.fuse.filesystem import TrainctlFS
-from trainctl.lightning_backend import load_backend
+from trainctl.load_backend import load_backend
 from trainctl.runtime import virtual_fs as fs_module
 from trainctl.runtime.events import SafePoint
 from trainctl.runtime.runtime import TrainctlRuntime
@@ -98,7 +98,9 @@ def test_model_graph_dot_blocks_then_serves_dot_source() -> None:
     assert b"digraph" in content
 
 
-def test_getattr_reports_zero_size_without_computing(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_getattr_reports_zero_size_without_computing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     fs, _runtime = _make_fs()
 
     def _boom(rt: object) -> bytes:
@@ -117,7 +119,9 @@ def test_open_translates_timeout_to_fuse_errno(monkeypatch: pytest.MonkeyPatch) 
     def _raise_timeout(rt: object) -> bytes:
         raise TimeoutError("no safe point reached")
 
-    monkeypatch.setitem(fs_module._LIVE_FILES, "/model/summary-live.txt", _raise_timeout)
+    monkeypatch.setitem(
+        fs_module._LIVE_FILES, "/model/summary-live.txt", _raise_timeout
+    )
 
     with pytest.raises(mfusepy.FuseOSError) as excinfo:
         fs.open("/model/summary-live.txt", 0)

@@ -6,7 +6,7 @@ import httpx2
 import torch.distributed as dist
 
 from trainctl.config import TrainctlConfig
-from trainctl.lightning_backend import load_backend
+from trainctl.load_backend import load_backend
 from trainctl.runtime.runtime import TrainctlRuntime
 
 

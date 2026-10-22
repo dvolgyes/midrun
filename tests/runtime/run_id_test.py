@@ -5,12 +5,12 @@ import subprocess
 import sys
 
 from trainctl.config import TrainctlConfig
-from trainctl.lightning_backend import load_backend
+from trainctl.load_backend import load_backend
 from trainctl.runtime.runtime import TrainctlRuntime
 
 _PRINT_RUN_ID = """
 from trainctl.config import TrainctlConfig
-from trainctl.lightning_backend import load_backend
+from trainctl.load_backend import load_backend
 from trainctl.runtime.runtime import TrainctlRuntime
 print(TrainctlRuntime(TrainctlConfig(), load_backend("lightning.pytorch")).run_id)
 """

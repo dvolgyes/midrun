@@ -8,7 +8,7 @@ import pytest
 import torch
 
 from trainctl.config import TrainctlConfig
-from trainctl.lightning_backend import load_backend
+from trainctl.load_backend import load_backend
 from trainctl.runtime.artifacts import ArtifactStore
 from trainctl.runtime.commands import parse_when
 from trainctl.runtime.profiler import ProfilerRun
@@ -62,7 +62,9 @@ def test_profiler_run_rejects_invalid_step_counts() -> None:
 
 
 def test_profiler_run_completes_after_warmup_plus_active_steps() -> None:
-    run = ProfilerRun("p1", warmup_steps=1, active_steps=2, level="basic", then_hold=False)
+    run = ProfilerRun(
+        "p1", warmup_steps=1, active_steps=2, level="basic", then_hold=False
+    )
     run.start()
     x = torch.randn(8, 8)
     assert run.step() is False

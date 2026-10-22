@@ -14,7 +14,7 @@ import pytest
 
 from trainctl.config import TrainctlConfig
 from trainctl.fuse.filesystem import TrainctlFS
-from trainctl.lightning_backend import load_backend
+from trainctl.load_backend import load_backend
 from trainctl.runtime.runtime import TrainctlRuntime
 
 

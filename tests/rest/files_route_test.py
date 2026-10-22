@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from trainctl.config import TrainctlConfig
-from trainctl.lightning_backend import load_backend
+from trainctl.load_backend import load_backend
 from trainctl.rest.app import build_app
 from trainctl.runtime import virtual_fs
 from trainctl.runtime.runtime import TrainctlRuntime
@@ -71,13 +71,17 @@ def test_get_file_unknown_path_is_404() -> None:
     assert response.status_code == 404
 
 
-def test_get_file_live_view_timeout_maps_to_504(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_file_live_view_timeout_maps_to_504(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     client, _runtime = _client()
 
     def _raise_timeout(rt: object) -> bytes:
         raise TimeoutError("no safe point reached")
 
-    monkeypatch.setitem(virtual_fs._LIVE_FILES, "/model/summary-live.txt", _raise_timeout)
+    monkeypatch.setitem(
+        virtual_fs._LIVE_FILES, "/model/summary-live.txt", _raise_timeout
+    )
 
     response = client.get("/files/model/summary-live.txt")
 
