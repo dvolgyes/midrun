@@ -3,7 +3,7 @@
 py-spy's dump mode pauses the target just long enough to read its memory and
 reconstruct Python frames -- it never makes the target execute injected code, so
 it is structurally immune to the CUDA/autograd deadlock class documented in
-`gdb_capture`'s module docstring. Peer of `gdb_capture.capture`: equally
+`gdb_capture`'s module docstring. Peer of `gdb_capture.gdb_capture`: equally
 supported, not a "safe default" for a "risky opt-in" -- reach for this whenever a
 read-only stack/locals dump is enough, and for `gdb_capture` when you need to
 mutate live state or call an arbitrary live function instead.

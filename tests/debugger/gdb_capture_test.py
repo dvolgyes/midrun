@@ -18,8 +18,13 @@ from pathlib import Path
 
 import pytest
 
+from trainctl.debugger.gdb_capture.check_gdb_available import (
+    GdbUnavailableError,
+    check_gdb_available,
+)
+
 try:
-    from trainctl.debugger import gdb_capture
+    from trainctl.debugger.gdb_capture.gdb_capture import gdb_capture
 except ImportError:
     gdb_capture = None  # type: ignore[assignment]
 
@@ -84,12 +89,12 @@ def _no_gdb_processes_targeting(pid: int) -> bool:
 
 
 def test_check_gdb_available_ok() -> None:
-    gdb_capture.check_gdb_available()
+    check_gdb_available()
 
 
 def test_check_gdb_available_missing_binary_raises() -> None:
-    with pytest.raises(gdb_capture.GdbUnavailableError):
-        gdb_capture.check_gdb_available("definitely-not-a-real-gdb-binary")
+    with pytest.raises(GdbUnavailableError):
+        check_gdb_available("definitely-not-a-real-gdb-binary")
 
 
 def test_capture_reads_live_variable(target_process: subprocess.Popen[bytes]) -> None:
@@ -100,7 +105,7 @@ def test_capture_reads_live_variable(target_process: subprocess.Popen[bytes]) ->
         "with open({out_path}, 'w') as f:\n"
         "    json.dump(report, f)\n"
     )
-    result = gdb_capture.capture(target_process.pid, snippet, poll_timeout_s=15)
+    result = gdb_capture(target_process.pid, snippet, poll_timeout_s=15)
     assert result["pid"] == target_process.pid
     assert isinstance(result["counter"], int)
 
@@ -114,7 +119,7 @@ def test_capture_snippet_with_literal_braces_survives_placeholder_substitution(
         "with open({out_path}, 'w') as f:\n"
         "    json.dump(report, f)\n"
     )
-    result = gdb_capture.capture(target_process.pid, snippet, poll_timeout_s=15)
+    result = gdb_capture(target_process.pid, snippet, poll_timeout_s=15)
     assert result == {"a": {"nested": 1}, "b": [1, 2, 3]}
 
 
@@ -122,7 +127,7 @@ def test_capture_survives_fork_exit_churn(
     churning_target: subprocess.Popen[bytes],
 ) -> None:
     snippet = "import json\nwith open({out_path}, 'w') as f:\n    json.dump({'ok': True}, f)\n"
-    result = gdb_capture.capture(
+    result = gdb_capture(
         churning_target.pid, snippet, poll_timeout_s=20, max_attempts=30
     )
     assert result == {"ok": True}
@@ -133,7 +138,7 @@ def test_no_dangling_gdb_process_after_capture(
     target_process: subprocess.Popen[bytes],
 ) -> None:
     snippet = "import json\nwith open({out_path}, 'w') as f:\n    json.dump({'ok': True}, f)\n"
-    gdb_capture.capture(target_process.pid, snippet, poll_timeout_s=15)
+    gdb_capture(target_process.pid, snippet, poll_timeout_s=15)
     time.sleep(0.5)
     assert _no_gdb_processes_targeting(target_process.pid)
 
@@ -176,6 +181,6 @@ def test_capture_refuses_without_active_hold(
 ) -> None:
     client = HoldClient(fake_trainctl_server)
     with pytest.raises(HoldNotActiveError):
-        gdb_capture.capture(
+        gdb_capture(
             target_process.pid, "pass", hold_client=client, hold_command_id="cmd_x"
         )

@@ -19,7 +19,9 @@ def push_capture(
     *,
     extra_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Persists `result` (from `pyspy_capture.capture`/`gdb_capture.capture`) as a debug artifact.
+    """Persists a capture `result` as a debug artifact.
+
+    `result` comes from `pyspy_capture.capture` or `gdb_capture.gdb_capture`.
 
     Returns:
         The artifact manifest (id, kind, created_at, metadata, files, path).
