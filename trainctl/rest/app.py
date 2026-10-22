@@ -238,11 +238,15 @@ def build_app(runtime: "TrainctlRuntime") -> FastAPI:
 
     @app.post("/control/pause")
     def control_pause() -> dict[str, Any]:
-        command = runtime.command_queue.submit(
+        # A repeated pause queues nothing, so one continue always resumes the run.
+        active = runtime.gate.active_hold()
+        if active is not None:
+            return {"hold_id": active.command_id, "queued": False}
+        command, queued = runtime.command_queue.submit_once(
             "hold", {"reason": "control/pause"}, parse_when("now")
         )
         runtime.gate.notify()
-        return _command_dict(command)
+        return {"hold_id": command.id, "queued": queued}
 
     @app.post("/control/continue")
     def control_continue() -> dict[str, Any]:

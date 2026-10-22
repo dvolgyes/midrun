@@ -176,6 +176,32 @@ class CommandQueue:
             self._commands[command.id] = command
         return command
 
+    def submit_once(
+        self, kind: str, args: dict[str, Any], when: CommandWhen
+    ) -> tuple[Command, bool]:
+        """Returns an equal command that is still queued or executing, else submits one.
+
+        Returns:
+            The command, and whether it was newly submitted.
+        """
+        with self._lock:
+            for command in self._commands.values():
+                if command.status in ("queued", "executing") and (
+                    command.kind,
+                    command.args,
+                    command.when,
+                ) == (kind, args, when):
+                    return command, False
+            command = Command(
+                id=next_id("cmd"),
+                kind=kind,
+                args=args,
+                when=when,
+                created_at=time.time(),
+            )
+            self._commands[command.id] = command
+        return command, True
+
     def get(self, command_id: str) -> Command | None:
         """Returns a command by id, or None."""
         with self._lock:

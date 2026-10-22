@@ -1010,9 +1010,17 @@ def _handle_stop(
     command: Command,
     safe_point: SafePoint | None,
 ) -> dict:
-    del runtime, pl_module, command, safe_point
+    del pl_module, command, safe_point
     trainer.should_stop = True
-    return {"stop": "requested"}
+    # Cancel queued holds before the release, so no later safe point holds the run again.
+    queue = runtime.command_queue
+    cancelled = [
+        held.id
+        for held in queue.list_all()
+        if held.kind == "hold" and queue.cancel(held.id)
+    ]
+    runtime.gate.release()
+    return {"stop": "requested", "cancelled_holds": cancelled}
 
 
 def _handle_checkpoint(
