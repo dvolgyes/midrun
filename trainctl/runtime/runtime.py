@@ -22,6 +22,7 @@ from typing import Any
 from loguru import logger
 
 from trainctl.config import TrainctlConfig
+from trainctl.fuse import process_guard
 from trainctl.hooks.dispatch import HandleResult
 from trainctl.hooks.manager import bootstrap_hooks_tree
 from trainctl.hooks.session import HookSession
@@ -140,6 +141,7 @@ class TrainctlRuntime:
         self._fuse_ops: Any = None
         self._fuse_thread: threading.Thread | None = None
         self._fuse_mountpoint: Path | None = None
+        self._fuse_watcher: Any = None
 
         self._rest_server: Any = None
         self._rest_thread: threading.Thread | None = None
@@ -240,6 +242,13 @@ class TrainctlRuntime:
     def teardown(self, pl_module: Any, stage: str) -> None:
         """Stops Trainctl's services. Idempotent; releases any dangling hold first."""
         del pl_module, stage
+        self._stop_services(final_status="finished")
+
+    def stop_after_failure(self) -> None:
+        """Stops Trainctl's services after an uncaught exception; the final status is `failed`."""
+        self._stop_services(final_status="failed")
+
+    def _stop_services(self, final_status: str) -> None:
         with self._lock:
             if not self._started:
                 return
@@ -249,7 +258,7 @@ class TrainctlRuntime:
         self._guarded("REST shutdown", self._stop_rest)
         self._guarded("FUSE shutdown", self._stop_fuse)
         self._guarded("pytorch distributed debug shutdown", self.torch_debug.stop)
-        self.state.update(status="finished")
+        self.state.update(status=final_status)
 
     # ---- lifecycle hooks --------------------------------------------------------
 
@@ -777,12 +786,18 @@ class TrainctlRuntime:
         ops = TrainctlFS(self)
 
         def _run() -> None:
-            mfusepy.FUSE(ops, str(mountpoint), foreground=True, direct_io=True)
+            mfusepy.FUSE(
+                ops,
+                str(mountpoint),
+                foreground=True,
+                direct_io=True,
+                fsname=process_guard.FUSE_FSNAME,
+            )
 
         thread = threading.Thread(target=_run, name="trainctl-fuse", daemon=True)
-        thread.start()
-        if not ops.wait_ready(timeout=10):
-            raise RuntimeError("FUSE mount did not become ready in time")
+        self._fuse_watcher = process_guard.mount_guarded(
+            mountpoint, thread, ops.wait_ready
+        )
         self._fuse_ops = ops
         self._fuse_thread = thread
         self._fuse_mountpoint = mountpoint
@@ -794,9 +809,13 @@ class TrainctlRuntime:
 
         subprocess.run(["fusermount3", "-u", str(self._fuse_mountpoint)], check=False)  # noqa: S603, S607 -- own mount
         self._fuse_thread.join(timeout=5)
+        if self._fuse_watcher is not None:
+            # Closing stdin tells the watcher to check once and exit.
+            self._fuse_watcher.communicate(timeout=5)
         self._fuse_ops = None
         self._fuse_thread = None
         self._fuse_mountpoint = None
+        self._fuse_watcher = None
 
     def _start_rest(self) -> None:
         sock, port = _bind_free_socket(

@@ -216,11 +216,12 @@ watch -n1 cat $RUN/procfs/state/pipeline/summary.json
 `model/summary-live.txt` and `model/graph.dot` are made on demand at the next optimizer step. A read of these files
 waits for that step and fails after 30 seconds if the training is held.
 
-When the run ends, trainctl unmounts `procfs/`. If the training process was killed (for example with `kill -9`), the
-mount can stay and show `Transport endpoint is not connected`. Remove it with:
+When the run ends or fails, trainctl unmounts `procfs/`. If the training process is killed (for example with `kill -9`),
+a small watcher process unmounts `procfs/` when the training process exits. If the mount still stays and shows
+`Transport endpoint is not connected`, remove it with:
 
 ```sh
-fusermount3 -u $RUN/procfs
+fusermount3 -uz $RUN/procfs
 ```
 
 ## Shell hooks

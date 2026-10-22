@@ -42,10 +42,14 @@ class TrainctlMixin:
             `pytorch_lightning`); set once per subclass by `__init_subclass__`.
         __trainctl_hooks_callback_class__: This subclass's concrete lifecycle-hooks
             `Callback` adapter class, built once per subclass by `__init_subclass__`.
+        __trainctl_service_guard_class__: This subclass's concrete `Callback` class
+            that stops Trainctl's services after an uncaught exception, built once
+            per subclass by `__init_subclass__`.
     """
 
     __trainctl_lightning_backend__: LightningBackend
     __trainctl_hooks_callback_class__: type
+    __trainctl_service_guard_class__: type
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         """Detects the Lightning backend and builds this subclass's hooks callback class."""
@@ -55,6 +59,11 @@ class TrainctlMixin:
         )
         cls.__trainctl_hooks_callback_class__ = build_hooks_callback_class(
             cls.__trainctl_lightning_backend__
+        )
+        cls.__trainctl_service_guard_class__ = type(
+            "TrainctlServiceGuard",
+            (_ServiceGuardMethods, cls.__trainctl_lightning_backend__.callback_class),
+            {},
         )
 
     def __init__(
@@ -128,6 +137,7 @@ class TrainctlMixin:
             config, type(self).__trainctl_lightning_backend__
         )
         self._trainctl_hooks_adapter: Any | None = None
+        self._trainctl_service_guard: Any | None = None
         super().__init__(*args, **kwargs)
 
     def setup(self, stage: str) -> None:
@@ -217,15 +227,26 @@ class TrainctlMixin:
             self._trainctl.process_safe_point(self, SafePoint.FIT_END)
 
     def configure_callbacks(self) -> Sequence[Any]:
-        """Appends Trainctl's lifecycle-hooks adapter to the model's own callbacks."""
+        """Appends Trainctl's lifecycle-hooks adapter and service guard to the model's callbacks.
+
+        The service guard comes last, so the `on_exception` shell hook runs while
+        the services are still up.
+        """
         # super().configure_callbacks() is provided by the composed LightningModule.
         callbacks = _normalize_callbacks(super().configure_callbacks())  # type: ignore[misc]
-        if self._trainctl.config.enabled and self._trainctl.config.hooks_enabled:
+        if not self._trainctl.config.enabled:
+            return callbacks
+        if self._trainctl.config.hooks_enabled:
             if self._trainctl_hooks_adapter is None:
                 self._trainctl_hooks_adapter = type(
                     self
                 ).__trainctl_hooks_callback_class__()
             callbacks.append(self._trainctl_hooks_adapter)
+        if self._trainctl_service_guard is None:
+            self._trainctl_service_guard = type(self).__trainctl_service_guard_class__(
+                self._trainctl
+            )
+        callbacks.append(self._trainctl_service_guard)
         return callbacks
 
     def _validate_trainer_backend(self) -> None:
@@ -250,3 +271,29 @@ def _normalize_callbacks(value: Any) -> list[Any]:
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
         return list(value)
     return [value]
+
+
+class _ServiceGuardMethods:
+    """Mixed in ahead of a backend's `Callback` base by `TrainctlMixin.__init_subclass__`.
+
+    After an uncaught exception (including `KeyboardInterrupt`), Lightning skips
+    `LightningModule.teardown` and calls only the callbacks' `on_exception`. This
+    callback stops Trainctl's services there, also when the hooks adapter is not
+    attached, so no REST server, FUSE mount, or debug server outlives a failed run.
+
+    Attributes:
+        runtime: The model's `TrainctlRuntime`.
+    """
+
+    runtime: TrainctlRuntime
+
+    def __init__(self, runtime: TrainctlRuntime) -> None:
+        super().__init__()
+        self.runtime = runtime
+
+    def on_exception(
+        self, trainer: object, pl_module: object, exception: BaseException
+    ) -> None:
+        """Stops Trainctl's services and records the run status as `failed`."""
+        del trainer, pl_module, exception
+        self.runtime.stop_after_failure()
