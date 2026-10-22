@@ -16,7 +16,7 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn, SupportsIndex
 
 from loguru import logger
 
@@ -83,7 +83,7 @@ _ALLOWED_DURING_EXCEPTION = frozenset(
     }
 )
 _KNOWN_SAFE_BACKWARD_STRATEGIES = frozenset(
-    {"SingleDeviceStrategy", "DDPStrategy", "FSDPStrategy", "DDPSpawnStrategy"}
+    {"SingleDeviceStrategy", "DDPStrategy", "FSDPStrategy"}
 )
 
 
@@ -178,6 +178,15 @@ class TrainctlRuntime:
 
         self._hook_session: HookSession | None = None
         self._logging_session: LoggingSession | None = None
+
+    def __reduce_ex__(self, protocol: SupportsIndex) -> NoReturn:
+        """Rejects pickling and copying with a message that names the fix."""
+        raise TypeError(
+            "TrainctlRuntime cannot be pickled or copied, because it owns threads,"
+            " locks and servers. Lightning pickles the model to start the processes"
+            " of strategy='ddp_spawn' and the other spawn-based strategies, which"
+            " trainctl does not support; use strategy='ddp'."
+        )
 
     @property
     def rest_url(self) -> str | None:

@@ -279,6 +279,8 @@ description of each option.
 - REST, the dashboard and the FUSE view run only on global rank zero. In a distributed run, commands run on rank zero
   only. Do not change the learning rate or a hyperparameter, write a checkpoint or stop the run through trainctl when
   more than one rank runs.
+- trainctl does not support `strategy="ddp_spawn"` or the other spawn-based strategies, because they pickle the model.
+  Use `strategy="ddp"`.
 - In a distributed run, the `torch.distributed.debug` server listens on all network interfaces and has no
   authentication. It shows stack traces and process dumps of all ranks. On a shared network, set
   `torch_debug_enabled=False`.
