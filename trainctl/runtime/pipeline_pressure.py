@@ -149,7 +149,12 @@ class PipelinePressureTracker:
             return {"window": self.window, "samples": 0}
         totals = [s.batch_total_ns for s in samples if s.batch_total_ns is not None]
         phase_stats: dict[str, Any] = {}
-        for phase in ("input_gap_ns", "forward_loss_ns", "backward_ns", "post_backward_ns"):
+        for phase in (
+            "input_gap_ns",
+            "forward_loss_ns",
+            "backward_ns",
+            "post_backward_ns",
+        ):
             values = [
                 getattr(s, phase) for s in samples if getattr(s, phase) is not None
             ]
