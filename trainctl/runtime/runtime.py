@@ -205,8 +205,11 @@ class TrainctlRuntime:
         self._gather_ranks(pl_module)
         self._detect_backward_interception(pl_module)
 
+        # `trainer.log_dir` is a collective under DDP, so every rank resolves it here,
+        # before any rank-0-only start.
+        base_dir = _default_base_dir(pl_module, self.run_id)
         self._guarded(
-            "artifact directory", lambda: self._resolve_artifact_dir(pl_module)
+            "artifact directory", lambda: self._resolve_artifact_dir(base_dir)
         )
 
         # torch.distributed.debug needs an initialized process group; a plain
@@ -230,7 +233,7 @@ class TrainctlRuntime:
             if self._is_rank_zero and self.config.rest_enabled:
                 self._guarded("REST server", self._start_rest)
         if self._is_rank_zero and self.config.fuse_enabled:
-            self._guarded("FUSE mount", lambda: self._start_fuse(pl_module))
+            self._guarded("FUSE mount", lambda: self._start_fuse(base_dir))
 
         self.state.update(status="running")
 
@@ -781,22 +784,18 @@ class TrainctlRuntime:
             f"attempts (step {_PORT_OFFSET_STEP})"
         )
 
-    def _resolve_artifact_dir(self, pl_module: Any) -> None:
-        artifact_dir = (
-            self.config.artifact_dir
-            or _default_base_dir(pl_module, self.run_id) / "artifacts"
-        )
+    def _resolve_artifact_dir(self, base_dir: Path) -> None:
+        artifact_dir = self.config.artifact_dir or base_dir / "artifacts"
         self.artifacts = ArtifactStore(artifact_dir)
         self.state.update(artifacts_path=str(artifact_dir))
 
-    def _start_fuse(self, pl_module: Any) -> None:
+    def _start_fuse(self, base_dir: Path) -> None:
         import mfusepy
 
         from trainctl.fuse.filesystem import TrainctlFS
 
         mountpoint = mountpoint_check.prepare_mountpoint(
-            self.config.fuse_mountpoint
-            or _default_base_dir(pl_module, self.run_id) / "procfs"
+            self.config.fuse_mountpoint or base_dir / "procfs"
         )
         ops = TrainctlFS(self)
 
