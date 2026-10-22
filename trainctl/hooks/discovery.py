@@ -1,38 +1,16 @@
-"""Enable/disable validation for one script, plus a rate-limited scan for unknown filenames.
+"""A rate-limited scan of the hook directories for unknown filenames.
 
-The execute bit is the only enable switch, re-checked immediately before every use
-(the current stat is never trusted from an earlier check or cache): `chmod +x`/`-x`
-take effect at the next applicable callback, including within the same epoch. The
-directory scan is a separate, coarser-grained diagnostic: it costs an `os.scandir`
-per modality and is rate-limited to once per logical epoch token so a high-frequency
-callback (e.g. `on_train_batch_start`) doesn't pay for it every invocation.
+The scan is a coarse-grained diagnostic, separate from the per-use enable check in
+`trainctl.hooks.resolve_enabled_script`: it costs an `os.scandir` per modality and
+is rate-limited to once per logical epoch token so a high-frequency callback (e.g.
+`on_train_batch_start`) doesn't pay for it every invocation.
 """
 
 import os
-import stat as stat_module
 from pathlib import Path
 from typing import Any
 
 from trainctl.hooks.catalog import CALLBACK_NAMES, MODALITIES
-
-
-def resolve_enabled_script(live_dir: Path, modality: str, name: str) -> Path | None:
-    """Returns `live_dir/modality/name.sh` if it is currently enabled, else `None`.
-
-    "Enabled" means a regular file, not a symlink, with at least one POSIX execute
-    bit set. Callers must call this again immediately before launch -- the exec bit,
-    or the file itself, can change at any moment between checks.
-    """
-    script_path = live_dir / modality / f"{name}.sh"
-    try:
-        st = os.lstat(script_path)
-    except OSError:
-        return None
-    if stat_module.S_ISLNK(st.st_mode) or not stat_module.S_ISREG(st.st_mode):
-        return None
-    if not st.st_mode & 0o111:
-        return None
-    return script_path
 
 
 class EpochScanState:  # pylint: disable=too-few-public-methods

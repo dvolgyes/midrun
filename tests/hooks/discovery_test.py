@@ -6,7 +6,8 @@ import stat
 import pytest
 from loguru import logger
 
-from trainctl.hooks.discovery import EpochScanState, resolve_enabled_script
+from trainctl.hooks.discovery import EpochScanState
+from trainctl.hooks.resolve_enabled_script import resolve_enabled_script
 
 
 @pytest.fixture()

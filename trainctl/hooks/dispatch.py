@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from trainctl.hooks.discovery import resolve_enabled_script
 from trainctl.hooks.payload import (
     HeavyCaptureFailure,
     OccurrenceContext,
@@ -22,6 +21,7 @@ from trainctl.hooks.payload import (
     prepare_heavy_export,
     write_json_file,
 )
+from trainctl.hooks.resolve_enabled_script import resolve_enabled_script
 from trainctl.hooks.runner import ExecutionResult, run_script
 
 _FAILED_PHASES = ("timeout", "launch_error", "capture_failed")
