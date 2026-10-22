@@ -1,7 +1,7 @@
 """`HookSession`: dispatches one Lightning callback occurrence to its light/heavy script.
 
 Owned by `TrainctlRuntime`, constructed once per run right after
-`manager.bootstrap_hooks_tree` publishes or resumes the live tree. Lightning-agnostic:
+`bootstrap_hooks_tree` publishes or resumes the live tree. Lightning-agnostic:
 `handle()` takes plain values, not a `Trainer`/`LightningModule`, so it is testable
 without constructing either.
 """

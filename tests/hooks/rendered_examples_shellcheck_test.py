@@ -15,7 +15,7 @@ import pytest
 from loguru import logger
 
 from trainctl.hooks.catalog import MODALITIES
-from trainctl.hooks.manager import bootstrap_hooks_tree
+from trainctl.hooks.manager.bootstrap_hooks_tree import bootstrap_hooks_tree
 
 _SHELLCHECK = shutil.which("shellcheck")
 

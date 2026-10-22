@@ -9,11 +9,9 @@ import pytest
 from loguru import logger
 
 from trainctl.hooks.catalog import CALLBACKS, MODALITIES
-from trainctl.hooks.manager import (
-    HooksBootstrapError,
-    _publish_fresh_tree,
-    bootstrap_hooks_tree,
-)
+from trainctl.hooks.manager.bootstrap_hooks_tree import bootstrap_hooks_tree
+from trainctl.hooks.manager.hooks_bootstrap_error import HooksBootstrapError
+from trainctl.hooks.manager.publish_fresh_tree import publish_fresh_tree
 
 _SLOT_COUNT = len(CALLBACKS) * len(MODALITIES)
 
@@ -284,7 +282,7 @@ def test_concurrent_publish_race_is_rejected_and_cleans_up_staging(
     (live_dir / "already-here.txt").write_text("winner\n")
 
     with pytest.raises(HooksBootstrapError, match="concurrent initializer"):
-        _publish_fresh_tree(base_dir, live_dir, None, "s-14", log)
+        publish_fresh_tree(base_dir, live_dir, None, "s-14", log)
 
     assert list(base_dir.glob(".hooks-staging-*")) == []
     assert not (base_dir / "trainctl-hooks-state.json").exists()
@@ -308,7 +306,9 @@ def test_source_file_changing_during_copy_is_rejected(
             with open(src, "a") as fh:
                 fh.write("echo v2\n")
 
-    monkeypatch.setattr("trainctl.hooks.manager.shutil.copyfile", flaky_copyfile)
+    monkeypatch.setattr(
+        "trainctl.hooks.manager.copy_source_tree.shutil.copyfile", flaky_copyfile
+    )
 
     base_dir = tmp_path / "run"
     with pytest.raises(HooksBootstrapError, match="changed while being copied"):
@@ -320,7 +320,9 @@ def test_source_file_changing_during_copy_is_rejected(
 def test_ownership_change_failure_is_reported_with_path_and_target_ids(
     tmp_path, monkeypatch, log
 ) -> None:
-    from trainctl.hooks.manager import _apply_ownership_and_mode
+    from trainctl.hooks.manager.apply_ownership_and_mode import (
+        apply_ownership_and_mode,
+    )
 
     target = tmp_path / "file.sh"
     target.write_text("echo x\n")
@@ -332,4 +334,4 @@ def test_ownership_change_failure_is_reported_with_path_and_target_ids(
     monkeypatch.setattr(os, "chown", fake_chown)
 
     with pytest.raises(PermissionError, match=str(target)):
-        _apply_ownership_and_mode(target, current.st_uid + 1, current.st_gid, 0o644)
+        apply_ownership_and_mode(target, current.st_uid + 1, current.st_gid, 0o644)

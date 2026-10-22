@@ -8,7 +8,7 @@ class OccurrenceContext:
     """Identity shared by every script invoked for one Lightning callback firing.
 
     Attributes:
-        session_id: This run's hooks session id (see `manager.bootstrap_hooks_tree`).
+        session_id: This run's hooks session id (see `bootstrap_hooks_tree`).
         hook: The exact `Callback` method name, e.g. `on_train_batch_start`.
         stage: `trainer.state.stage` as a string, or `None` if unavailable.
         epoch: `trainer.current_epoch`, or `None` if unavailable.

@@ -17,7 +17,7 @@ import torch
 from lightning.pytorch.callbacks import ModelCheckpoint
 from torch.utils.data import DataLoader, TensorDataset
 
-from trainctl.hooks.manager import HooksBootstrapError
+from trainctl.hooks.manager.hooks_bootstrap_error import HooksBootstrapError
 from trainctl.mixin import TrainctlMixin
 
 _SHELL = shutil.which("bash")
