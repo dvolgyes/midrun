@@ -1,4 +1,4 @@
-"""Behavioral tests for trainctl.hooks.dispatch's dispatch_light and dispatch_heavy."""
+"""Behavioral tests for trainctl.hooks.dispatch_light and trainctl.hooks.dispatch_heavy."""
 
 import json
 import shutil
@@ -7,7 +7,8 @@ from pathlib import Path
 import numpy
 import torch
 
-from trainctl.hooks.dispatch import dispatch_heavy, dispatch_light
+from trainctl.hooks.dispatch_heavy import dispatch_heavy
+from trainctl.hooks.dispatch_light import dispatch_light
 from trainctl.hooks.payload import OccurrenceContext
 
 _SHELL = Path(shutil.which("bash"))

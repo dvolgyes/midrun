@@ -7,13 +7,29 @@ without constructing either.
 """
 
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from trainctl.hooks.catalog import CALLBACK_BY_NAME
 from trainctl.hooks.discovery import EpochScanState
-from trainctl.hooks.dispatch import HandleResult, dispatch_heavy, dispatch_light
+from trainctl.hooks.dispatch_heavy import dispatch_heavy
+from trainctl.hooks.dispatch_light import dispatch_light
 from trainctl.hooks.payload import OccurrenceContext, new_id
+from trainctl.hooks.runner import ExecutionResult
+
+
+@dataclass(frozen=True)
+class HandleResult:
+    """Both modalities' outcomes for one dispatched callback occurrence.
+
+    Attributes:
+        light: The light hook's `ExecutionResult`, or `None` if it wasn't enabled.
+        heavy: The heavy hook's `ExecutionResult`, or `None` if it wasn't enabled.
+    """
+
+    light: ExecutionResult | None
+    heavy: ExecutionResult | None
 
 
 class HookSession:
