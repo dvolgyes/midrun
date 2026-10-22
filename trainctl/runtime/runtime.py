@@ -774,7 +774,12 @@ class TrainctlRuntime:
             if not self.torch_debug.port_is_free(debug_candidate):
                 sock.close()
                 continue
-            self.torch_debug.start_after_distributed_init(port=debug_candidate)
+            try:
+                self.torch_debug.start_after_distributed_init(port=debug_candidate)
+            except Exception:
+                # REST still starts, so the run stays controllable without the debug server.
+                self._start_rest_on_socket(sock, self.config.rest_port + offset)
+                raise
             self.torch_debug.wait_ready(timeout=10)
             self.state.update(torch_debug_url=self.torch_debug.frontend_url)
             self._start_rest_on_socket(sock, self.config.rest_port + offset)

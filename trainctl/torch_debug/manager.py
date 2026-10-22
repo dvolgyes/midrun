@@ -1,13 +1,15 @@
 """Lifecycle manager for `torch.distributed.debug`'s experimental HTTP server.
 
 `torch.distributed.debug.start_debug_server()` is a post-process-group-initialization
-API: it reads `RANK`/`WORLD_SIZE` from the environment and starts a worker server on
-every rank plus a frontend HTTP server on rank 0. It requires `jinja2` and `aiohttp`,
-is version-sensitive, and is not always available (e.g. no torchrun launcher, missing
-optional deps). All of that is isolated here so the rest of Trainctl depends only on
-this manager's normalized surface, never on `torch.distributed.debug` directly.
+API: it reads `RANK`, `WORLD_SIZE`, `MASTER_ADDR` and `MASTER_PORT` from the environment
+and starts a worker server on every rank plus a frontend HTTP server on rank 0. It
+requires `jinja2` and `aiohttp`, is version-sensitive, and is not always available
+(e.g. a launcher without `MASTER_ADDR`, missing optional deps). All of that is
+isolated here so the rest of Trainctl depends only on this manager's normalized
+surface, never on `torch.distributed.debug` directly.
 """
 
+import os
 import time
 import urllib.request
 
@@ -28,7 +30,7 @@ class TorchDebugManager:
 
     @property
     def frontend_url(self) -> str | None:
-        """The reachable frontend URL, once started."""
+        """The reachable frontend URL, once started on rank 0; None on other ranks."""
         if self._selected_port is None:
             return None
         return f"http://127.0.0.1:{self._selected_port}"
@@ -45,6 +47,11 @@ class TorchDebugManager:
         alternative of calling the upstream API more than once) rather than
         try-then-fall-back.
 
+        Every rank must call it, because every rank serves its own worker server; only
+        rank 0 serves the frontend on the selected port. Lightning's own DDP launcher
+        sets `WORLD_SIZE` but not `RANK`, so a missing `RANK` is supplied from the
+        process group for the duration of the upstream call.
+
         Args:
             port: Use this exact port instead of searching `[port, port + port_search)`
                 internally. Intended for a caller (`TrainctlRuntime`) that has already
@@ -55,7 +62,7 @@ class TorchDebugManager:
 
         Raises:
             RuntimeError: `torch.distributed` is not initialized, the launch environment
-                does not provide `RANK`/`WORLD_SIZE` (e.g. no torchrun launcher), or no
+                does not provide `WORLD_SIZE`, `MASTER_ADDR` or `MASTER_PORT`, or no
                 candidate port passed the preflight bind check.
 
         Note:
@@ -76,11 +83,43 @@ class TorchDebugManager:
         if not dist.is_available() or not dist.is_initialized():
             raise RuntimeError("torch.distributed is not initialized")
 
+        missing = [
+            name
+            for name in ("WORLD_SIZE", "MASTER_ADDR", "MASTER_PORT")
+            if name not in os.environ
+        ]
+        if missing:
+            raise RuntimeError(
+                "torch.distributed.debug needs the launch environment variables "
+                f"{', '.join(missing)}, which this launcher does not set"
+            )
+
         from torch.distributed import debug as torch_debug
 
-        candidate = port if port is not None else self._select_free_port()
-        torch_debug.start_debug_server(port=candidate, worker_port=0, dump_dir=None)
-        self._selected_port = candidate
+        is_frontend = dist.get_rank() == 0
+        if port is not None:
+            candidate = port
+        else:
+            candidate = self._select_free_port() if is_frontend else self.port
+        supplied_rank = "RANK" not in os.environ
+        if supplied_rank:
+            os.environ["RANK"] = str(dist.get_rank())
+        try:
+            torch_debug.start_debug_server(port=candidate, worker_port=0, dump_dir=None)
+        except Exception:
+            # The upstream start creates the worker server before it can fail, and a
+            # leftover worker server makes every later start assert.
+            # pylint: disable=protected-access
+            leaked = torch_debug._WORKER_SERVER
+            if leaked is not None and torch_debug._DEBUG_SERVER_PROC is None:
+                leaked.shutdown()
+                torch_debug._WORKER_SERVER = None
+            # pylint: enable=protected-access
+            raise
+        finally:
+            if supplied_rank:
+                del os.environ["RANK"]
+        self._selected_port = candidate if is_frontend else None
         self._started = True
 
     @staticmethod
@@ -132,7 +171,15 @@ class TorchDebugManager:
         from torch.distributed import debug as torch_debug
 
         try:
-            torch_debug.stop_debug_server()
+            if self._selected_port is not None:
+                torch_debug.stop_debug_server()
+            else:
+                # stop_debug_server() asserts that this process has the frontend, which
+                # only rank 0 has, so the other ranks stop their worker server directly.
+                # pylint: disable=protected-access
+                torch_debug._WORKER_SERVER.shutdown()
+                torch_debug._WORKER_SERVER = None
+                # pylint: enable=protected-access
         finally:
             self._started = False
             self._selected_port = None

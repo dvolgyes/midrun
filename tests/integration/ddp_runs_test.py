@@ -31,6 +31,7 @@ from collections.abc import Iterator
 from datetime import timedelta
 from pathlib import Path
 
+import httpx2
 import lightning.pytorch as pl
 import pytest
 import torch
@@ -221,6 +222,20 @@ def test_the_fuse_mount_starts_without_a_rank_zero_only_collective(launch) -> No
     )
     assert run.status(0)["fuse_mountpoint"] is not None
     assert run.status(1)["fuse_mountpoint"] is None
+    assert run.wait(timeout=60) == 0
+
+
+def test_the_torch_debug_server_runs_on_every_rank_with_one_frontend(launch) -> None:
+    run = launch(
+        TRAINCTL_TEST_TORCH_DEBUG="1",
+        TRAINCTL_TEST_MAX_STEPS="30",
+        TRAINCTL_TEST_STEP_SLEEP_S="0.2",
+    )
+    rank0, rank1 = run.status(0), run.status(1)
+    assert rank0["rest_port"] is not None
+    assert rank0["torch_debug_url"] is not None
+    assert rank1["torch_debug_url"] is None
+    assert httpx2.get(rank0["torch_debug_url"], timeout=10).status_code == 200
     assert run.wait(timeout=60) == 0
 
 
