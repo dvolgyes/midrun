@@ -18,13 +18,11 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
-from trainctl.rest.schemas import (
-    CheckpointIn,
-    CommandIn,
-    DebugCaptureIn,
-    HoldIn,
-    SnapshotIn,
-)
+from trainctl.rest.schemas.checkpoint_in import CheckpointIn
+from trainctl.rest.schemas.command_in import CommandIn
+from trainctl.rest.schemas.debug_capture_in import DebugCaptureIn
+from trainctl.rest.schemas.hold_in import HoldIn
+from trainctl.rest.schemas.snapshot_in import SnapshotIn
 from trainctl.runtime import cuda_memory, inspectors_registry, virtual_fs
 from trainctl.runtime.command_args import InvalidCommandError
 from trainctl.runtime.commands.command import Command
