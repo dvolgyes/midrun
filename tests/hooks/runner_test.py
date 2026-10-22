@@ -166,6 +166,61 @@ def test_long_output_is_bounded(tmp_path, shell, log) -> None:
     assert result.stdout_truncated is True
 
 
+def test_long_output_keeps_the_last_bytes(tmp_path, shell, log) -> None:
+    script = _write_script(
+        tmp_path,
+        "#!/usr/bin/env bash\nhead -c 10000 /dev/zero | tr '\\0' A\necho FINAL-LINE\n",
+    )
+    result = run_script(
+        script,
+        [],
+        cwd=tmp_path,
+        shell=shell,
+        timeout_s=5.0,
+        max_output_bytes=100,
+        log=log,
+    )
+    assert result.stdout_tail.endswith("A" * 10 + "FINAL-LINE\n")
+    assert len(result.stdout_tail) == 100
+    assert result.stdout_truncated is True
+
+
+class _RecordingLog:
+    def __init__(self) -> None:
+        self.infos: list[str] = []
+
+    def info(self, message, *args) -> None:
+        self.infos.append(message.format(*args))
+
+    def warning(self, message, *args) -> None:
+        pass
+
+
+def test_streamed_log_output_stops_at_the_limit(tmp_path, shell) -> None:
+    script = _write_script(
+        tmp_path, "#!/usr/bin/env bash\nhead -c 10000 /dev/zero | tr '\\0' A\n"
+    )
+    log = _RecordingLog()
+    run_script(
+        script,
+        [],
+        cwd=tmp_path,
+        shell=shell,
+        timeout_s=5.0,
+        max_output_bytes=100,
+        log=log,
+    )
+    prefix = "[hook script.sh stdout] "
+    dropped = [message for message in log.infos if "not logged" in message]
+    logged = "".join(
+        message.removeprefix(prefix) for message in log.infos if message not in dropped
+    )
+    assert logged == "A" * 100
+    assert len(dropped) == 1
+    assert dropped[0].startswith(prefix)
+    assert "9900 more bytes" in dropped[0]
+
+
 def test_binary_output_does_not_raise(tmp_path, shell, log) -> None:
     script = _write_script(tmp_path, "#!/usr/bin/env bash\nprintf '\\xff\\xfe'\n")
     result = run_script(

@@ -215,7 +215,8 @@ def _log_failure(
     log.error(
         "hook failed: hook={} modality={} script={} session={} occurrence={} "
         "invocation={} rank={} stage={} epoch={} global_step={} phase={} exit_code={} "
-        "signal={} duration_s={:.3f} error={} stdout_tail={!r} stderr_tail={!r}",
+        "signal={} duration_s={:.3f} error={} stdout_truncated={} stderr_truncated={} "
+        "stdout_tail={!r} stderr_tail={!r}",
         context.hook,
         modality,
         script,
@@ -231,6 +232,8 @@ def _log_failure(
         result.signal_number,
         result.duration_s,
         result.error,
+        result.stdout_truncated,
+        result.stderr_truncated,
         result.stdout_tail,
         result.stderr_tail,
     )

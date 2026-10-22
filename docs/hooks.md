@@ -163,14 +163,15 @@ first, so the two are not a single simultaneous snapshot.
 - `hooks_timeout_s` (default `None`, unbounded) bounds how long training waits for a script. Unbounded is deliberate for
   interactive debugging but can stall a distributed job's watchdog indefinitely — set an explicit timeout outside
   interactive sessions.
-- A script's stdout/stderr are streamed live to the run's log as they're produced, and up to `hooks_max_output_bytes` of
-  each stream is retained as a tail for the failure record.
+- A script's stdout/stderr are streamed live to the run's log as they're produced, and the last `hooks_max_output_bytes`
+  of each stream are retained as a tail for the failure record. For each call, the log gets at most the first
+  `hooks_max_output_bytes` of each stream, then one line that counts the bytes that it did not log.
 - On timeout, the script's *entire process group* is terminated (`SIGTERM`, then `SIGKILL` after a grace period) — a
   backgrounded child cannot outlive its script.
 - A nonzero exit code, a timeout, or a failure to launch the script at all produces exactly one structured `ERROR` log
   record naming the hook, script, session/occurrence/invocation ids, rank, stage/epoch/global_step, phase, exit code,
-  signal, duration, and the retained stdout/stderr tails. A disabled or successful (exit `0`) invocation logs nothing at
-  that level.
+  signal, duration, whether each stream was truncated, and the retained stdout/stderr tails. A disabled or successful
+  (exit `0`) invocation logs nothing at that level.
 - `hooks_rank_policy` (`"rank_zero"` default, or `"all"`) controls which ranks dispatch hooks at all.
 
 ## Security limits and recovery

@@ -152,6 +152,21 @@ def test_failing_script_returns_result_and_logs_exactly_one_error(tmp_path) -> N
     assert "exit_code=3" in message
 
 
+def test_failure_record_says_that_the_output_was_truncated(tmp_path) -> None:
+    live_dir = tmp_path / "hooks"
+    _make_light_script(
+        live_dir,
+        "on_train_batch_start",
+        "head -c 100000 /dev/zero | tr '\\0' A\necho FINAL-LINE\nexit 1",
+    )
+    log = _FakeLog()
+    _dispatch(live_dir, tmp_path / "tmp-root", _context(), log=log)
+    assert len(log.errors) == 1
+    assert "stdout_truncated=True" in log.errors[0]
+    assert "stderr_truncated=False" in log.errors[0]
+    assert "FINAL-LINE" in log.errors[0]
+
+
 def test_invocation_dir_exists_during_run_and_is_removed_after(tmp_path) -> None:
     live_dir = tmp_path / "hooks"
     marker = tmp_path / "marker.json"

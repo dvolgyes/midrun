@@ -85,8 +85,9 @@ class TrainctlConfig:
             argument-metadata description.
         hooks_max_export_bytes: Byte limit for a heavy hook's predicted converted
             tensor export size, checked before any host copy is allocated.
-        hooks_max_output_bytes: Byte limit for the stdout/stderr tail retained per
-            hook invocation for its execution-result record.
+        hooks_max_output_bytes: Byte limit, per stream and hook invocation, for the
+            stdout/stderr tail retained for its execution-result record, and for the
+            output streamed to the log.
         intercept_lightning_logging: Bridge `lightning.pytorch`/`pytorch_lightning`/
             `lightning.fabric`'s standard-library logging into Loguru for this run.
         run_log_enabled: Attach a Loguru file sink (`trainctl.log`, or
