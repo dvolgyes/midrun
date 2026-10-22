@@ -6,13 +6,14 @@ thread); the Lightning training thread executes commands from
 see the module docstring in `trainctl.runtime.runtime`.
 """
 
+import asyncio
 import json
 import time
 from dataclasses import asdict
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
@@ -218,12 +219,13 @@ def build_app(runtime: "TrainctlRuntime") -> FastAPI:
         active = runtime.gate.active_hold()
         return {"holds": holds, "active": asdict(active) if active else None}
 
+    # Async, so a request that waits for its hold uses no worker thread.
     @app.post("/holds", response_model=None)
-    def arm_hold(body: HoldIn) -> dict[str, Any] | JSONResponse:
+    async def arm_hold(body: HoldIn) -> dict[str, Any] | JSONResponse:
         when = _parse_when_or_400(body.when)
         command = runtime.command_queue.submit("hold", {"reason": body.reason}, when)
         runtime.gate.notify()
-        command = _wait_for_command(runtime, command.id, timeout_s=body.timeout_s)
+        command = await _wait_for_command(runtime, command.id, timeout_s=body.timeout_s)
         if command.status == "queued":
             return JSONResponse(status_code=202, content=_command_dict(command))
         return _command_dict(command)
@@ -339,7 +341,7 @@ def build_app(runtime: "TrainctlRuntime") -> FastAPI:
 
     @app.get("/debug/cuda-memory/history")
     def cuda_memory_history(
-        enabled: bool, max_entries: int | None = None
+        enabled: bool, max_entries: Annotated[int | None, Query(ge=1)] = None
     ) -> dict[str, Any]:
         try:
             state = cuda_memory.set_history(enabled, max_entries)
@@ -397,7 +399,7 @@ def _command_dict(command: Command) -> dict[str, Any]:
     }
 
 
-def _wait_for_command(
+async def _wait_for_command(
     runtime: "TrainctlRuntime",
     command_id: str,
     timeout_s: float,
@@ -419,7 +421,7 @@ def _wait_for_command(
         and command.status == "queued"
         and time.monotonic() < deadline
     ):
-        time.sleep(poll_interval_s)
+        await asyncio.sleep(poll_interval_s)
         command = runtime.command_queue.get(command_id)
     assert command is not None, (
         f"command {command_id!r} vanished from the queue while waiting"

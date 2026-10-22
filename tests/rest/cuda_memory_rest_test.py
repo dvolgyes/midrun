@@ -71,3 +71,20 @@ def test_get_cuda_memory_history_disable_needs_no_max_entries(tmp_path: Path) ->
 
     assert response.status_code == 200
     assert response.json()["enabled"] is False
+
+
+@pytest.mark.parametrize("max_entries", [-5, 0])
+def test_get_cuda_memory_history_rejects_a_max_entries_below_one(
+    tmp_path: Path, max_entries: int
+) -> None:
+    client, runtime = _client(tmp_path)
+    try:
+        response = client.get(
+            "/debug/cuda-memory/history",
+            params={"enabled": "true", "max_entries": max_entries},
+        )
+
+        assert response.status_code == 422, response.text
+        assert runtime.cuda_memory_history.enabled is False
+    finally:
+        cuda_memory.set_history(False, max_entries=None)
