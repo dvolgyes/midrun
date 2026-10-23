@@ -1,12 +1,14 @@
 """CIFAR-10 CNN classifier exercising TrainctlMixin against a real Lightning run."""
 
 from dataclasses import dataclass
+from typing import Unpack
 
 import lightning.pytorch as pl
 from lightning.pytorch.utilities.types import OptimizerLRScheduler
 from torch import Tensor, nn, optim
 from torchmetrics.classification import MulticlassAccuracy
-from trainctl import TrainctlMixin
+
+from trainctl import TrainctlMixin, TrainctlOptions
 
 NUM_CLASSES = 10
 
@@ -86,7 +88,9 @@ class CifarClassifier(TrainctlMixin, pl.LightningModule):
     # Args are documented on the class docstring per pydoclint's DOC301, which forbids a
     # separate __init__ docstring here (see README: known ruff-D107/pydoclint-DOC301 conflict).
     def __init__(
-        self, hp: OptimHParams | None = None, **trainctl_kwargs: object
+        self,
+        hp: OptimHParams | None = None,
+        **trainctl_kwargs: Unpack[TrainctlOptions],
     ) -> None:
         super().__init__(**trainctl_kwargs)
         self.hp = hp or OptimHParams()
