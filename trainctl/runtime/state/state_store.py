@@ -3,9 +3,10 @@
 import threading
 import time
 from dataclasses import replace
-from typing import Any, cast
+from typing import Unpack
 
 from trainctl.runtime.state.runtime_snapshot import RuntimeSnapshot
+from trainctl.runtime.state.runtime_snapshot_changes import RuntimeSnapshotChanges
 
 
 class StateStore:
@@ -29,7 +30,7 @@ class StateStore:
         with self._lock:
             self._snapshot = snapshot
 
-    def update(self, **changes: object) -> RuntimeSnapshot:
+    def update(self, **changes: Unpack[RuntimeSnapshotChanges]) -> RuntimeSnapshot:
         """Publishes a new snapshot derived from the current one.
 
         Args:
@@ -44,8 +45,7 @@ class StateStore:
                 current,
                 generation=current.generation + 1,
                 updated_at=time.time(),
-                # The keys are not typed per field; `replace` rejects an unknown field.
-                **cast(dict[str, Any], changes),
+                **changes,
             )
             self._snapshot = new
             return new
