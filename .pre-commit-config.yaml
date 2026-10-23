@@ -303,7 +303,7 @@ repos:
       - id: mypy
         exclude: ^(legacy/|tests/)
         args: [--ignore-missing-imports, --strict]
-        additional_dependencies: [types-requests, types-click, types-setuptools]
+        additional_dependencies: [types-requests, types-click, types-setuptools, pydantic, fastapi]
 
   # Source: 500_actionlint.yaml [central]
   - repo: https://github.com/rhysd/actionlint
