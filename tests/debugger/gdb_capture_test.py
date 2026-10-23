@@ -24,18 +24,10 @@ from trainctl.debugger.gdb_capture.check_gdb_available import (
     check_gdb_available,
 )
 from trainctl.debugger.gdb_capture.gdb_attach_error import GdbAttachError
-
-try:
-    from trainctl.debugger.gdb_capture.gdb_capture import gdb_capture
-except ImportError:
-    gdb_capture = None  # type: ignore[assignment]
-
+from trainctl.debugger.gdb_capture.gdb_capture import gdb_capture
 from trainctl.debugger.hold_client import HoldClient, HoldNotActiveError
 
-pytestmark = pytest.mark.skipif(
-    shutil.which("gdb") is None or gdb_capture is None,
-    reason="gdb or pygdbmi not available",
-)
+pytestmark = pytest.mark.skipif(shutil.which("gdb") is None, reason="gdb not installed")
 
 _PTRACE_SCOPE = Path("/proc/sys/kernel/yama/ptrace_scope")
 _YAMA_SCOPE = int(_PTRACE_SCOPE.read_text()) if _PTRACE_SCOPE.exists() else 0
