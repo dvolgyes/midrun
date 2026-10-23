@@ -15,7 +15,7 @@ def handle_set_lightning_profiler(
     trainer: Any,
     command: Command,
     safe_point: SafePoint | None,
-) -> dict:
+) -> dict[str, Any]:
     """Installs (or removes) one of Lightning's own profilers as `trainer.profiler`.
 
     Unlike `profile` (a bounded `torch.profiler` capture over N batches, finalized

@@ -8,6 +8,7 @@ and manifest format, not the FUSE projection.
 import json
 import re
 import time
+from collections.abc import Mapping
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
@@ -70,7 +71,7 @@ class ArtifactStore:
     def write_debug_capture(
         self,
         kind: str,
-        files: dict[str, str | bytes],
+        files: Mapping[str, str | bytes],
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Writes a debug capture's manifest plus one or more named files; returns the manifest.

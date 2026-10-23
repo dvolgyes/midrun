@@ -14,6 +14,7 @@ def torchview_dot(model: Any, batch: Any) -> str:
     """
     import torchview
 
-    return torchview.draw_graph(
+    source: str = torchview.draw_graph(
         model, input_data=batch, device=next(model.parameters()).device
     ).visual_graph.source
+    return source

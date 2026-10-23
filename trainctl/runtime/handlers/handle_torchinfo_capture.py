@@ -19,7 +19,7 @@ def handle_torchinfo_capture(
     trainer: Any,
     command: Command,
     safe_point: SafePoint | None,
-) -> dict:
+) -> dict[str, Any]:
     """Writes a torchinfo summary of the model for the in-flight batch as a debug capture.
 
     Raises:
@@ -30,4 +30,4 @@ def handle_torchinfo_capture(
         raise ValueError("torchinfo_capture requires an in-flight batch")
     target = forward_input.resolve(pl_module, runtime.current_step.batch)
     files = torchinfo_rich_summary(pl_module, target)
-    return runtime.artifacts.write_debug_capture("torchinfo-summary", files)
+    return runtime.artifact_store.write_debug_capture("torchinfo-summary", files)

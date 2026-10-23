@@ -16,7 +16,7 @@ def handle_profile(
     trainer: Any,
     command: Command,
     safe_point: SafePoint | None,
-) -> dict:
+) -> dict[str, Any]:
     """Starts a bounded torch.profiler run with the step counts and the level of `command`.
 
     Raises:

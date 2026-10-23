@@ -136,7 +136,7 @@ STATIC_FILES: dict[str, Callable[["TrainctlRuntime"], bytes]] = {
         str(rt.state.read().pending_commands)
     ),
     "/state/breakpoint.json": lambda rt: encode_json(
-        asdict(rt.state.read().exception) if rt.state.read().exception else None
+        asdict(exception) if (exception := rt.state.read().exception) else None
     ),
     "/state/dataloader/finite-check.json": lambda rt: encode_json(
         {
@@ -152,7 +152,7 @@ STATIC_FILES: dict[str, Callable[["TrainctlRuntime"], bytes]] = {
         }
     ),
     "/state/pipeline/latest.json": lambda rt: encode_json(
-        asdict(rt.pipeline.latest()) if rt.pipeline.latest() else None
+        asdict(latest) if (latest := rt.pipeline.latest()) else None
     ),
     "/state/pipeline/summary.json": lambda rt: encode_json(rt.pipeline.summary()),
     "/model/class": lambda rt: encode_text(rt._model_class_name or ""),

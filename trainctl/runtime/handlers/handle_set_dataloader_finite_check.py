@@ -15,7 +15,7 @@ def handle_set_dataloader_finite_check(
     trainer: Any,
     command: Command,
     safe_point: SafePoint | None,
-) -> dict:
+) -> dict[str, Any]:
     """Turns the dataloader finite guard on or off."""
     del pl_module, trainer, safe_point
     enabled = command.args["enabled"]

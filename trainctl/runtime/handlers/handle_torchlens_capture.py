@@ -18,7 +18,7 @@ def handle_torchlens_capture(
     trainer: Any,
     command: Command,
     safe_point: SafePoint | None,
-) -> dict:
+) -> dict[str, Any]:
     """Writes a torchlens trace of the model for the in-flight batch as a debug capture.
 
     Enters a hold first if the run is not held.
@@ -40,4 +40,4 @@ def handle_torchlens_capture(
         )
     target = forward_input.resolve(pl_module, runtime.current_step.batch)
     files = torchlens_capture(pl_module, target)
-    return runtime.artifacts.write_debug_capture("torchlens-trace", files)
+    return runtime.artifact_store.write_debug_capture("torchlens-trace", files)

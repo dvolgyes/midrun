@@ -5,4 +5,5 @@ import torch
 
 def cuda_memory_available() -> bool:
     """Returns whether a CUDA device is available in this process."""
-    return torch.cuda.is_available()
+    available: bool = torch.cuda.is_available()
+    return available

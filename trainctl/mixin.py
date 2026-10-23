@@ -102,7 +102,7 @@ class TrainctlMixin:
         config = TrainctlConfig(
             enabled=trainctl_enabled,
             fuse_enabled=fuse_enabled,
-            fuse_mountpoint=fuse_mountpoint,
+            fuse_mountpoint=None if fuse_mountpoint is None else Path(fuse_mountpoint),
             rest_enabled=rest_enabled,
             rest_host=rest_host,
             rest_port=rest_port,
@@ -111,7 +111,7 @@ class TrainctlMixin:
             torch_debug_port=torch_debug_port,
             torch_debug_port_search=torch_debug_port_search,
             paired_port_search_attempts=paired_port_search_attempts,
-            artifact_dir=artifact_dir,
+            artifact_dir=None if artifact_dir is None else Path(artifact_dir),
             inspection_strict=inspection_strict,
             pipeline_pressure_enabled=pipeline_pressure_enabled,
             pipeline_pressure_window=pipeline_pressure_window,
@@ -119,10 +119,12 @@ class TrainctlMixin:
             dataloader_finite_check_enabled=dataloader_finite_check_enabled,
             optimizer_surgery_enabled=optimizer_surgery_enabled,
             hooks_enabled=hooks_enabled,
-            hooks_source_dir=hooks_source_dir,
+            hooks_source_dir=None
+            if hooks_source_dir is None
+            else Path(hooks_source_dir),
             hooks_timeout_s=hooks_timeout_s,
             hooks_rank_policy=hooks_rank_policy,
-            hooks_shell=hooks_shell,
+            hooks_shell=None if hooks_shell is None else Path(hooks_shell),
             hooks_max_params_bytes=hooks_max_params_bytes,
             hooks_max_metadata_items=hooks_max_metadata_items,
             hooks_max_metadata_depth=hooks_max_metadata_depth,
@@ -161,7 +163,7 @@ class TrainctlMixin:
 
     def on_train_batch_start(self, batch: Any, batch_idx: int) -> int | None:
         """Lightning's `on_train_batch_start` hook; forwards to `TrainctlRuntime`."""
-        result = super().on_train_batch_start(batch, batch_idx)
+        result: int | None = super().on_train_batch_start(batch, batch_idx)
         if self._trainctl.config.enabled:
             self._trainctl.begin_train_batch(self, batch, batch_idx)
         return result

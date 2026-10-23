@@ -15,7 +15,7 @@ def handle_stop(
     trainer: Any,
     command: Command,
     safe_point: SafePoint | None,
-) -> dict:
+) -> dict[str, Any]:
     """Asks the trainer to stop, cancels the queued holds and releases the active hold."""
     del pl_module, command, safe_point
     trainer.should_stop = True

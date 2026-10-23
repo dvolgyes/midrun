@@ -150,20 +150,20 @@ class TrainctlRuntime:
     rank_sync: RankSync
 
     def __init__(self, config: TrainctlConfig, backend: LightningBackend) -> None:
-        self.config = config
-        self.backend = backend
+        self.config: TrainctlConfig = config
+        self.backend: LightningBackend = backend
         # commands.next_id is process-local, so two processes would share a run id.
-        self.run_id = (
+        self.run_id: str = (
             f"run-{time.strftime('%Y%m%dT%H%M%S')}-{os.getpid()}-{secrets.token_hex(4)}"
         )
-        self.started_at = time.time()
-        self.state = StateStore(
+        self.started_at: float = time.time()
+        self.state: StateStore = StateStore(
             initial_snapshot(self.run_id, backend.name, backend.version)
         )
-        self.command_queue = CommandQueue(validate_command_args)
-        self.gate = RunGate()
+        self.command_queue: CommandQueue = CommandQueue(validate_command_args)
+        self.gate: RunGate = RunGate()
         self.artifacts: ArtifactStore | None = None
-        self.torch_debug = TorchDebugManager(
+        self.torch_debug: TorchDebugManager = TorchDebugManager(
             port=config.torch_debug_port, port_search=config.torch_debug_port_search
         )
 
@@ -187,20 +187,22 @@ class TrainctlRuntime:
         self._local_rank_info: RankInfo | None = None
         self.rank_sync = RankSync()
 
-        self.pipeline = PipelinePressureTracker(window=config.pipeline_pressure_window)
-        self.current_step = CurrentStep()
-        self.finite_guard = DataloaderFiniteGuard(
+        self.pipeline: PipelinePressureTracker = PipelinePressureTracker(
+            window=config.pipeline_pressure_window
+        )
+        self.current_step: CurrentStep = CurrentStep()
+        self.finite_guard: DataloaderFiniteGuard = DataloaderFiniteGuard(
             enabled=config.dataloader_finite_check_enabled
         )
         self._exception_hold: ExceptionBreakpointInfo | None = None
         self._model_summary_json: dict[str, Any] = {}
-        self.cuda_memory_history = CudaMemoryHistoryState(
+        self.cuda_memory_history: CudaMemoryHistoryState = CudaMemoryHistoryState(
             enabled=False, max_entries=None, started_at=None
         )
         self.profiler_run: ProfilerRun | None = None
         self.lightning_profiler: Any | None = None
         self.lightning_profiler_level: str = "off"
-        self.live_captures = LiveCaptureBroker()
+        self.live_captures: LiveCaptureBroker = LiveCaptureBroker()
         self.tunable_hparams: dict[str, HparamValue] = {}
         self._tunable_hparam_specs: dict[str, TunableHparamSpec] = {}
         self._unreadable_hparams_reported = set()
@@ -228,6 +230,19 @@ class TrainctlRuntime:
     def fuse_mountpoint(self) -> Path | None:
         """The active FUSE mountpoint, once started."""
         return self._fuse_mountpoint
+
+    @property
+    def artifact_store(self) -> ArtifactStore:
+        """The artifact store that `setup_environment` creates.
+
+        Raises:
+            RuntimeError: `setup_environment` has not created the store yet.
+        """
+        if self.artifacts is None:
+            raise RuntimeError(
+                "trainctl: the artifact store does not exist until setup_environment runs"
+            )
+        return self.artifacts
 
     # ---- Lightning lifecycle ------------------------------------------------
 
@@ -604,7 +619,7 @@ class TrainctlRuntime:
         then_hold = run.then_hold
         try:
             files = run.finalize()
-            self.artifacts.write_debug_capture(
+            self.artifact_store.write_debug_capture(
                 "profiler", files, metadata={"level": run.level}
             )
         except Exception as exc:  # noqa: BLE001 -- inspector must never destabilize training
@@ -634,7 +649,7 @@ class TrainctlRuntime:
         """Records this rank's bad batch, if any, and holds every rank."""
         if report is not None:
             rank = self._local_rank_info.global_rank if self._local_rank_info else 0
-            self.artifacts.write_snapshot(
+            self.artifact_store.write_snapshot(
                 "anomaly_input_nonfinite",
                 {
                     "reason": "nonfinite_dataloader_tensor",

@@ -15,7 +15,7 @@ def handle_save_current_loss(
     trainer: Any,
     command: Command,
     safe_point: SafePoint | None,
-) -> dict:
+) -> dict[str, Any]:
     """Writes the in-flight loss with `torch.save` as a debug capture."""
     del pl_module, trainer, command, safe_point
     import io
@@ -24,6 +24,6 @@ def handle_save_current_loss(
 
     buffer = io.BytesIO()
     torch.save(runtime.current_step.loss, buffer)
-    return runtime.artifacts.write_debug_capture(
+    return runtime.artifact_store.write_debug_capture(
         "current-loss", {"loss.pt": buffer.getvalue()}
     )

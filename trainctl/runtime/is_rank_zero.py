@@ -8,5 +8,6 @@ def is_rank_zero() -> bool:
     import torch.distributed as dist
 
     if distributed_initialized():
-        return dist.get_rank() == 0
+        rank: int = dist.get_rank()
+        return rank == 0
     return True

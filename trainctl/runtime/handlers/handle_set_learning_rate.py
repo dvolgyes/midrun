@@ -16,7 +16,7 @@ def handle_set_learning_rate(
     trainer: Any,
     command: Command,
     safe_point: SafePoint | None,
-) -> dict:
+) -> dict[str, Any]:
     """Sets the learning rate of all param groups, or of one, of one optimizer.
 
     One param group needs `optimizer_surgery_enabled`. The result has a warning when an

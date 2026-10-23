@@ -3,6 +3,7 @@
 import threading
 import time
 from dataclasses import replace
+from typing import Any, cast
 
 from trainctl.runtime.state.runtime_snapshot import RuntimeSnapshot
 
@@ -43,7 +44,8 @@ class StateStore:
                 current,
                 generation=current.generation + 1,
                 updated_at=time.time(),
-                **changes,
+                # The keys are not typed per field; `replace` rejects an unknown field.
+                **cast(dict[str, Any], changes),
             )
             self._snapshot = new
             return new

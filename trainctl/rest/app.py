@@ -184,7 +184,7 @@ def build_app(runtime: "TrainctlRuntime") -> FastAPI:
     if runtime.artifacts is not None:
         app.mount(
             "/artifact-files",
-            StaticFiles(directory=str(runtime.artifacts.root)),
+            StaticFiles(directory=str(runtime.artifact_store.root)),
             name="artifact-files",
         )
 
@@ -315,7 +315,7 @@ def build_app(runtime: "TrainctlRuntime") -> FastAPI:
 
     @app.get("/artifacts")
     def list_artifacts() -> dict[str, Any]:
-        root = runtime.artifacts.root
+        root = runtime.artifact_store.root
         return {
             "checkpoints": sorted(
                 entry.name for entry in (root / "checkpoints").glob("*.ckpt")
@@ -328,10 +328,10 @@ def build_app(runtime: "TrainctlRuntime") -> FastAPI:
     def get_artifact(artifact_id: str) -> dict[str, Any]:
         for subdir in ("snapshots", "debug"):
             manifest_path = (
-                runtime.artifacts.root / subdir / artifact_id / "manifest.json"
+                runtime.artifact_store.root / subdir / artifact_id / "manifest.json"
             )
             if manifest_path.exists():
-                manifest = json.loads(manifest_path.read_text())
+                manifest: dict[str, Any] = json.loads(manifest_path.read_text())
                 manifest["files_url"] = f"/artifact-files/{subdir}/{artifact_id}"
                 return manifest
         raise HTTPException(status_code=404, detail="unknown artifact id")
@@ -339,7 +339,7 @@ def build_app(runtime: "TrainctlRuntime") -> FastAPI:
     @app.post("/debug/captures")
     def create_debug_capture(body: DebugCaptureIn) -> dict[str, Any]:
         try:
-            return runtime.artifacts.write_debug_capture(
+            return runtime.artifact_store.write_debug_capture(
                 body.kind, body.files, body.metadata
             )
         except ValueError as exc:
@@ -359,7 +359,7 @@ def build_app(runtime: "TrainctlRuntime") -> FastAPI:
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         stats = cheap_cuda_memory_stats()
-        manifest = runtime.artifacts.write_debug_capture(
+        manifest = runtime.artifact_store.write_debug_capture(
             "cuda-memory",
             {
                 "snapshot.pickle": snapshot_bytes,

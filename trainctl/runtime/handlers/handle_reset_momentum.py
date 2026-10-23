@@ -20,7 +20,7 @@ def handle_reset_momentum(
     trainer: Any,
     command: Command,
     safe_point: SafePoint | None,
-) -> dict:
+) -> dict[str, Any]:
     """Resets the momentum state of the selected parameters of one optimizer.
 
     Raises:

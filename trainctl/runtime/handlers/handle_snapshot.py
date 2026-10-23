@@ -19,7 +19,7 @@ def handle_snapshot(
     trainer: Any,
     command: Command,
     safe_point: SafePoint | None,
-) -> dict:
+) -> dict[str, Any]:
     """Writes a snapshot of the runtime state, the model, the optimizers or the schedulers.
 
     Raises:
@@ -44,4 +44,4 @@ def handle_snapshot(
         }
     else:
         raise ValueError(f"unknown snapshot kind {kind!r}")
-    return runtime.artifacts.write_snapshot(kind, payload)
+    return runtime.artifact_store.write_snapshot(kind, payload)

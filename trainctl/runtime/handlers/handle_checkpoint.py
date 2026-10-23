@@ -15,11 +15,11 @@ def handle_checkpoint(
     trainer: Any,
     command: Command,
     safe_point: SafePoint | None,
-) -> dict:
+) -> dict[str, Any]:
     """Saves a checkpoint on this rank, at the path that rank 0 selects for the label."""
     del pl_module, safe_point
     label = command.args["label"]
     # Every rank saves, as Lightning requires, so every rank must use rank 0's path.
-    path = runtime.rank_sync.broadcast(runtime.artifacts.checkpoint_path(label))
+    path = runtime.rank_sync.broadcast(runtime.artifact_store.checkpoint_path(label))
     trainer.save_checkpoint(str(path))
     return {"checkpoint_path": str(path)}

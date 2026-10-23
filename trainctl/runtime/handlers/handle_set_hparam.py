@@ -18,7 +18,7 @@ def handle_set_hparam(
     trainer: Any,
     command: Command,
     safe_point: SafePoint | None,
-) -> dict:
+) -> dict[str, Any]:
     """Assigns a new value to one tunable hparam.
 
     Raises:

@@ -16,7 +16,7 @@ def handle_save_partial_gradients(
     trainer: Any,
     command: Command,
     safe_point: SafePoint | None,
-) -> dict:
+) -> dict[str, Any]:
     """Writes whether each parameter has a gradient, and its norm and shape, as a debug capture."""
     del trainer, command, safe_point
     summary = {
@@ -31,6 +31,6 @@ def handle_save_partial_gradients(
         }
         for name, parameter in pl_module.named_parameters()
     }
-    return runtime.artifacts.write_debug_capture(
+    return runtime.artifact_store.write_debug_capture(
         "partial-gradients", {"gradients.json": json.dumps(summary, indent=2)}
     )

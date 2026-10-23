@@ -15,7 +15,7 @@ def handle_hold(
     trainer: Any,
     command: Command,
     safe_point: SafePoint | None,
-) -> dict:
+) -> dict[str, Any]:
     """Marks the run gate held for `command` at `safe_point`."""
     del pl_module
     runtime.gate.enter(

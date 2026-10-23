@@ -20,7 +20,7 @@ def handle_torchviz_capture(
     trainer: Any,
     command: Command,
     safe_point: SafePoint | None,
-) -> dict:
+) -> dict[str, Any]:
     """Writes a torchviz autograd graph as a debug capture.
 
     In an exception hold, it draws the graph of the failed loss. Otherwise it draws the
@@ -54,4 +54,4 @@ def handle_torchviz_capture(
             raise ValueError("torchviz_capture requires an in-flight batch")
         target = forward_input.resolve(pl_module, runtime.current_step.batch)
         files = torchviz_capture_live(pl_module, target, show_attrs, show_saved)
-    return runtime.artifacts.write_debug_capture("torchviz-graph", files)
+    return runtime.artifact_store.write_debug_capture("torchviz-graph", files)

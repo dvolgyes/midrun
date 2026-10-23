@@ -17,7 +17,7 @@ def handle_torchview_capture(
     trainer: Any,
     command: Command,
     safe_point: SafePoint | None,
-) -> dict:
+) -> dict[str, Any]:
     """Writes a torchview graph of the model for the in-flight batch as a debug capture.
 
     Raises:
@@ -28,4 +28,4 @@ def handle_torchview_capture(
         raise ValueError("torchview_capture requires an in-flight batch")
     target = forward_input.resolve(pl_module, runtime.current_step.batch)
     files = torchview_capture(pl_module, target)
-    return runtime.artifacts.write_debug_capture("torchview-graph", files)
+    return runtime.artifact_store.write_debug_capture("torchview-graph", files)

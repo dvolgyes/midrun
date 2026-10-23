@@ -40,7 +40,8 @@ if TYPE_CHECKING:
 
 
 COMMAND_HANDLERS: dict[
-    str, Callable[["TrainctlRuntime", Any, Any, Command, SafePoint | None], dict]
+    str,
+    Callable[["TrainctlRuntime", Any, Any, Command, SafePoint | None], dict[str, Any]],
 ] = {
     "hold": handle_hold,
     "stop": handle_stop,

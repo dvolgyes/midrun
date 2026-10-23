@@ -19,10 +19,10 @@ def handle_save_optimizer_summary(
     trainer: Any,
     command: Command,
     safe_point: SafePoint | None,
-) -> dict:
+) -> dict[str, Any]:
     """Writes the optimizer summary as a debug capture."""
     del pl_module, command, safe_point
     payload = optimizer_summary_payload(trainer)
-    return runtime.artifacts.write_debug_capture(
+    return runtime.artifact_store.write_debug_capture(
         "optimizer-summary", {"optimizer.json": json.dumps(payload, indent=2)}
     )

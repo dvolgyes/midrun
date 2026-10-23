@@ -15,7 +15,7 @@ def handle_release_exception(
     trainer: Any,
     command: Command,
     safe_point: SafePoint | None,
-) -> dict:
+) -> dict[str, Any]:
     """Ends the active exception hold.
 
     Raises:

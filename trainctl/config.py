@@ -97,7 +97,7 @@ class TrainctlConfig:
     enabled: bool = True
 
     fuse_enabled: bool = True
-    fuse_mountpoint: Path | str | None = None
+    fuse_mountpoint: Path | None = None
 
     rest_enabled: bool = True
     rest_host: str = "127.0.0.1"
@@ -109,7 +109,7 @@ class TrainctlConfig:
     torch_debug_port_search: int = 100
     paired_port_search_attempts: int = 20
 
-    artifact_dir: Path | str | None = None
+    artifact_dir: Path | None = None
 
     inspection_strict: bool = False
 
@@ -123,10 +123,10 @@ class TrainctlConfig:
     optimizer_surgery_enabled: bool = True
 
     hooks_enabled: bool = True
-    hooks_source_dir: Path | str | None = None
+    hooks_source_dir: Path | None = None
     hooks_timeout_s: float | None = None
     hooks_rank_policy: str = "rank_zero"
-    hooks_shell: Path | str | None = None
+    hooks_shell: Path | None = None
     hooks_max_params_bytes: int = 256 * 1024
     hooks_max_metadata_items: int = 1000
     hooks_max_metadata_depth: int = 8

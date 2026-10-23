@@ -15,7 +15,7 @@ def handle_save_current_batch(
     trainer: Any,
     command: Command,
     safe_point: SafePoint | None,
-) -> dict:
+) -> dict[str, Any]:
     """Writes the in-flight batch with `torch.save` as a debug capture."""
     del pl_module, trainer, command, safe_point
     import io
@@ -24,6 +24,6 @@ def handle_save_current_batch(
 
     buffer = io.BytesIO()
     torch.save(runtime.current_step.batch, buffer)
-    return runtime.artifacts.write_debug_capture(
+    return runtime.artifact_store.write_debug_capture(
         "current-batch", {"batch.pt": buffer.getvalue()}
     )
