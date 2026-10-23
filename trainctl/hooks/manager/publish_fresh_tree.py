@@ -19,8 +19,8 @@ from trainctl.hooks.manager.hooks_tree_layout import (
     SCHEMA_VERSION,
 )
 from trainctl.hooks.manager.seed_missing_slots import seed_missing_slots
-from trainctl.hooks.manager.write_hooks_record import write_hooks_record
 from trainctl.hooks.manager.write_readme_if_absent import write_readme_if_absent
+from trainctl.hooks.write_json_file import write_json_file
 
 
 def publish_fresh_tree(
@@ -89,7 +89,7 @@ def publish_fresh_tree(
             "pid": os.getpid(),
             "hostname": socket.gethostname(),
         }
-        write_hooks_record(staging_dir / PROVENANCE_NAME, record)
+        write_json_file(staging_dir / PROVENANCE_NAME, record)
 
         finalize_directory_modes(dir_records)
 
@@ -105,7 +105,7 @@ def publish_fresh_tree(
         if not published:
             shutil.rmtree(staging_dir, ignore_errors=True)
 
-    write_hooks_record(marker_path, record)
+    write_json_file(marker_path, record)
     log.info(
         "hooks: bootstrapped live tree at {} (source={})", live_dir, resolved_source
     )

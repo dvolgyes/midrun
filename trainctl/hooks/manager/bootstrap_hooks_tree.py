@@ -9,7 +9,7 @@ from trainctl.hooks.manager.hooks_tree_layout import MARKER_NAME, PROVENANCE_NAM
 from trainctl.hooks.manager.publish_fresh_tree import publish_fresh_tree
 from trainctl.hooks.manager.read_hooks_record import read_hooks_record
 from trainctl.hooks.manager.resolve_hooks_source import resolve_hooks_source
-from trainctl.hooks.manager.write_hooks_record import write_hooks_record
+from trainctl.hooks.write_json_file import write_json_file
 
 
 def bootstrap_hooks_tree(
@@ -80,7 +80,7 @@ def bootstrap_hooks_tree(
     if live_dir.exists():
         record = read_hooks_record(live_dir / PROVENANCE_NAME)
         if record is not None:
-            write_hooks_record(marker_path, record)
+            write_json_file(marker_path, record)
             return HooksTree(live_dir, record["session_id"])
         raise HooksBootstrapError(
             f"{live_dir} already exists but is not a Trainctl-owned hooks tree (no compatible "

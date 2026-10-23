@@ -18,9 +18,9 @@ from trainctl.hooks.payload.heavy_capture_failure import HeavyCaptureFailure
 from trainctl.hooks.payload.new_hook_id import new_hook_id
 from trainctl.hooks.payload.occurrence_context import OccurrenceContext
 from trainctl.hooks.payload.prepare_heavy_export import prepare_heavy_export
-from trainctl.hooks.payload.write_json_file import write_json_file
 from trainctl.hooks.resolve_enabled_script import resolve_enabled_script
 from trainctl.hooks.runner import ExecutionResult, run_script
+from trainctl.hooks.write_json_file import write_json_file
 
 
 def dispatch_heavy(
