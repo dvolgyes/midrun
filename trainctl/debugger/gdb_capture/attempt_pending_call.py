@@ -8,6 +8,7 @@ from trainctl.debugger.gdb_capture.evaluate_mi_expression import (
     evaluate_mi_expression,
 )
 from trainctl.debugger.gdb_capture.gdb_attach_error import GdbAttachError
+from trainctl.debugger.gdb_capture.require_attached import require_attached
 
 
 def attempt_pending_call(pid: int, snippet_path: Path, gdb_bin: str) -> None:
@@ -16,7 +17,8 @@ def attempt_pending_call(pid: int, snippet_path: Path, gdb_bin: str) -> None:
         command=[gdb_bin, "--nx", "--quiet", "--interpreter=mi3", "-p", str(pid)]
     )
     try:
-        gdbmi.get_gdb_response(timeout_sec=5)
+        startup_records = gdbmi.get_gdb_response(timeout_sec=5)
+        require_attached(gdbmi, pid, startup_records)
         gdbmi.write("-gdb-set scheduler-locking on", timeout_sec=5)
         c_call = (
             "(int) Py_AddPendingCall("

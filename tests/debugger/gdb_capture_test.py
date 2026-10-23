@@ -8,6 +8,7 @@ a live OS process, which cannot be meaningfully mocked.
 
 import http.server
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -22,6 +23,7 @@ from trainctl.debugger.gdb_capture.check_gdb_available import (
     GdbUnavailableError,
     check_gdb_available,
 )
+from trainctl.debugger.gdb_capture.gdb_attach_error import GdbAttachError
 
 try:
     from trainctl.debugger.gdb_capture.gdb_capture import gdb_capture
@@ -35,6 +37,20 @@ pytestmark = pytest.mark.skipif(
     reason="gdb or pygdbmi not available",
 )
 
+_PTRACE_SCOPE = Path("/proc/sys/kernel/yama/ptrace_scope")
+_YAMA_SCOPE = int(_PTRACE_SCOPE.read_text()) if _PTRACE_SCOPE.exists() else 0
+_IS_ROOT = os.geteuid() == 0
+# Yama scope 1 lets gdb attach to a sibling only when the target opts in with
+# prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY), as the targets below do; scope 2 and
+# 3 ignore that opt-in.
+_attach_permitted = pytest.mark.skipif(
+    _YAMA_SCOPE >= 2 and not _IS_ROOT,
+    reason="kernel.yama.ptrace_scope >= 2 permits ptrace only to root",
+)
+_ALLOW_ANY_TRACER = (
+    "import ctypes\nctypes.CDLL(None).prctl(0x59616D61, ctypes.c_ulong(-1), 0, 0, 0)\n"
+)
+
 
 @pytest.fixture
 def target_process() -> Iterator[subprocess.Popen[bytes]]:
@@ -42,7 +58,8 @@ def target_process() -> Iterator[subprocess.Popen[bytes]]:
         [
             sys.executable,
             "-c",
-            "import time\ncounter = 0\nwhile True:\n    counter += 1\n    time.sleep(0.01)\n",
+            _ALLOW_ANY_TRACER
+            + "import time\ncounter = 0\nwhile True:\n    counter += 1\n    time.sleep(0.01)\n",
         ]
     )
     time.sleep(0.3)
@@ -63,7 +80,7 @@ def churning_target(tmp_path: Path) -> Iterator[subprocess.Popen[bytes]]:
     """
     script = tmp_path / "churn.py"
     script.write_text(
-        "import multiprocessing, time\n"
+        _ALLOW_ANY_TRACER + "import multiprocessing, time\n"
         "def _short():\n"
         "    time.sleep(0.02)\n"
         "if __name__ == '__main__':\n"
@@ -97,6 +114,7 @@ def test_check_gdb_available_missing_binary_raises() -> None:
         check_gdb_available("definitely-not-a-real-gdb-binary")
 
 
+@_attach_permitted
 def test_capture_reads_live_variable(target_process: subprocess.Popen[bytes]) -> None:
     snippet = (
         "import sys, os, json\n"
@@ -110,6 +128,7 @@ def test_capture_reads_live_variable(target_process: subprocess.Popen[bytes]) ->
     assert isinstance(result["counter"], int)
 
 
+@_attach_permitted
 def test_capture_snippet_with_literal_braces_survives_placeholder_substitution(
     target_process: subprocess.Popen[bytes],
 ) -> None:
@@ -123,6 +142,7 @@ def test_capture_snippet_with_literal_braces_survives_placeholder_substitution(
     assert result == {"a": {"nested": 1}, "b": [1, 2, 3]}
 
 
+@_attach_permitted
 def test_capture_survives_fork_exit_churn(
     churning_target: subprocess.Popen[bytes],
 ) -> None:
@@ -134,6 +154,7 @@ def test_capture_survives_fork_exit_churn(
     assert churning_target.poll() is None
 
 
+@_attach_permitted
 def test_no_dangling_gdb_process_after_capture(
     target_process: subprocess.Popen[bytes],
 ) -> None:
@@ -141,6 +162,24 @@ def test_no_dangling_gdb_process_after_capture(
     gdb_capture(target_process.pid, snippet, poll_timeout_s=15)
     time.sleep(0.5)
     assert _no_gdb_processes_targeting(target_process.pid)
+
+
+@pytest.mark.skipif(
+    _YAMA_SCOPE == 0 or _IS_ROOT, reason="the kernel permits this attach"
+)
+def test_capture_refused_attach_names_the_cause() -> None:
+    proc = subprocess.Popen(  # noqa: S603 -- fixed, non-shell argv; test-only target process
+        [sys.executable, "-c", "import time\nwhile True:\n    time.sleep(0.01)\n"]
+    )
+    time.sleep(0.3)
+    try:
+        with pytest.raises(
+            GdbAttachError, match=r"could not attach to pid \d+.*ptrace"
+        ):
+            gdb_capture(proc.pid, "pass", poll_timeout_s=5)
+    finally:
+        proc.kill()
+        proc.wait(timeout=5)
 
 
 class _FakeTrainctlHandler(http.server.BaseHTTPRequestHandler):
