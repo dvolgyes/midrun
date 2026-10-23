@@ -2018,9 +2018,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-debugger = [
-  { name = "pygdbmi" },
-]
 graphs = [
   { name = "torchview" },
   { name = "torchviz" },
@@ -2064,7 +2061,6 @@ requires-dist = [
   { name = "numpy", specifier = ">=2.5.3" },
   { name = "py-spy", specifier = ">=0.4.2" },
   { name = "pygdbmi", specifier = ">=0.11.0.0" },
-  { name = "pygdbmi", marker = "extra == 'debugger'", specifier = ">=0.11" },
   { name = "tabulate", specifier = ">=0.10.0" },
   { name = "torchinfo", marker = "extra == 'torchinfo'", specifier = ">=1.8.0" },
   { name = "torchlens", marker = "extra == 'torchlens'", specifier = ">=2.34.1" },
@@ -2076,7 +2072,7 @@ requires-dist = [
   { name = "trainctl", extras = ["torchlens"], marker = "extra == 'inspectors'" },
   { name = "uvicorn", specifier = ">=0.52.4" },
 ]
-provides-extras = ["debugger", "graphs", "inspectors", "torchinfo", "torchlens"]
+provides-extras = ["graphs", "inspectors", "torchinfo", "torchlens"]
 
 [package.metadata.requires-dev]
 dev = [
