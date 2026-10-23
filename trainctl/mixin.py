@@ -21,7 +21,7 @@ If a subclass overrides one of the reserved hooks below (`setup`, `on_fit_start`
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from trainctl.config import TrainctlConfig
 from trainctl.detect_lightning_backend_from_mro import detect_lightning_backend_from_mro
@@ -30,8 +30,16 @@ from trainctl.lightning_backend import LightningBackend
 from trainctl.runtime.events import SafePoint
 from trainctl.runtime.runtime import TrainctlRuntime
 
+# Type checkers see LightningModule as the base, so that the `super()` calls to its
+# hooks type-check. At run time the base is `object`, so that the mixin composes
+# with the LightningModule of either Lightning namespace.
+if TYPE_CHECKING:
+    from lightning.pytorch import LightningModule as _MixinBase
+else:
+    _MixinBase = object
 
-class TrainctlMixin:
+
+class TrainctlMixin(_MixinBase):
     """Starts and owns a `TrainctlRuntime` for the Lightning model it is composed with.
 
     Attributes:
@@ -233,7 +241,7 @@ class TrainctlMixin:
         the services are still up.
         """
         # super().configure_callbacks() is provided by the composed LightningModule.
-        callbacks = _normalize_callbacks(super().configure_callbacks())  # type: ignore[misc]
+        callbacks = _normalize_callbacks(super().configure_callbacks())
         if not self._trainctl.config.enabled:
             return callbacks
         if self._trainctl.config.hooks_enabled:
@@ -254,7 +262,7 @@ class TrainctlMixin:
         # self.trainer is provided by the composed LightningModule; backend.Trainer is a
         # real class at runtime, but pylint can't see through the dataclass field's `type`
         # annotation.
-        trainer = self.trainer  # type: ignore[attr-defined]
+        trainer = self.trainer
         # pylint: disable-next=isinstance-second-argument-not-valid-type
         if not isinstance(trainer, backend.Trainer):
             raise RuntimeError(
