@@ -27,20 +27,27 @@ pytestmark = pytest.mark.skipif(
 )
 
 _PTRACE_SCOPE = Path("/proc/sys/kernel/yama/ptrace_scope")
-# With a Yama scope above 0, py-spy can attach only to its own descendants (or as
-# root), and the target here is a sibling of py-spy.
+_YAMA_SCOPE = int(_PTRACE_SCOPE.read_text()) if _PTRACE_SCOPE.exists() else 0
+# Yama scope 1 lets py-spy attach to a sibling only when the target opts in with
+# prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY), as the target below does; scope 2 and
+# 3 ignore that opt-in.
 _needs_ptrace = pytest.mark.skipif(
-    _PTRACE_SCOPE.exists()
-    and _PTRACE_SCOPE.read_text().strip() != "0"
-    and os.geteuid() != 0,
-    reason="ptrace of a non-child is not permitted (kernel.yama.ptrace_scope > 0)",
+    _YAMA_SCOPE >= 2 and os.geteuid() != 0,
+    reason="kernel.yama.ptrace_scope >= 2 permits ptrace only to root",
+)
+_ALLOW_ANY_TRACER = (
+    "import ctypes\nctypes.CDLL(None).prctl(0x59616D61, ctypes.c_ulong(-1), 0, 0, 0)\n"
 )
 
 
 @pytest.fixture
 def target_process() -> Iterator[subprocess.Popen[bytes]]:
     proc = subprocess.Popen(  # noqa: S603 -- fixed, non-shell argv; test-only target process
-        [sys.executable, "-c", "import time\nwhile True:\n    time.sleep(0.01)\n"]
+        [
+            sys.executable,
+            "-c",
+            _ALLOW_ANY_TRACER + "import time\nwhile True:\n    time.sleep(0.01)\n",
+        ]
     )
     time.sleep(0.3)
     try:
