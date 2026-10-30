@@ -162,13 +162,17 @@ class TorchDebugManager:
         )
 
     def wait_ready(self, timeout: float = 10.0) -> bool:
-        """Polls the frontend URL until it answers HTTP requests or `timeout` elapses."""
+        """Polls the frontend URL until it answers HTTP requests or `timeout` elapses.
+
+        The probe ignores `http_proxy`, which would route it away from this host.
+        """
         if self.frontend_url is None:
             return False
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             try:
-                urllib.request.urlopen(self.frontend_url, timeout=1)  # noqa: S310 -- localhost-only debug frontend
+                opener.open(self.frontend_url, timeout=1).close()
                 return True
             except Exception:  # noqa: BLE001 -- readiness probe boundary, not business logic
                 time.sleep(0.2)
