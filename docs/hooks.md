@@ -200,10 +200,13 @@ first, so the two are not a single simultaneous snapshot.
   exits on its own, so a hook cannot leave orphaned background work behind in its process group.
 - **Recovery:** disabling a stuck or misbehaving hook never requires restarting training — `chmod -x` the script and the
   next occurrence simply skips it. A hook that crashed or timed out already had its private invocation directory removed
-  (success, failure, and timeout all clean up the same way), so there is never a stale `.hooks-tmp/` entry to manually
-  clear. If a run's `hooks/` tree itself is in a bad state, the marker file (`midrun-hooks-state.json`, next to
-  `hooks/`) records the session that published it; deleting both and restarting the run bootstraps a fresh tree from
-  `hooks_source_dir` (or fresh disabled examples) exactly as the first run did.
+  (success, failure, and timeout all clean up the same way), and a session removes its own `.hooks-tmp/rank-*-<id>/`
+  directory when the run ends. Only a training process that is itself killed without cleanup (for example `kill -9` or
+  the OOM killer) during a hook leaves a stale directory there, with up to `hooks_max_export_bytes` of `.npy` files from
+  a heavy hook. A later session never reuses or removes it; when no run is using that run directory, delete
+  `.hooks-tmp/` manually. If a run's `hooks/` tree itself is in a bad state, the marker file (`midrun-hooks-state.json`,
+  next to `hooks/`) records the session that published it; deleting both and restarting the run bootstraps a fresh tree
+  from `hooks_source_dir` (or fresh disabled examples) exactly as the first run did.
 
 ## Attaching to a Lightning `Trainer`
 
