@@ -3,13 +3,13 @@
 from pathlib import Path
 from typing import Any
 
-from midrun.hooks.catalog import CATALOGUE_VERSION
 from midrun.hooks.manager.hooks_bootstrap_error import HooksBootstrapError
 from midrun.hooks.manager.hooks_tree import HooksTree
 from midrun.hooks.manager.hooks_tree_layout import MARKER_NAME, PROVENANCE_NAME
 from midrun.hooks.manager.publish_fresh_tree import publish_fresh_tree
 from midrun.hooks.manager.read_hooks_record import read_hooks_record
 from midrun.hooks.manager.resolve_hooks_source import resolve_hooks_source
+from midrun.hooks.manager.warn_on_catalogue_mismatch import warn_on_catalogue_mismatch
 from midrun.hooks.write_json_file import write_json_file
 
 
@@ -25,7 +25,8 @@ def bootstrap_hooks_tree(
     Idempotent: once `base_dir` holds a compatible marker (`midrun-hooks-state.json`), a later
     call returns the existing live tree unchanged, regardless of `source_dir` -- resuming a run
     never re-copies, re-seeds, or restores a deleted script. A resume warns when the
-    configured `source_dir` or the catalogue version differs from the marker's.
+    configured `source_dir` differs from the marker's, and when the catalogue version
+    differs from the marker's or, without a marker, from the tree's provenance record.
 
     Args:
         base_dir: The run directory (typically the Trainer's log directory), made absolute
@@ -78,16 +79,7 @@ def bootstrap_hooks_tree(
                 marker_path,
                 record.get("source_dir"),
             )
-        if record.get("catalogue_version") != CATALOGUE_VERSION:
-            log.warning(
-                "hooks: the live tree {} has catalogue version {} (recorded in {}), this "
-                "Midrun has catalogue version {}; the tree is reused unchanged, so a callback "
-                "without a script slot in it is never dispatched",
-                live_dir,
-                record.get("catalogue_version"),
-                marker_path,
-                CATALOGUE_VERSION,
-            )
+        warn_on_catalogue_mismatch(record, marker_path, live_dir, log)
         return HooksTree(live_dir, record["session_id"])
 
     resolved_source = None
@@ -95,23 +87,28 @@ def bootstrap_hooks_tree(
         resolved_source = resolve_hooks_source(source_dir, base_dir)
 
     if live_dir.exists():
-        return _adopt_live_tree(live_dir, marker_path)
+        return _adopt_live_tree(live_dir, marker_path, log)
 
     base_dir.mkdir(parents=True, exist_ok=True)
     if publish_fresh_tree(base_dir, live_dir, resolved_source, session_id, log):
         return HooksTree(live_dir, session_id)
     # A concurrent initializer (e.g. another DDP rank sharing this log_dir) won the race.
-    return _adopt_live_tree(live_dir, marker_path)
+    return _adopt_live_tree(live_dir, marker_path, log)
 
 
-def _adopt_live_tree(live_dir: Path, marker_path: Path) -> HooksTree:
+def _adopt_live_tree(live_dir: Path, marker_path: Path, log: Any) -> HooksTree:
     """Resumes an existing live tree from its provenance record, restoring the marker.
+
+    Warns, as a resume from the marker does, when the record holds another
+    catalogue version.
 
     Raises:
         HooksBootstrapError: `live_dir` has no compatible provenance record.
     """
-    record = read_hooks_record(live_dir / PROVENANCE_NAME)
+    provenance_path = live_dir / PROVENANCE_NAME
+    record = read_hooks_record(provenance_path)
     if record is not None:
+        warn_on_catalogue_mismatch(record, provenance_path, live_dir, log)
         write_json_file(marker_path, record)
         return HooksTree(live_dir, record["session_id"])
     raise HooksBootstrapError(

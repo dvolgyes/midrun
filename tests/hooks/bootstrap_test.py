@@ -500,6 +500,29 @@ def test_a_resume_warns_only_when_the_tree_has_another_catalogue_version(
     assert len([w for w in warnings if "catalogue version" in w]) == 1
 
 
+def test_adopting_a_tree_of_another_catalogue_version_without_a_marker_warns(
+    tmp_path,
+) -> None:
+    base_dir = tmp_path / "run"
+    live_dir = bootstrap_hooks_tree(
+        base_dir, None, session_id="s-a", log=logger
+    ).live_dir
+    provenance_path = live_dir / ".midrun-provenance.json"
+    provenance = json.loads(provenance_path.read_text())
+    provenance["catalogue_version"] = CATALOGUE_VERSION - 1
+    provenance_path.write_text(json.dumps(provenance))
+    (base_dir / "midrun-hooks-state.json").unlink()
+
+    warnings = _warnings_of_bootstrap(base_dir, None, "s-b")
+
+    catalogue_warnings = [w for w in warnings if "catalogue version" in w]
+    assert len(catalogue_warnings) == 1
+    assert str(provenance_path) in catalogue_warnings[0]
+    marker = json.loads((base_dir / "midrun-hooks-state.json").read_text())
+    assert marker["session_id"] == "s-a"
+    assert marker["catalogue_version"] == CATALOGUE_VERSION - 1
+
+
 def test_a_baseline_of_another_group_is_copied_with_one_warning(
     tmp_path, monkeypatch
 ) -> None:
