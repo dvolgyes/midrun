@@ -32,7 +32,14 @@ def _checkpoint_command() -> Command:
     )
 
 
+class _SingleProcessStrategy:
+    def barrier(self, name: str) -> None:
+        del name
+
+
 class _FailingTrainer:
+    strategy = _SingleProcessStrategy()
+
     def save_checkpoint(self, path: str) -> None:
         raise OSError(f"disk full while writing {path}")
 

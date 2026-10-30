@@ -20,10 +20,13 @@ Environment variables of the script:
         raises on every rank. Default -1 (never).
     MIDRUN_TEST_NAN_ON_RANK1_AT_STEP: Optional, the global step whose batch has a
         NaN on rank 1 only. It also turns on the dataloader finite check. Default -1.
+    MIDRUN_TEST_FAIL_CHECKPOINT_WRITE: Optional, "1" makes each checkpoint write
+        raise ENOSPC. Only rank 0 writes. Default "0".
     MIDRUN_TEST_REST_PORT: Optional, default 18500.
     MIDRUN_TEST_TORCH_DEBUG_PORT: Optional, default 18600.
 """
 
+import errno
 import json
 import os
 import shutil
@@ -39,6 +42,7 @@ import httpx2
 import lightning.pytorch as pl
 import pytest
 import torch
+from lightning.fabric.plugins import TorchCheckpointIO
 from lightning.pytorch.strategies import DDPStrategy
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
@@ -65,6 +69,16 @@ class _FailingBackward(torch.autograd.Function):
     ) -> torch.Tensor:
         del ctx, grad
         raise RuntimeError("midrun test: backward failed")
+
+
+class _FullDiskCheckpointIO(TorchCheckpointIO):
+    """Raises ENOSPC for each checkpoint write."""
+
+    def save_checkpoint(
+        self, checkpoint: dict, path: str | Path, storage_options: object = None
+    ) -> None:
+        del checkpoint, storage_options
+        raise OSError(errno.ENOSPC, "No space left on device", str(path))
 
 
 class _DdpModel(MidrunMixin, pl.LightningModule):
@@ -155,6 +169,7 @@ def main() -> None:
         torch.randint(0, 2, (256,), generator=generator),
     )
     timeout = timedelta(seconds=float(_ENV.get("MIDRUN_TEST_PG_TIMEOUT_S", "60")))
+    full_disk = _ENV.get("MIDRUN_TEST_FAIL_CHECKPOINT_WRITE", "0") == "1"
     trainer = pl.Trainer(
         default_root_dir=str(test_dir / "lightning"),
         accelerator="cpu",
@@ -167,6 +182,7 @@ def main() -> None:
         enable_checkpointing=False,
         enable_progress_bar=False,
         enable_model_summary=False,
+        plugins=[_FullDiskCheckpointIO()] if full_disk else None,
     )
     trainer.fit(_DdpModel(test_dir), DataLoader(dataset, batch_size=8))
 
@@ -351,6 +367,52 @@ def test_a_checkpoint_completes_on_every_rank(launch) -> None:
     assert command["status"] == "succeeded", command
     assert Path(command["result"]["checkpoint_path"]).is_file()
     assert run.wait(timeout=60) == 0
+
+
+def _assert_the_checkpoint_fails_and_every_rank_trains_on(
+    run: _DdpRun, error: str
+) -> None:
+    command_id = run.post("/checkpoints", {"label": "manual"})["id"]
+    run.wait_until(
+        lambda: (
+            run.get(f"/commands/{command_id}")["status"] not in ("queued", "executing")
+        )
+    )
+    command = run.get(f"/commands/{command_id}")
+    assert command["status"] == "failed", command
+    assert error in command["error"], command
+    steps = [len(run.steps(rank)) for rank in (0, 1)]
+    run.wait_until(lambda: all(len(run.steps(r)) > steps[r] + 5 for r in (0, 1)))
+    run.post("/control/stop", {})
+    assert run.wait(timeout=30) == 0
+
+
+def test_a_checkpoint_write_failing_on_rank_zero_fails_only_the_command(
+    launch,
+) -> None:
+    run = launch(
+        MIDRUN_TEST_FAIL_CHECKPOINT_WRITE="1",
+        MIDRUN_TEST_STEP_SLEEP_S="0.05",
+        MIDRUN_TEST_PG_TIMEOUT_S="20",
+    )
+    run.status(1)
+    _assert_the_checkpoint_fails_and_every_rank_trains_on(run, "No space left")
+    checkpoints = Path(run.status(0)["artifacts_path"]) / "checkpoints"
+    assert list(checkpoints.iterdir()) == []
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
+def test_a_checkpoint_path_rank_zero_cannot_reserve_fails_only_the_command(
+    launch,
+) -> None:
+    run = launch(MIDRUN_TEST_STEP_SLEEP_S="0.05", MIDRUN_TEST_PG_TIMEOUT_S="20")
+    run.status(1)
+    checkpoints = Path(run.status(0)["artifacts_path"]) / "checkpoints"
+    checkpoints.chmod(0o500)
+    try:
+        _assert_the_checkpoint_fails_and_every_rank_trains_on(run, "Permission denied")
+    finally:
+        checkpoints.chmod(0o700)
 
 
 def test_stop_ends_every_rank(launch) -> None:
