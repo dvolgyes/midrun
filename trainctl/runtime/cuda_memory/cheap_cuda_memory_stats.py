@@ -8,9 +8,11 @@ import torch
 def cheap_cuda_memory_stats() -> dict[str, Any]:
     """Returns cheap, always-safe-to-read CUDA allocator counters.
 
-    Returns `{"available": False}` when no CUDA device is present.
+    Returns `{"available": False}` when this process has not initialized CUDA (no
+    CUDA device, or the run has not used one yet). Reading the counters would
+    otherwise create a CUDA context on the calling FUSE or REST thread.
     """
-    if not torch.cuda.is_available():
+    if not torch.cuda.is_initialized():
         return {"available": False}
     free_bytes, total_bytes = torch.cuda.mem_get_info()
     return {

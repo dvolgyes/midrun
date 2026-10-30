@@ -7,6 +7,10 @@ covered separately in tests/rest/cuda_memory_test.py -- these operations don't
 touch the Trainer/model, so they execute directly from REST, not as commands.
 """
 
+import json
+import subprocess
+import sys
+
 import pytest
 import torch
 
@@ -26,10 +30,41 @@ pytestmark = pytest.mark.skipif(
 
 
 def test_cheap_stats_reports_real_allocator_counters() -> None:
+    _ = torch.zeros(1, device="cuda")
     stats = cheap_cuda_memory_stats()
     assert stats["available"] is True
     assert stats["free_bytes"] > 0
     assert stats["total_bytes"] > 0
+
+
+_READ_CUDA_MEMORY_FILE = """
+import json
+import torch
+from trainctl.config import TrainctlConfig
+from trainctl.load_backend import load_backend
+from trainctl.runtime.runtime import TrainctlRuntime
+from trainctl.runtime.virtual_fs.virtual_file_content import virtual_file_content
+
+runtime = TrainctlRuntime(
+    TrainctlConfig(rest_enabled=False, torch_debug_enabled=False, fuse_enabled=False),
+    load_backend("lightning.pytorch"),
+)
+content = virtual_file_content(runtime, "/state/cuda-memory.json")
+print(json.dumps([json.loads(content), torch.cuda.is_initialized()]))
+"""
+
+
+def test_cuda_memory_file_does_not_initialize_cuda() -> None:
+    """A stat or read of the file must not create a CUDA context for the reader."""
+    result = subprocess.run(  # noqa: S603 -- fixed command, test-owned script
+        [sys.executable, "-c", _READ_CUDA_MEMORY_FILE],
+        capture_output=True,
+        check=True,
+        text=True,
+    )
+    content, initialized = json.loads(result.stdout)
+    assert initialized is False
+    assert content["available"] is False
 
 
 def test_set_history_enable_and_disable_round_trip() -> None:
