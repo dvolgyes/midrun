@@ -21,8 +21,9 @@ class LoggingSession:
 
     Detaches the bridged loggers' own handlers so nothing double-logs, forwards their
     records into Loguru bound with `session_id`, and (optionally) attaches a Loguru file
-    sink filtered to that same `session_id` -- so a later, unrelated session in the same
-    process cannot leak into this run's file. `install`/`close` are each idempotent.
+    sink filtered to that same `session_id` and to Midrun's own unbound records -- so a
+    later, unrelated session in the same process cannot leak into this run's file.
+    `install`/`close` are each idempotent.
 
     `install` never changes a bridged logger's own level: Python's logging module
     computes a message's effective threshold (walking to the nearest ancestor with a
@@ -80,7 +81,11 @@ class LoggingSession:
         self._handler = handler
 
     def attach_run_file(self, path: Path) -> None:
-        """Adds a Loguru file sink at `path`, filtered to this session's own records.
+        """Adds a Loguru file sink at `path` for this session's records and Midrun's own.
+
+        The sink accepts a record bound to this session, and an unbound record from
+        the `midrun` package (the bare `loguru.logger` in a `midrun.*` module). It
+        rejects a record bound to a different session.
 
         A second call is a no-op. I/O failures (e.g. an unwritable parent directory)
         propagate as-is from `Path.mkdir`/`loguru.logger.add` -- the caller decides
@@ -92,7 +97,11 @@ class LoggingSession:
         session_id = self.session_id
         self._file_sink_id = logger.add(
             str(path),
-            filter=lambda record: record["extra"].get("midrun_session") == session_id,
+            filter=lambda record: (
+                record["extra"]["midrun_session"] == session_id
+                if "midrun_session" in record["extra"]
+                else (record["name"] or "").partition(".")[0] == "midrun"
+            ),
             level="DEBUG",
             diagnose=False,
             backtrace=False,
@@ -101,9 +110,9 @@ class LoggingSession:
     def bind(self) -> Any:
         """Returns a Loguru logger bound to this session's id.
 
-        Midrun code that wants its own diagnostics routed into this session's run
-        file (`attach_run_file`) must log through this bound logger rather than the
-        bare module-level `loguru.logger`.
+        The run file (`attach_run_file`) records Midrun's bare module-level
+        `loguru.logger` too; code outside the `midrun` package that wants its
+        diagnostics in this session's run file must log through this bound logger.
         """
         return logger.bind(midrun_session=self.session_id)
 

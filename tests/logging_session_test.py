@@ -266,6 +266,33 @@ def test_attach_run_file_records_only_this_sessions_bound_messages(tmp_path) -> 
     assert "from b" not in content
 
 
+def _named(name: str):
+    return logger.patch(lambda record: record.update(name=name))
+
+
+def test_attach_run_file_records_unbound_midrun_records_only(tmp_path) -> None:
+    log_path = tmp_path / "midrun.log"
+    session = LoggingSession("session-o")
+    session.attach_run_file(log_path)
+    try:
+        _named("midrun").warning("from the midrun package")
+        _named("midrun.runtime.runtime").warning("from a midrun module")
+        _named("midrunner.module").warning("from another package")
+        logger.warning("from this test module")
+        logger.bind(midrun_session="session-p").patch(
+            lambda record: record.update(name="midrun.runtime.runtime")
+        ).warning("bound to another session")
+    finally:
+        session.close()
+
+    content = log_path.read_text()
+    assert "from the midrun package" in content
+    assert "from a midrun module" in content
+    assert "from another package" not in content
+    assert "from this test module" not in content
+    assert "bound to another session" not in content
+
+
 def test_attach_run_file_creates_parent_directories(tmp_path) -> None:
     log_path = tmp_path / "nested" / "dir" / "midrun.log"
     session = LoggingSession("session-l")

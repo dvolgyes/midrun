@@ -2,7 +2,7 @@
 
 Bridges only the namespaces midrun itself cares about (`lightning.pytorch`,
 `pytorch_lightning`, `lightning.fabric`); it never touches the root logger unless
-`install_root_bridge` is called explicitly. Only midrun code that binds a session's
-logger (`LoggingSession.bind()`) is routed into that session's run-file sink --
-pre-existing, unbound `midrun.*` diagnostics are unaffected by this module.
+`install_root_bridge` is called explicitly. A session's run-file sink records the
+records bound to that session (`LoggingSession.bind()`) and the unbound records of
+`midrun.*` modules; it rejects the records bound to a different session.
 """

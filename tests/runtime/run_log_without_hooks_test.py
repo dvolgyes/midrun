@@ -32,13 +32,13 @@ class _TinyModel(MidrunMixin, PL.LightningModule):
 
 
 def _fit(tmp_path: Path, **kwargs) -> PL.Trainer:
-    model = _TinyModel(
-        fuse_enabled=False,
-        rest_enabled=False,
-        torch_debug_enabled=False,
-        hooks_enabled=False,
-        **kwargs,
-    )
+    options = {
+        "fuse_enabled": False,
+        "rest_enabled": False,
+        "torch_debug_enabled": False,
+        "hooks_enabled": False,
+    }
+    model = _TinyModel(**(options | kwargs))
     trainer = PL.Trainer(
         default_root_dir=str(tmp_path),
         max_epochs=1,
@@ -65,6 +65,14 @@ def test_a_fit_without_hooks_writes_lightning_logging_to_midrun_log(tmp_path) ->
 
     assert _FIT_STOPPED in (Path(trainer.log_dir) / "midrun.log").read_text()
     assert not _is_bridged()
+
+
+def test_midrun_log_records_midrun_diagnostics_of_unbound_loggers(tmp_path) -> None:
+    # Without torch.distributed, setup logs the skip of the debug server unbound.
+    trainer = _fit(tmp_path, run_log_enabled=True, torch_debug_enabled=True)
+
+    log = (Path(trainer.log_dir) / "midrun.log").read_text()
+    assert "pytorch distributed debug server skipped" in log
 
 
 def test_a_fit_without_hooks_bridges_lightning_logging_without_a_run_log(
