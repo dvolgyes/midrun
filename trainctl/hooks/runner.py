@@ -6,6 +6,7 @@ is data (`check=False`): only an actual launch I/O failure is caught. `KeyboardI
 contains the child's process group before re-raising, never swallowing it.
 """
 
+import contextlib
 import os
 import signal
 import subprocess
@@ -17,6 +18,7 @@ from typing import Any
 from trainctl.hooks.bounded_drain import BoundedDrain
 
 _GRACE_PERIOD_S = 5.0
+_DRAIN_DEADLINE_S = 1.0
 
 
 @dataclass(frozen=True)
@@ -76,7 +78,7 @@ def run_script(
     try:
         # Running an operator-enabled hook script is this module's purpose; the
         # execute bit is the sole privilege boundary.
-        process = subprocess.Popen(  # noqa: S603
+        process = subprocess.Popen(  # noqa: S603  # pylint: disable=consider-using-with
             [str(shell), str(script), *argv_extra],
             cwd=str(cwd),
             stdin=subprocess.DEVNULL,
@@ -97,50 +99,79 @@ def run_script(
             error=str(exc),
         )
 
-    with process:
-        stdout_drain = BoundedDrain(
-            process.stdout,
-            tag=f"{script.name} stdout",
-            max_bytes=max_output_bytes,
-            log=log,
-        )
-        stderr_drain = BoundedDrain(
-            process.stderr,
-            tag=f"{script.name} stderr",
-            max_bytes=max_output_bytes,
-            log=log,
-        )
-        stdout_drain.start()
-        stderr_drain.start()
+    # No `with process:` -- its exit closes the pipes, which blocks while a drain
+    # thread is still reading one; each drain closes its own pipe at EOF instead.
+    stdout_drain = BoundedDrain(
+        process.stdout,
+        tag=f"{script.name} stdout",
+        max_bytes=max_output_bytes,
+        log=log,
+    )
+    stderr_drain = BoundedDrain(
+        process.stderr,
+        tag=f"{script.name} stderr",
+        max_bytes=max_output_bytes,
+        log=log,
+    )
+    stdout_drain.start()
+    stderr_drain.start()
 
-        timed_out = False
+    timed_out = False
+    try:
         try:
-            try:
-                process.wait(timeout=timeout_s)
-            except subprocess.TimeoutExpired:
-                timed_out = True
-                _terminate_group(process, log)
-            except KeyboardInterrupt:
-                _terminate_group(process, log)
-                raise
-        finally:
-            stdout_drain.join()
-            stderr_drain.join()
+            process.wait(timeout=timeout_s)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            _terminate_group(process, log)
+        except KeyboardInterrupt:
+            _terminate_group(process, log)
+            raise
+    finally:
+        if not _contain_after_exit(process, (stdout_drain, stderr_drain)):
+            log.warning(
+                "hook process group {}: an output pipe is still open {}s after the "
+                "script exited (held by a process outside the group); no longer "
+                "waiting for it",
+                process.pid,
+                _DRAIN_DEADLINE_S,
+            )
 
-        duration = time.monotonic() - start
-        exit_code = process.returncode if process.returncode >= 0 else None
-        signal_number = -process.returncode if process.returncode < 0 else None
-        return ExecutionResult(
-            phase="timeout" if timed_out else "completed",
-            exit_code=exit_code,
-            signal_number=signal_number,
-            duration_s=duration,
-            stdout_tail=stdout_drain.tail(),
-            stderr_tail=stderr_drain.tail(),
-            stdout_truncated=stdout_drain.truncated,
-            stderr_truncated=stderr_drain.truncated,
-            error=None,
-        )
+    duration = time.monotonic() - start
+    exit_code = process.returncode if process.returncode >= 0 else None
+    signal_number = -process.returncode if process.returncode < 0 else None
+    return ExecutionResult(
+        phase="timeout" if timed_out else "completed",
+        exit_code=exit_code,
+        signal_number=signal_number,
+        duration_s=duration,
+        stdout_tail=stdout_drain.tail(),
+        stderr_tail=stderr_drain.tail(),
+        stdout_truncated=stdout_drain.truncated,
+        stderr_truncated=stderr_drain.truncated,
+        error=None,
+    )
+
+
+def _contain_after_exit(
+    process: subprocess.Popen[bytes], drains: tuple[BoundedDrain, ...]
+) -> bool:
+    """Kills what is left of the reaped script's process group, then joins the drains.
+
+    A member of the group that survived the script (a background job, or a child
+    that ignored SIGTERM) gets SIGKILL. A process that left the group (e.g. via
+    `setsid`) can still hold a pipe open; the drains are joined only until a
+    deadline, so it cannot block training.
+
+    Returns:
+        Whether every drain reached EOF before the deadline.
+    """
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(process.pid, signal.SIGKILL)
+    deadline = time.monotonic() + _DRAIN_DEADLINE_S
+    finished = [
+        drain.join(timeout=max(deadline - time.monotonic(), 0.0)) for drain in drains
+    ]
+    return all(finished)
 
 
 def _terminate_group(process: subprocess.Popen[bytes], log: Any) -> None:

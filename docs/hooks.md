@@ -166,8 +166,10 @@ first, so the two are not a single simultaneous snapshot.
 - A script's stdout/stderr are streamed live to the run's log as they're produced, and the last `hooks_max_output_bytes`
   of each stream are retained as a tail for the failure record. For each call, the log gets at most the first
   `hooks_max_output_bytes` of each stream, then one line that counts the bytes that it did not log.
-- On timeout, the script's *entire process group* is terminated (`SIGTERM`, then `SIGKILL` after a grace period) — a
-  backgrounded child cannot outlive its script.
+- On timeout, the script's *entire process group* is terminated (`SIGTERM`, then `SIGKILL` after a grace period). Once
+  the script itself has exited, for any reason, whatever is left of its process group gets `SIGKILL` — a backgrounded
+  child cannot outlive its script. A process that leaves the group (for example via `setsid`) is not killed; if it keeps
+  the script's stdout/stderr open, training stops waiting for that output one second after the script exits.
 - A nonzero exit code, a timeout, or a failure to launch the script at all produces exactly one structured `ERROR` log
   record naming the hook, script, session/occurrence/invocation ids, rank, stage/epoch/global_step, phase, exit code,
   signal, duration, whether each stream was truncated, and the retained stdout/stderr tails. A disabled or successful
@@ -185,8 +187,8 @@ first, so the two are not a single simultaneous snapshot.
   copying a tensor off its device, before retaining more of a stream) — a misbehaving or oversized batch cannot turn a
   hook into an unbounded memory or disk consumer.
 - A script that hangs is bounded only by `hooks_timeout_s` (`None` by default — set an explicit value outside
-  interactive sessions); once it fires, the *entire process group* is killed, so a hook cannot leave orphaned background
-  work behind.
+  interactive sessions); once it fires, the *entire process group* is killed. The group is also killed when a script
+  exits on its own, so a hook cannot leave orphaned background work behind in its process group.
 - **Recovery:** disabling a stuck or misbehaving hook never requires restarting training — `chmod -x` the script and the
   next occurrence simply skips it. A hook that crashed or timed out already had its private invocation directory removed
   (success, failure, and timeout all clean up the same way), so there is never a stale `.hooks-tmp/` entry to manually

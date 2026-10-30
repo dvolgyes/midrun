@@ -30,9 +30,14 @@ class BoundedDrain:
         """Starts the drain thread."""
         self._thread.start()
 
-    def join(self) -> None:
-        """Waits for the drain thread to finish (the stream has hit EOF)."""
-        self._thread.join()
+    def join(self, *, timeout: float | None = None) -> bool:
+        """Waits up to `timeout` seconds (`None`: forever) for the stream to hit EOF.
+
+        Returns:
+            Whether the drain thread has finished.
+        """
+        self._thread.join(timeout)
+        return not self._thread.is_alive()
 
     def tail(self) -> str:
         """Returns the retained (possibly truncated) decoded tail."""

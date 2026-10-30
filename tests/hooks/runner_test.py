@@ -1,7 +1,9 @@
 """Behavioral tests for trainctl.hooks.runner (T5)."""
 
+import contextlib
 import os
 import shutil
+import signal
 import subprocess
 import time
 from pathlib import Path
@@ -148,6 +150,81 @@ def test_timeout_kills_the_entire_process_group(tmp_path, shell, log) -> None:
     assert result.phase == "timeout"
     pid = int((tmp_path / "child.pid").read_text().strip())
     _assert_process_dead(pid)
+
+
+def test_background_child_does_not_outlive_a_script_that_exits(
+    tmp_path, shell, log
+) -> None:
+    script = _write_script(
+        tmp_path,
+        "#!/usr/bin/env bash\nsleep 10 &\necho $! > child.pid\nexit 0\n",
+    )
+    start = time.monotonic()
+    result = run_script(
+        script,
+        [],
+        cwd=tmp_path,
+        shell=shell,
+        timeout_s=1.0,
+        max_output_bytes=1024,
+        log=log,
+    )
+    elapsed = time.monotonic() - start
+    assert result.phase == "completed"
+    assert result.exit_code == 0
+    assert elapsed < 3.0
+    pid = int((tmp_path / "child.pid").read_text().strip())
+    _assert_process_dead(pid)
+
+
+def test_timeout_kills_a_child_that_ignores_sigterm(tmp_path, shell, log) -> None:
+    script = _write_script(
+        tmp_path,
+        "#!/usr/bin/env bash\n"
+        "bash -c 'trap \"\" TERM; echo $$ > child.pid; sleep 100' >/dev/null 2>&1 &\n"
+        "while [ ! -s child.pid ]; do sleep 0.01; done\n"
+        "wait\n",
+    )
+    result = run_script(
+        script,
+        [],
+        cwd=tmp_path,
+        shell=shell,
+        timeout_s=0.5,
+        max_output_bytes=1024,
+        log=log,
+    )
+    assert result.phase == "timeout"
+    pid = int((tmp_path / "child.pid").read_text().strip())
+    _assert_process_dead(pid)
+
+
+def test_escaped_child_holding_the_pipes_does_not_block_return(
+    tmp_path, shell, log
+) -> None:
+    script = _write_script(
+        tmp_path,
+        "#!/usr/bin/env bash\nsetsid sleep 8 &\necho $! > child.pid\nexit 0\n",
+    )
+    start = time.monotonic()
+    try:
+        result = run_script(
+            script,
+            [],
+            cwd=tmp_path,
+            shell=shell,
+            timeout_s=1.0,
+            max_output_bytes=1024,
+            log=log,
+        )
+        elapsed = time.monotonic() - start
+    finally:
+        pid = int((tmp_path / "child.pid").read_text().strip())
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(pid, signal.SIGKILL)
+    assert result.phase == "completed"
+    assert result.exit_code == 0
+    assert elapsed < 4.0
 
 
 def test_long_output_is_bounded(tmp_path, shell, log) -> None:
