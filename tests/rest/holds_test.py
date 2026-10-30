@@ -18,6 +18,7 @@ from midrun.runtime.artifacts import ArtifactStore
 from midrun.runtime.commands.parse_when import parse_when
 from midrun.runtime.events import SafePoint
 from midrun.runtime.runtime import MidrunRuntime
+from midrun.runtime.state.exception_breakpoint_info import ExceptionBreakpointInfo
 
 
 class _StepTrainer:
@@ -110,6 +111,40 @@ def test_holds_lists_the_commands_that_wait_while_held(tmp_path: Path) -> None:
 
     waiting = client.get("/holds").json()["waiting"]
     assert [entry["id"] for entry in waiting] == [command.id]
+
+
+def test_holds_does_not_list_a_command_that_runs_during_the_hold(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime(tmp_path)
+    client = TestClient(build_app(runtime), base_url="http://localhost")
+    runtime.command_queue.submit("snapshot", {}, parse_when("now"))
+    runtime.gate.enter("hold_1", "train_batch_end", epoch=0, step=0)
+
+    assert client.get("/holds").json()["waiting"] == []
+
+
+def test_holds_applies_the_exception_hold_policy_during_an_exception(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime(tmp_path)
+    client = TestClient(build_app(runtime), base_url="http://localhost")
+    runtime.command_queue.submit("save_current_batch", {}, parse_when("now"))
+    snapshot = runtime.command_queue.submit("snapshot", {}, parse_when("now"))
+    exception = ExceptionBreakpointInfo(
+        exception_type="RuntimeError",
+        exception_message="boom",
+        epoch=0,
+        global_step=0,
+        batch_idx=0,
+        rank=0,
+        started_at=0.0,
+    )
+    runtime.state.update(exception=exception)
+
+    waiting = client.get("/holds").json()["waiting"]
+
+    assert [entry["id"] for entry in waiting] == [snapshot.id]
 
 
 def test_release_exception_without_an_exception_hold_is_rejected(
