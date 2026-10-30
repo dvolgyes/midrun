@@ -746,6 +746,10 @@ class MidrunRuntime:
         self, pl_module: Any, status: str, batch_idx: int | None = None
     ) -> None:
         trainer = pl_module.trainer
+        # Lightning computes these properties on each access; read them once.
+        epoch = trainer.current_epoch
+        global_step = trainer.global_step
+        now = time.time()
         metrics: dict[str, ScalarMetric] = {}
         # Tensor values stay on their device: a copy to the host here would make
         # each step wait for the device. Readers copy them (`host_snapshot`).
@@ -754,10 +758,7 @@ class MidrunRuntime:
             if published is None:
                 continue
             metrics[key] = ScalarMetric(
-                value=published,
-                epoch=trainer.current_epoch,
-                step=trainer.global_step,
-                updated_at=time.time(),
+                value=published, epoch=epoch, step=global_step, updated_at=now
             )
         learning_rates = tuple(
             group["lr"].detach()
@@ -775,8 +776,8 @@ class MidrunRuntime:
             status=status,
             stage=stage,
             phase=phase_of_stage(stage),
-            epoch=trainer.current_epoch,
-            global_step=trainer.global_step,
+            epoch=epoch,
+            global_step=global_step,
             batch_idx=batch_idx,
             ranks=self._current_ranks(),
             metrics=metrics,
@@ -791,7 +792,8 @@ class MidrunRuntime:
 
         DataLoader workers are spawned lazily and non-persistent ones churn per
         epoch, so this field alone is recomputed on every publish rather than
-        gathered once like the rest of `RankInfo`.
+        gathered once like the rest of `RankInfo`. While the pids do not
+        change, this returns the published entry instead of a new `RankInfo`.
         """
         import multiprocessing
 
@@ -805,7 +807,13 @@ class MidrunRuntime:
                 if child.pid is not None
             )
         )
-        return replace(self._local_rank_info, worker_pids=worker_pids)
+        local = self._local_rank_info
+        for published in self.state.read().ranks:
+            if published.global_rank == local.global_rank:
+                if published.worker_pids == worker_pids:
+                    return published
+                break
+        return replace(local, worker_pids=worker_pids)
 
     def _current_ranks(self) -> tuple[RankInfo, ...]:
         """Every rank's info, with this rank's `worker_pids` refreshed.
@@ -814,9 +822,11 @@ class MidrunRuntime:
         `worker_pids` are not live.
         """
         local = self._current_rank_info()
+        ranks = self.state.read().ranks
+        if any(info is local for info in ranks):
+            return ranks
         return tuple(
-            local if info.global_rank == local.global_rank else info
-            for info in self.state.read().ranks
+            local if info.global_rank == local.global_rank else info for info in ranks
         )
 
     def _gather_ranks(self, pl_module: Any) -> None:
