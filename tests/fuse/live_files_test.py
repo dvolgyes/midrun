@@ -69,7 +69,6 @@ def test_model_summary_live_txt_blocks_then_serves_fresh_data() -> None:
     fs, runtime = _make_fs()
     model = _Model()
     model.trainer = _FakeTrainer()
-    runtime._gather_ranks(model)
     runtime.current_step.begin(
         batch=torch.randn(3, 4), batch_idx=0, epoch=0, global_step=0, started_ns=0
     )
@@ -86,7 +85,6 @@ def test_model_graph_dot_blocks_then_serves_dot_source() -> None:
     fs, runtime = _make_fs()
     model = _Model()
     model.trainer = _FakeTrainer()
-    runtime._gather_ranks(model)
     runtime.current_step.begin(
         batch=torch.randn(3, 4), batch_idx=0, epoch=0, global_step=0, started_ns=0
     )

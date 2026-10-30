@@ -15,6 +15,7 @@ import torch
 from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
 from midrun.runtime.artifacts import ArtifactStore
+from midrun.runtime.command_specs.execute_command import execute_command
 from midrun.runtime.commands.parse_when import parse_when
 from midrun.runtime.runtime import MidrunRuntime
 from midrun.runtime.torchlens_available import torchlens_available
@@ -80,7 +81,7 @@ def test_torchlens_capture_auto_engages_hold_when_not_already_held(
     assert not runtime.gate.is_held()
 
     cmd = runtime.command_queue.submit("torchlens_capture", {}, parse_when("now"))
-    runtime._execute(model, trainer, cmd, safe_point=None)
+    execute_command(runtime, model, trainer, cmd, safe_point=None)
 
     assert runtime.gate.is_held()
 
@@ -97,7 +98,7 @@ def test_torchlens_capture_without_torchlens_fails_and_engages_no_hold(
     )
 
     cmd = runtime.command_queue.submit("torchlens_capture", {}, parse_when("now"))
-    runtime._execute(model, trainer, cmd, safe_point=None)
+    execute_command(runtime, model, trainer, cmd, safe_point=None)
 
     assert cmd.status == "failed"
     assert "torchlens" in cmd.error
@@ -125,7 +126,7 @@ def test_torchlens_capture_command_succeeds_during_active_hold(
     )
 
     cmd = runtime.command_queue.submit("torchlens_capture", {}, parse_when("now"))
-    runtime._execute(model, trainer, cmd, safe_point=None)
+    execute_command(runtime, model, trainer, cmd, safe_point=None)
 
     assert cmd.status == "succeeded"
     assert (Path(cmd.result["path"]) / "summary.txt").exists()

@@ -8,7 +8,6 @@ Trainer/model state. REST and FUSE only read published `RuntimeSnapshot`s or enq
 
 import os
 import secrets
-import socket
 import threading
 import time
 from collections.abc import Callable
@@ -30,6 +29,7 @@ from midrun.runtime.command_specs.allowed_during_exception import (
 )
 from midrun.runtime.command_specs.allowed_during_hold import ALLOWED_DURING_HOLD
 from midrun.runtime.command_specs.command_specs import COMMAND_SPECS
+from midrun.runtime.command_specs.execute_command import execute_command
 from midrun.runtime.commands.command import Command
 from midrun.runtime.commands.command_queue import CommandQueue
 from midrun.runtime.commands.next_id import next_id
@@ -55,6 +55,7 @@ from midrun.runtime.hparam_registry.resolve_hparam_path import resolve_hparam_pa
 from midrun.runtime.hparam_registry.tunable_hparam_spec import TunableHparamSpec
 from midrun.runtime.is_rank_zero import is_rank_zero
 from midrun.runtime.live_capture import LiveCaptureBroker
+from midrun.runtime.local_rank_info import local_rank_info
 from midrun.runtime.model_info import ModelInfo
 from midrun.runtime.phase_of_stage import phase_of_stage
 from midrun.runtime.pipeline_pressure import PipelinePressureTracker
@@ -163,7 +164,8 @@ class MidrunRuntime:
 
         self.model_info: ModelInfo = ModelInfo()
 
-        self._local_rank_info: RankInfo | None = None
+        # Until `_gather_ranks` runs at setup, the runtime knows only its own rank.
+        self._local_rank_info: RankInfo = local_rank_info("cpu")
         self.rank_sync = RankSync()
 
         self.pipeline: PipelinePressureTracker = PipelinePressureTracker(
@@ -479,7 +481,7 @@ class MidrunRuntime:
             return held
         for command in self.rank_sync.broadcast(due):
             if self._is_rank_zero or COMMAND_SPECS[command.kind].all_ranks:
-                self._execute(pl_module, trainer, command, safe_point)
+                execute_command(self, pl_module, trainer, command, safe_point)
         # A command can enter or release a hold, so rank 0 sends its state again.
         (held,) = self.rank_sync.broadcast_flags(self.gate.is_held())
         return held
@@ -492,34 +494,6 @@ class MidrunRuntime:
         allowed: frozenset[str] | None,
     ) -> tuple[Command, ...]:
         return tuple(self.command_queue.due(safe_point, epoch, global_step, allowed))
-
-    def _execute(
-        self,
-        pl_module: Any,
-        trainer: Any,
-        command: Command,
-        safe_point: SafePoint | None,
-    ) -> None:
-        # Skips a hold cancelled after `_due_commands` returned it. Only holds can be
-        # cancelled, and only rank 0 runs them, so no rank skips what the others run.
-        if not self.command_queue.mark_executing(command):
-            return
-        # The queue validates the kind at submit, so every queued kind has a handler.
-        handler = COMMAND_SPECS[command.kind].handler
-        try:
-            result = handler(self, pl_module, trainer, command, safe_point)
-        except Exception as exc:  # noqa: BLE001 -- command boundary: untrusted REST input must not crash training
-            logger.warning(
-                "midrun command {} ({}) failed: {}", command.id, command.kind, exc
-            )
-            self.command_queue.mark_result(command, succeeded=False, error=str(exc))
-            return
-        except BaseException as exc:
-            # An interrupt or exit ends training, but not as a command still executing.
-            error = f"interrupted by {type(exc).__name__}"
-            self.command_queue.mark_result(command, succeeded=False, error=error)
-            raise
-        self.command_queue.mark_result(command, succeeded=True, result=result)
 
     # ---- per-batch hooks ----------------------------------------------------------
 
@@ -614,7 +588,7 @@ class MidrunRuntime:
             record_bad_batch(
                 self.artifacts,
                 report,
-                rank=self._local_rank_info.global_rank if self._local_rank_info else 0,
+                rank=self._local_rank_info.global_rank,
                 epoch=trainer.current_epoch,
                 global_step=trainer.global_step,
                 batch_idx=batch_idx,
@@ -649,7 +623,7 @@ class MidrunRuntime:
         trainer = pl_module.trainer
         self.current_step.loss = loss
         self.current_step.exception = exc
-        rank = self._local_rank_info.global_rank if self._local_rank_info else 0
+        rank = self._local_rank_info.global_rank
         self.exception_hold = ExceptionBreakpointInfo(
             exception_type=type(exc).__name__,
             exception_message=str(exc),
@@ -679,7 +653,7 @@ class MidrunRuntime:
                 trainer.global_step,
                 allowed=ALLOWED_DURING_EXCEPTION,
             ):
-                self._execute(pl_module, trainer, command, safe_point=None)
+                execute_command(self, pl_module, trainer, command, safe_point=None)
             self._publish(pl_module, status="exception_held")
             if self.exception_hold is None:
                 break
@@ -769,9 +743,6 @@ class MidrunRuntime:
         """
         import multiprocessing
 
-        assert self._local_rank_info is not None, (
-            "_gather_ranks must run before the first _publish"
-        )
         worker_pids = tuple(
             sorted(
                 child.pid
@@ -791,10 +762,12 @@ class MidrunRuntime:
         """Every rank's info, with this rank's `worker_pids` refreshed.
 
         The other ranks' entries are the ones gathered at setup, so their
-        `worker_pids` are not live.
+        `worker_pids` are not live. Before `_gather_ranks`, only this rank is known.
         """
         local = self._current_rank_info()
         ranks = self.state.read().ranks
+        if not ranks:
+            return (local,)
         if any(info is local for info in ranks):
             return ranks
         return tuple(
@@ -804,23 +777,12 @@ class MidrunRuntime:
     def _gather_ranks(self, pl_module: Any) -> None:
         import torch.distributed as dist
 
-        if dist.is_available() and dist.is_initialized():
-            world_size = dist.get_world_size()
-            global_rank = dist.get_rank()
-        else:
-            world_size = 1
-            global_rank = 0
-        local_rank = int(os.environ.get("LOCAL_RANK", "0"))
-        device = str(getattr(pl_module, "device", "cpu"))
-        rank_info = RankInfo(
-            global_rank=global_rank,
-            local_rank=local_rank,
-            pid=os.getpid(),
-            hostname=socket.gethostname(),
-            device=device,
+        initialized = dist.is_available() and dist.is_initialized()
+        world_size = dist.get_world_size() if initialized else 1
+        self._local_rank_info = local_rank_info(
+            str(getattr(pl_module, "device", "cpu"))
         )
-        self._local_rank_info = rank_info
-        ranks = tuple(self.rank_sync.all_gather(rank_info))
+        ranks = tuple(self.rank_sync.all_gather(self._local_rank_info))
         self.state.update(world_size=world_size, ranks=ranks)
 
     # ---- service management ------------------------------------------------------

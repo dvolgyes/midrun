@@ -120,7 +120,6 @@ def test_learning_rate_for_a_missing_optimizer_fails_with_the_optimizer_count(
     model = torch.nn.Linear(2, 2)
     optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
     model.trainer = _FakeTrainer(optimizer)
-    runtime._gather_ranks(model)
     runtime.on_fit_start(model)
 
     command = runtime.command_queue.submit(

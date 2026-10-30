@@ -81,7 +81,7 @@ class _FastModel(MidrunMixin, pl.LightningModule):
 
     def setup(self, stage: str) -> None:
         super().setup(stage)
-        snapshot = self._midrun.state.read()
+        snapshot = self.midrun.state.read()
         if snapshot.rest_port is not None:
             self._status_file.write_text(
                 json.dumps(

@@ -7,7 +7,6 @@ matching the existing static-path test convention -- no real FUSE mount involved
 import json
 
 from midrun.config import MidrunConfig
-from midrun.fuse.filesystem import MidrunFS
 from midrun.load_backend import load_backend
 from midrun.runtime.runtime import MidrunRuntime
 from midrun.runtime.state.exception_breakpoint_info import ExceptionBreakpointInfo
@@ -15,23 +14,20 @@ from midrun.runtime.virtual_fs.is_virtual_dir import is_virtual_dir
 from midrun.runtime.virtual_fs.virtual_file_content import virtual_file_content
 
 
-def _make_fs(**overrides: object) -> MidrunFS:
+def _make_runtime(**overrides: object) -> MidrunRuntime:
     config = MidrunConfig(
         rest_enabled=False, fuse_enabled=False, torch_debug_enabled=False, **overrides
     )
-    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
-    return MidrunFS(runtime)
+    return MidrunRuntime(config, load_backend("lightning.pytorch"))
 
 
 def test_breakpoint_json_is_null_when_no_exception_held() -> None:
-    fs = _make_fs()
-    assert (
-        json.loads(virtual_file_content(fs._runtime, "/state/breakpoint.json")) is None
-    )
+    runtime = _make_runtime()
+    assert json.loads(virtual_file_content(runtime, "/state/breakpoint.json")) is None
 
 
 def test_breakpoint_json_reports_active_exception() -> None:
-    fs = _make_fs()
+    runtime = _make_runtime()
     info = ExceptionBreakpointInfo(
         exception_type="ValueError",
         exception_message="boom",
@@ -41,53 +37,46 @@ def test_breakpoint_json_reports_active_exception() -> None:
         rank=0,
         started_at=123.0,
     )
-    fs._runtime.state.update(status="exception_held", exception=info)
+    runtime.state.update(status="exception_held", exception=info)
 
-    payload = json.loads(virtual_file_content(fs._runtime, "/state/breakpoint.json"))
+    payload = json.loads(virtual_file_content(runtime, "/state/breakpoint.json"))
 
     assert payload["exception_type"] == "ValueError"
     assert payload["exception_message"] == "boom"
 
 
 def test_dataloader_finite_check_json_reflects_guard_state() -> None:
-    fs = _make_fs(dataloader_finite_check_enabled=True)
+    runtime = _make_runtime(dataloader_finite_check_enabled=True)
     payload = json.loads(
-        virtual_file_content(fs._runtime, "/state/dataloader/finite-check.json")
+        virtual_file_content(runtime, "/state/dataloader/finite-check.json")
     )
     assert payload == {"enabled": True, "checked_batches": 0, "failures": 0}
-    assert is_virtual_dir(fs._runtime, "/state/dataloader")
+    assert is_virtual_dir(runtime, "/state/dataloader")
 
 
 def test_pipeline_config_json_reflects_config() -> None:
-    fs = _make_fs(pipeline_pressure_enabled=True, pipeline_pressure_window=64)
-    payload = json.loads(
-        virtual_file_content(fs._runtime, "/state/pipeline/config.json")
-    )
+    runtime = _make_runtime(pipeline_pressure_enabled=True, pipeline_pressure_window=64)
+    payload = json.loads(virtual_file_content(runtime, "/state/pipeline/config.json"))
     assert payload == {"enabled": True, "window": 64}
-    assert is_virtual_dir(fs._runtime, "/state/pipeline")
+    assert is_virtual_dir(runtime, "/state/pipeline")
 
 
 def test_pipeline_latest_json_is_null_before_first_batch() -> None:
-    fs = _make_fs()
+    runtime = _make_runtime()
     assert (
-        json.loads(virtual_file_content(fs._runtime, "/state/pipeline/latest.json"))
-        is None
+        json.loads(virtual_file_content(runtime, "/state/pipeline/latest.json")) is None
     )
 
 
 def test_pipeline_latest_and_summary_json_after_a_batch() -> None:
-    fs = _make_fs()
-    fs._runtime.pipeline.batch_start(0, epoch=0, global_step=0, batch_idx=0)
-    fs._runtime.pipeline.batch_end(1_000)
+    runtime = _make_runtime()
+    runtime.pipeline.batch_start(0, epoch=0, global_step=0, batch_idx=0)
+    runtime.pipeline.batch_end(1_000)
 
-    latest = json.loads(
-        virtual_file_content(fs._runtime, "/state/pipeline/latest.json")
-    )
+    latest = json.loads(virtual_file_content(runtime, "/state/pipeline/latest.json"))
     assert latest["batch_total_ns"] == 1_000
 
-    summary = json.loads(
-        virtual_file_content(fs._runtime, "/state/pipeline/summary.json")
-    )
+    summary = json.loads(virtual_file_content(runtime, "/state/pipeline/summary.json"))
     assert summary["samples"] == 1
 
 

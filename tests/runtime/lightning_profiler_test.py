@@ -9,6 +9,7 @@ from lightning.pytorch.profilers import PassThroughProfiler, PyTorchProfiler
 from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
 from midrun.runtime.artifacts import ArtifactStore
+from midrun.runtime.command_specs.execute_command import execute_command
 from midrun.runtime.commands.parse_when import parse_when
 from midrun.runtime.runtime import MidrunRuntime
 
@@ -56,7 +57,7 @@ def _set_level(runtime: MidrunRuntime, trainer: _FakeTrainer, level: str):
     cmd = runtime.command_queue.submit(
         "set_lightning_profiler", {"level": level}, parse_when("now")
     )
-    runtime._execute(trainer.lightning_module, trainer, cmd, safe_point=None)
+    execute_command(runtime, trainer.lightning_module, trainer, cmd, safe_point=None)
     return cmd
 
 

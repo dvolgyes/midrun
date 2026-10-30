@@ -11,6 +11,7 @@ import torch
 from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
 from midrun.runtime.artifacts import ArtifactStore
+from midrun.runtime.command_specs.execute_command import execute_command
 from midrun.runtime.commands.command import Command
 from midrun.runtime.commands.parse_when import parse_when
 from midrun.runtime.runtime import MidrunRuntime
@@ -78,7 +79,6 @@ def test_handle_backward_exception_holds_until_released(tmp_path: Path) -> None:
     runtime = _make_runtime(tmp_path)
     trainer = _FakeTrainer()
     pl_module = _FakePLModule(trainer)
-    runtime._gather_ranks(pl_module)
     runtime.current_step.begin(
         batch={"x": 1}, batch_idx=0, epoch=0, global_step=0, started_ns=0
     )
@@ -114,7 +114,6 @@ def test_save_current_batch_and_loss_during_exception_hold(tmp_path: Path) -> No
     runtime = _make_runtime(tmp_path)
     trainer = _FakeTrainer()
     pl_module = _FakePLModule(trainer)
-    runtime._gather_ranks(pl_module)
     runtime.current_step.begin(
         batch=torch.tensor([1.0, 2.0]),
         batch_idx=0,
@@ -165,7 +164,7 @@ def test_save_current_batch_and_loss_fail_without_an_in_flight_value(
     pl_module = _FakePLModule(trainer)
 
     cmd = runtime.command_queue.submit(kind, {}, parse_when("now"))
-    runtime._execute(pl_module, trainer, cmd, safe_point=None)
+    execute_command(runtime, pl_module, trainer, cmd, safe_point=None)
 
     assert cmd.status == "failed"
     assert f"{kind} requires an in-flight {missing}" in cmd.error
@@ -183,7 +182,7 @@ def test_save_current_batch_writes_only_the_viewed_elements(tmp_path: Path) -> N
     )
 
     cmd = runtime.command_queue.submit("save_current_batch", {}, parse_when("now"))
-    runtime._execute(pl_module, trainer, cmd, safe_point=None)
+    execute_command(runtime, pl_module, trainer, cmd, safe_point=None)
 
     assert cmd.status == "succeeded"
     path = Path(cmd.result["path"]) / "batch.pt"
@@ -207,7 +206,6 @@ def test_save_partial_gradients_reports_grad_presence_and_norm(tmp_path: Path) -
     pl_module = _FakePLModule(
         trainer, parameters={"with_grad": with_grad, "without_grad": without_grad}
     )
-    runtime._gather_ranks(pl_module)
 
     thread = threading.Thread(
         target=runtime.handle_backward_exception,
@@ -240,7 +238,6 @@ def test_save_optimizer_summary_during_exception_hold(tmp_path: Path) -> None:
     linear = torch.nn.Linear(2, 2)
     trainer.optimizers = [torch.optim.SGD(linear.parameters(), lr=0.01)]
     pl_module = _FakePLModule(trainer)
-    runtime._gather_ranks(pl_module)
 
     thread = threading.Thread(
         target=runtime.handle_backward_exception,
@@ -272,7 +269,6 @@ def test_disallowed_command_is_not_executed_during_exception_hold(
     runtime = _make_runtime(tmp_path)
     trainer = _FakeTrainer()
     pl_module = _FakePLModule(trainer)
-    runtime._gather_ranks(pl_module)
 
     thread = threading.Thread(
         target=runtime.handle_backward_exception,
@@ -333,7 +329,7 @@ def test_release_exception_fails_without_an_exception_hold(tmp_path: Path) -> No
     pl_module = _FakePLModule(trainer)
 
     cmd = runtime.command_queue.submit("release_exception", {}, parse_when("now"))
-    runtime._execute(pl_module, trainer, cmd, safe_point=None)
+    execute_command(runtime, pl_module, trainer, cmd, safe_point=None)
 
     assert cmd.status == "failed"
     assert "no exception hold" in cmd.error
@@ -345,7 +341,6 @@ def test_an_interrupted_exception_hold_ends_the_hold(
     runtime = _make_runtime(tmp_path)
     trainer = _FakeTrainer()
     pl_module = _FakePLModule(trainer)
-    runtime._gather_ranks(pl_module)
     runtime.current_step.begin(
         batch={"x": 1}, batch_idx=0, epoch=0, global_step=0, started_ns=0
     )

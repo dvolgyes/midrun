@@ -69,7 +69,7 @@ class _Midrun(MidrunMixin, _Training, PL.LightningModule):
         reference = {
             key: float(value) for key, value in self.trainer.callback_metrics.items()
         }
-        metrics = host_snapshot(self._midrun.state.read()).metrics
+        metrics = host_snapshot(self.midrun.state.read()).metrics
         self.compared.append(
             (reference, {key: metric.value for key, metric in metrics.items()})
         )
@@ -128,7 +128,7 @@ def _memory_run(model_type: type, tmp_path: Path) -> tuple[list[int], int, int, 
     after_fit = torch.cuda.memory_allocated() - start
     live_losses = sum(ref() is not None for ref in model.loss_refs)
     per_batch = [used - start for used in model.memory]
-    snapshot = model._midrun.state.read() if isinstance(model, _Midrun) else None
+    snapshot = model.midrun.state.read() if isinstance(model, _Midrun) else None
     del model
     gc.collect()
     torch.cuda.synchronize()
@@ -171,7 +171,7 @@ def test_a_reader_during_a_strict_sync_fit_sees_whole_monotone_states(
 ) -> None:
     del trial
     model = _Midrun()
-    client = TestClient(build_app(model._midrun), base_url="http://localhost")
+    client = TestClient(build_app(model.midrun), base_url="http://localhost")
     stop = threading.Event()
     reads: list[dict] = []
     errors: list[BaseException] = []

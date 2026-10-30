@@ -15,6 +15,7 @@ from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
 from midrun.mixin import MidrunMixin
 from midrun.runtime.artifacts import ArtifactStore
+from midrun.runtime.command_specs.execute_command import execute_command
 from midrun.runtime.commands.parse_when import parse_when
 from midrun.runtime.profiler import ProfilerRun
 from midrun.runtime.runtime import MidrunRuntime
@@ -98,7 +99,7 @@ def test_profile_command_arms_immediately(tmp_path: Path) -> None:
         {"warmup_steps": 0, "active_steps": 1, "level": "basic"},
         parse_when("now"),
     )
-    runtime._execute(pl_module, trainer, cmd, safe_point=None)
+    execute_command(runtime, pl_module, trainer, cmd, safe_point=None)
 
     assert cmd.status == "succeeded"
     assert cmd.result["armed"] is True
@@ -113,13 +114,13 @@ def test_profile_command_rejects_second_concurrent_arm(tmp_path: Path) -> None:
     first = runtime.command_queue.submit(
         "profile", {"active_steps": 5}, parse_when("now")
     )
-    runtime._execute(pl_module, trainer, first, safe_point=None)
+    execute_command(runtime, pl_module, trainer, first, safe_point=None)
     assert first.status == "succeeded"
     try:
         second = runtime.command_queue.submit(
             "profile", {"active_steps": 1}, parse_when("now")
         )
-        runtime._execute(pl_module, trainer, second, safe_point=None)
+        execute_command(runtime, pl_module, trainer, second, safe_point=None)
 
         assert second.status == "failed"
         assert "already armed" in second.error
@@ -139,7 +140,7 @@ def test_finish_train_batch_advances_and_finalizes_profiler(tmp_path: Path) -> N
         {"warmup_steps": 0, "active_steps": 2, "level": "basic"},
         parse_when("now"),
     )
-    runtime._execute(pl_module, trainer, cmd, safe_point=None)
+    execute_command(runtime, pl_module, trainer, cmd, safe_point=None)
     assert runtime.profiler_run is not None
     runtime.finish_train_batch(pl_module)
     assert runtime.profiler_run is not None
@@ -166,7 +167,6 @@ def test_finish_train_batch_with_then_hold_enters_cooperative_hold(
     runtime = _make_runtime(tmp_path)
     trainer = _FakeTrainer()
     pl_module = _FakePLModule(trainer)
-    runtime._gather_ranks(pl_module)
 
     def _drive() -> None:
         cmd = runtime.command_queue.submit(
@@ -179,7 +179,7 @@ def test_finish_train_batch_with_then_hold_enters_cooperative_hold(
             },
             parse_when("now"),
         )
-        runtime._execute(pl_module, trainer, cmd, safe_point=None)
+        execute_command(runtime, pl_module, trainer, cmd, safe_point=None)
         runtime.finish_train_batch(pl_module)
         runtime.begin_train_batch(pl_module, batch={"x": 1}, batch_idx=1)
         runtime.finish_train_batch(pl_module)
@@ -214,7 +214,7 @@ def test_profile_armed_mid_batch_records_the_next_full_batch(tmp_path: Path) -> 
         {"warmup_steps": 0, "active_steps": 1, "level": "basic"},
         parse_when("now"),
     )
-    runtime._execute(pl_module, trainer, cmd, safe_point=None)
+    execute_command(runtime, pl_module, trainer, cmd, safe_point=None)
     _ = torch.cumsum(x, dim=0)
     runtime.finish_train_batch(pl_module)
     assert runtime.profiler_run is not None
@@ -244,7 +244,7 @@ class _ProfiledModel(MidrunMixin, PL.LightningModule):
 
     def on_fit_start(self) -> None:
         super().on_fit_start()
-        self._midrun.command_queue.submit(
+        self.midrun.command_queue.submit(
             "profile", self.profile_args, parse_when("now")
         )
 
@@ -268,7 +268,7 @@ def _fit_with_profile(tmp_path: Path, profile_args: dict[str, object]) -> Midrun
     )
     loader = DataLoader(TensorDataset(torch.randn(16, 4)), batch_size=4)
     trainer.fit(model, loader)
-    return model._midrun
+    return model.midrun
 
 
 def test_run_end_stops_an_active_profile_and_saves_it_as_truncated(
@@ -309,7 +309,7 @@ def test_failed_profiler_step_stops_the_profiler(
     cmd = runtime.command_queue.submit(
         "profile", {"warmup_steps": 0, "active_steps": 5}, parse_when("now")
     )
-    runtime._execute(pl_module, trainer, cmd, safe_point=None)
+    execute_command(runtime, pl_module, trainer, cmd, safe_point=None)
     runtime.finish_train_batch(pl_module)
     assert torch.autograd.profiler._is_profiler_enabled
 

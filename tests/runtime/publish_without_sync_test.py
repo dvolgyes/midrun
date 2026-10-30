@@ -79,7 +79,7 @@ def test_safe_points_do_not_copy_metrics_or_learning_rates_to_the_host(
     finally:
         torch.cuda.set_sync_debug_mode("default")
 
-    client = TestClient(build_app(model._midrun), base_url="http://localhost")
+    client = TestClient(build_app(model.midrun), base_url="http://localhost")
     metrics = client.get("/metrics").json()
     assert {key: metrics[key]["value"] for key in metrics} == {
         f"m{index}": float(index) for index in range(_METRICS)

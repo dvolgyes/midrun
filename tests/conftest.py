@@ -16,6 +16,6 @@ def run_base_dir(tmp_path: Path) -> Callable[[Any], Path]:
     """
 
     def resolve(model: Any) -> Path:
-        return tmp_path / "midrun" / model._midrun.run_id
+        return tmp_path / "midrun" / model.midrun.run_id
 
     return resolve

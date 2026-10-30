@@ -301,8 +301,8 @@ def test_exception_triggers_on_exception_once_and_finalizes(
     assert exception_marker.exists()
     assert not fit_end_marker.exists()
     assert list((run_base_dir(model) / ".hooks-tmp").iterdir()) == []
-    assert model._midrun._hook_session is None
-    assert model._midrun._logging_session is None
+    assert model.midrun._hook_session is None
+    assert model.midrun._logging_session is None
 
 
 def test_sequential_fit_then_test_reuses_hooks_tree_and_adapter_instance(
@@ -439,7 +439,7 @@ def test_failed_hooks_bootstrap_under_strict_mode_raises_and_a_later_fit_runs(
     for _ in range(2):
         with pytest.raises(HooksBootstrapError, match="delete it and the hooks"):
             _make_trainer(tmp_path).fit(model, _make_loader())
-    assert model._midrun._logging_session is None
+    assert model.midrun._logging_session is None
 
     marker.unlink()
     _make_trainer(tmp_path).fit(model, _make_loader())

@@ -11,6 +11,7 @@ from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
 from midrun.rest.app import build_app
 from midrun.runtime.artifacts import ArtifactStore
+from midrun.runtime.command_specs.execute_command import execute_command
 from midrun.runtime.commands.command import Command
 from midrun.runtime.commands.parse_when import parse_when
 from midrun.runtime.optimizer_surgery.adam_surgery_adapter import (
@@ -80,7 +81,7 @@ def _submit_and_run(
     args: dict,
 ) -> Command:
     command = runtime.command_queue.submit(kind, args, parse_when("now"))
-    runtime._execute(pl_module, trainer, command, safe_point=None)
+    execute_command(runtime, pl_module, trainer, command, safe_point=None)
     return command
 
 
@@ -416,7 +417,6 @@ def test_published_learning_rates_of_a_tensor_lr_are_floats_over_rest() -> None:
     model = torch.nn.Linear(2, 2)
     optimizer = torch.optim.Adam(model.parameters(), lr=torch.tensor(0.01))
     pl_module = _FakePLModule(_FakeTrainer(optimizers=[optimizer]), model)
-    runtime._gather_ranks(pl_module)
 
     runtime._publish(pl_module, "running")
 

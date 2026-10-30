@@ -132,7 +132,6 @@ def test_begin_train_batch_enters_hold_on_bad_batch(tmp_path: Path) -> None:
     runtime = _make_runtime(tmp_path, dataloader_finite_check_enabled=True)
     trainer = _FakeTrainer()
     pl_module = _FakePLModule(trainer)
-    runtime._gather_ranks(pl_module)
 
     thread = threading.Thread(
         target=runtime.begin_train_batch,
@@ -169,7 +168,6 @@ def test_begin_train_batch_holds_when_the_bad_batch_snapshot_fails(
     runtime.artifacts = None if store == "missing" else _FullDiskArtifactStore(tmp_path)
     trainer = _FakeTrainer()
     pl_module = _FakePLModule(trainer)
-    runtime._gather_ranks(pl_module)
 
     thread = threading.Thread(
         target=runtime.begin_train_batch,

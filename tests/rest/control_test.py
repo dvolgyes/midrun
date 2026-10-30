@@ -62,7 +62,7 @@ def _fit_while(
 
     def _drive() -> None:
         _wait_until(lambda: model._trainer is not None and trainer.global_step > 0)
-        client = TestClient(build_app(model._midrun), base_url="http://localhost")
+        client = TestClient(build_app(model.midrun), base_url="http://localhost")
         try:
             drive(client)
         except BaseException as exc:  # noqa: BLE001 -- reported by the main thread
@@ -70,7 +70,7 @@ def _fit_while(
         finally:
             # Ends the run, so a failed check cannot leave fit() blocked.
             trainer.should_stop = True
-            runtime = model._midrun
+            runtime = model.midrun
             while not fit_done.wait(0.05):
                 for command in runtime.command_queue.list_all():
                     runtime.command_queue.cancel(command.id)
@@ -92,7 +92,7 @@ def _fit_while(
 
 def test_one_continue_resumes_after_a_double_pause(tmp_path) -> None:
     model = _EndlessModel()
-    gate = model._midrun.gate
+    gate = model.midrun.gate
 
     def drive(client: TestClient) -> None:
         first = client.post("/control/pause").json()
@@ -118,7 +118,7 @@ def test_one_continue_resumes_after_a_double_pause(tmp_path) -> None:
 
 def test_stop_ends_a_held_run(tmp_path) -> None:
     model = _EndlessModel()
-    gate = model._midrun.gate
+    gate = model.midrun.gate
     stopped = threading.Event()
 
     def drive(client: TestClient) -> None:
@@ -140,7 +140,7 @@ def test_run_shows_the_batch_index_while_held_before_the_optimizer_step(
     tmp_path,
 ) -> None:
     model = _EndlessModel()
-    gate = model._midrun.gate
+    gate = model.midrun.gate
     seen: list[object] = []
 
     def drive(client: TestClient) -> None:
@@ -164,7 +164,7 @@ class _StepTrainer:
 
 
 def test_a_pause_after_a_stop_in_the_same_step_does_not_hold(tmp_path) -> None:
-    runtime = _EndlessModel()._midrun
+    runtime = _EndlessModel().midrun
     trainer = _StepTrainer()
     client = TestClient(build_app(runtime), base_url="http://localhost")
     stop = client.post("/control/stop").json()
@@ -183,7 +183,7 @@ def test_a_pause_after_a_stop_in_the_same_step_does_not_hold(tmp_path) -> None:
 
 
 def test_a_continue_before_the_pause_is_due_cancels_the_pause() -> None:
-    runtime = _EndlessModel()._midrun
+    runtime = _EndlessModel().midrun
     client = TestClient(build_app(runtime), base_url="http://localhost")
     later = client.post(
         "/holds", json={"when": {"safe_point": "train_epoch_end"}, "timeout_s": 0}
@@ -203,7 +203,7 @@ def test_a_continue_before_the_pause_is_due_cancels_the_pause() -> None:
 
 
 def test_a_hold_after_an_executed_stop_is_refused(tmp_path) -> None:
-    runtime = _EndlessModel()._midrun
+    runtime = _EndlessModel().midrun
     client = TestClient(build_app(runtime), base_url="http://localhost")
     client.post("/control/stop")
     runtime._run_due_commands(None, _StepTrainer(), SafePoint.TRAIN_BATCH_END, None)
@@ -220,7 +220,7 @@ def test_a_hold_after_an_executed_stop_is_refused(tmp_path) -> None:
 
 def test_a_new_run_accepts_holds_after_a_stopped_run(tmp_path) -> None:
     model = _EndlessModel()
-    client = TestClient(build_app(model._midrun), base_url="http://localhost")
+    client = TestClient(build_app(model.midrun), base_url="http://localhost")
     loader = DataLoader(
         TensorDataset(torch.randn(64, 4), torch.randn(64, 1)), batch_size=4
     )

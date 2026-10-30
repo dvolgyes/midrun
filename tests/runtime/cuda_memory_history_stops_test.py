@@ -30,9 +30,9 @@ class _Model(MidrunMixin, PL.LightningModule):
         self.layer = torch.nn.Linear(4, 1)
 
     def training_step(self, batch, batch_idx):
-        if not self._midrun.cuda_memory_history.enabled:
+        if not self.midrun.cuda_memory_history.enabled:
             # As GET /debug/cuda-memory/history does.
-            self._midrun.cuda_memory_history = set_cuda_memory_history(
+            self.midrun.cuda_memory_history = set_cuda_memory_history(
                 True, max_entries=None
             )
         x, y = batch
@@ -68,7 +68,7 @@ def test_history_recording_stops_when_the_stage_stops(tmp_path) -> None:
         torch.ones(1024, device="cuda")
 
         assert _trace_length() == before
-        assert model._midrun.cuda_memory_history.enabled is False
+        assert model.midrun.cuda_memory_history.enabled is False
     finally:
         set_cuda_memory_history(False, max_entries=None)
 

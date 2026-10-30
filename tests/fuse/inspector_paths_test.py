@@ -7,7 +7,6 @@ matching the existing static-path test convention -- no real FUSE mount involved
 import json
 
 from midrun.config import MidrunConfig
-from midrun.fuse.filesystem import MidrunFS
 from midrun.load_backend import load_backend
 from midrun.runtime.cuda_memory.cuda_memory_history_state import (
     CudaMemoryHistoryState,
@@ -19,17 +18,16 @@ from midrun.runtime.virtual_fs.is_virtual_dir import is_virtual_dir
 from midrun.runtime.virtual_fs.virtual_file_content import virtual_file_content
 
 
-def _make_fs(**overrides: object) -> MidrunFS:
+def _make_runtime(**overrides: object) -> MidrunRuntime:
     config = MidrunConfig(
         rest_enabled=False, fuse_enabled=False, torch_debug_enabled=False, **overrides
     )
-    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
-    return MidrunFS(runtime)
+    return MidrunRuntime(config, load_backend("lightning.pytorch"))
 
 
 def test_model_summary_json_reports_param_counts() -> None:
-    fs = _make_fs()
-    fs._runtime.model_info = ModelInfo(
+    runtime = _make_runtime()
+    runtime.model_info = ModelInfo(
         summary_json={
             "total_params": 10,
             "trainable_params": 10,
@@ -37,44 +35,44 @@ def test_model_summary_json_reports_param_counts() -> None:
             "torchinfo_used": False,
         }
     )
-    payload = json.loads(virtual_file_content(fs._runtime, "/model/summary.json"))
+    payload = json.loads(virtual_file_content(runtime, "/model/summary.json"))
     assert payload["total_params"] == 10
 
 
 def test_model_inspectors_json_lists_all_four() -> None:
-    fs = _make_fs()
-    payload = json.loads(virtual_file_content(fs._runtime, "/model/inspectors.json"))
+    runtime = _make_runtime()
+    payload = json.loads(virtual_file_content(runtime, "/model/inspectors.json"))
     assert set(payload) == {"torchinfo", "torchview", "torchviz", "torchlens"}
 
 
 def test_state_cuda_memory_json_reflects_history_state() -> None:
-    fs = _make_fs()
-    fs._runtime.cuda_memory_history = CudaMemoryHistoryState(
+    runtime = _make_runtime()
+    runtime.cuda_memory_history = CudaMemoryHistoryState(
         enabled=True, max_entries=500, started_at=123.0
     )
-    payload = json.loads(virtual_file_content(fs._runtime, "/state/cuda-memory.json"))
+    payload = json.loads(virtual_file_content(runtime, "/state/cuda-memory.json"))
     assert payload["enabled"] is True
     assert payload["max_entries"] == 500
 
 
 def test_state_profiler_json_is_idle_by_default() -> None:
-    fs = _make_fs()
-    payload = json.loads(virtual_file_content(fs._runtime, "/state/profiler.json"))
+    runtime = _make_runtime()
+    payload = json.loads(virtual_file_content(runtime, "/state/profiler.json"))
     assert payload == {"state": "idle"}
 
 
 def test_state_profiler_json_reflects_active_run() -> None:
-    fs = _make_fs()
+    runtime = _make_runtime()
     run = ProfilerRun(
         "p1", warmup_steps=0, active_steps=2, level="basic", then_hold=False
     )
-    fs._runtime.profiler_run = run
+    runtime.profiler_run = run
     run.start()
     try:
-        waiting = json.loads(virtual_file_content(fs._runtime, "/state/profiler.json"))
+        waiting = json.loads(virtual_file_content(runtime, "/state/profiler.json"))
         # The arming batch ends with the wait step.
         run.step()
-        active = json.loads(virtual_file_content(fs._runtime, "/state/profiler.json"))
+        active = json.loads(virtual_file_content(runtime, "/state/profiler.json"))
     finally:
         run.stop()
 
@@ -84,24 +82,24 @@ def test_state_profiler_json_reflects_active_run() -> None:
 
 
 def test_state_lightning_profiler_json_is_off_by_default() -> None:
-    fs = _make_fs()
+    runtime = _make_runtime()
     payload = json.loads(
-        virtual_file_content(fs._runtime, "/state/lightning-profiler.json")
+        virtual_file_content(runtime, "/state/lightning-profiler.json")
     )
     assert payload == {"level": "off"}
 
 
 def test_model_lightning_profiler_summary_reports_not_enabled_by_default() -> None:
-    fs = _make_fs()
-    text = virtual_file_content(fs._runtime, "/model/lightning-profiler-summary.txt")
+    runtime = _make_runtime()
+    text = virtual_file_content(runtime, "/model/lightning-profiler-summary.txt")
     assert b"not enabled" in text
 
 
 def test_readme_only_leaf_directories_are_not_projected() -> None:
-    fs = _make_fs()
-    readme = virtual_file_content(fs._runtime, "/README.md").decode()
+    runtime = _make_runtime()
+    readme = virtual_file_content(runtime, "/README.md").decode()
     assert "model/" in readme
-    assert not is_virtual_dir(fs._runtime, "/model/graph")
-    assert not is_virtual_dir(fs._runtime, "/debug/cuda-memory")
-    assert not is_virtual_dir(fs._runtime, "/debug/profiler")
-    assert not is_virtual_dir(fs._runtime, "/debug/torchlens")
+    assert not is_virtual_dir(runtime, "/model/graph")
+    assert not is_virtual_dir(runtime, "/debug/cuda-memory")
+    assert not is_virtual_dir(runtime, "/debug/profiler")
+    assert not is_virtual_dir(runtime, "/debug/torchlens")

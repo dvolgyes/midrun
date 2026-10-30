@@ -146,8 +146,8 @@ class _DdpModel(MidrunMixin, pl.LightningModule):
 
     def setup(self, stage: str) -> None:
         super().setup(stage)
-        snapshot = self._midrun.state.read()
-        mountpoint = self._midrun.fuse_mountpoint
+        snapshot = self.midrun.state.read()
+        mountpoint = self.midrun.fuse_mountpoint
         status = {
             "pid": os.getpid(),
             "run_id": snapshot.run_id,

@@ -58,7 +58,6 @@ def _ready_model(tmp_path: Path) -> tuple[MidrunRuntime, _Model]:
     runtime.artifacts = ArtifactStore(tmp_path)
     model = _Model()
     model.trainer = _FakeTrainer()
-    runtime._gather_ranks(model)
     runtime.on_fit_start(model)
     return runtime, model
 

@@ -57,7 +57,6 @@ class _Model(torch.nn.Module):
 def _ready_model(runtime: MidrunRuntime) -> _Model:
     model = _Model()
     model.trainer = _FakeTrainer()
-    runtime._gather_ranks(model)
     runtime.on_fit_start(model)
     return model
 
@@ -114,7 +113,6 @@ def test_an_unreadable_hparam_is_reported_once(tmp_path: Path) -> None:
     runtime = _make_runtime(tmp_path)
     model = _UnreadableHparamModel()
     model.trainer = _FakeTrainer()
-    runtime._gather_ranks(model)
     messages: list[str] = []
     sink_id = logger.add(messages.append, level="WARNING", format="{message}")
     try:
@@ -132,7 +130,6 @@ def test_unregistered_model_has_no_tunable_hparams(tmp_path: Path) -> None:
     runtime = _make_runtime(tmp_path)
     model = torch.nn.Linear(2, 2)
     model.trainer = _FakeTrainer()
-    runtime._gather_ranks(model)
     runtime.on_fit_start(model)
 
     runtime.process_safe_point(model, SafePoint.TRAIN_BATCH_END)
@@ -153,7 +150,6 @@ class _BoundedSubModel(_Model):
 def _ready_bounded_model(runtime: MidrunRuntime) -> _BoundedSubModel:
     model = _BoundedSubModel()
     model.trainer = _FakeTrainer()
-    runtime._gather_ranks(model)
     runtime.on_fit_start(model)
     return model
 

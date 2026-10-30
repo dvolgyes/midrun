@@ -15,6 +15,7 @@ import torch
 from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
 from midrun.runtime.artifacts import ArtifactStore
+from midrun.runtime.command_specs.execute_command import execute_command
 from midrun.runtime.commands.parse_when import parse_when
 from midrun.runtime.graph_inspectors.torchview_available import (
     torchview_available,
@@ -137,7 +138,7 @@ def test_torchview_capture_command_writes_artifact(tmp_path: Path) -> None:
     )
 
     cmd = runtime.command_queue.submit("torchview_capture", {}, parse_when("now"))
-    runtime._execute(model, trainer, cmd, safe_point=None)
+    execute_command(runtime, model, trainer, cmd, safe_point=None)
 
     assert cmd.status == "succeeded"
     assert (Path(cmd.result["path"]) / "graph.svg").exists()
@@ -149,7 +150,7 @@ def test_torchview_capture_fails_without_in_flight_batch(tmp_path: Path) -> None
     model = _Model()
 
     cmd = runtime.command_queue.submit("torchview_capture", {}, parse_when("now"))
-    runtime._execute(model, trainer, cmd, safe_point=None)
+    execute_command(runtime, model, trainer, cmd, safe_point=None)
 
     assert cmd.status == "failed"
     assert "in-flight batch" in cmd.error
@@ -167,7 +168,7 @@ def test_torchviz_capture_command_writes_artifact(tmp_path: Path) -> None:
     )
 
     cmd = runtime.command_queue.submit("torchviz_capture", {}, parse_when("now"))
-    runtime._execute(model, trainer, cmd, safe_point=None)
+    execute_command(runtime, model, trainer, cmd, safe_point=None)
 
     assert cmd.status == "succeeded"
     assert (Path(cmd.result["path"]) / "graph.svg").exists()
@@ -179,7 +180,7 @@ def test_torchviz_capture_fails_without_in_flight_batch(tmp_path: Path) -> None:
     model = _Model()
 
     cmd = runtime.command_queue.submit("torchviz_capture", {}, parse_when("now"))
-    runtime._execute(model, trainer, cmd, safe_point=None)
+    execute_command(runtime, model, trainer, cmd, safe_point=None)
 
     assert cmd.status == "failed"
     assert "in-flight batch" in cmd.error
@@ -210,7 +211,7 @@ def test_torchviz_capture_uses_current_step_loss_during_exception_hold(
     )
 
     cmd = runtime.command_queue.submit("torchviz_capture", {}, parse_when("now"))
-    runtime._execute(model, trainer, cmd, safe_point=None)
+    execute_command(runtime, model, trainer, cmd, safe_point=None)
 
     assert cmd.status == "succeeded"
     assert (Path(cmd.result["path"]) / "graph.svg").exists()
@@ -255,7 +256,7 @@ def test_torchviz_capture_with_default_args_renders_a_loss_whose_backward_raised
     )
 
     cmd = runtime.command_queue.submit("torchviz_capture", {}, parse_when("now"))
-    runtime._execute(model, trainer, cmd, safe_point=None)
+    execute_command(runtime, model, trainer, cmd, safe_point=None)
 
     assert cmd.status == "succeeded", cmd.error
     assert (Path(cmd.result["path"]) / "graph.svg").exists()
@@ -282,7 +283,7 @@ def test_torchviz_capture_fails_without_in_flight_loss_during_exception_hold(
     )
 
     cmd = runtime.command_queue.submit("torchviz_capture", {}, parse_when("now"))
-    runtime._execute(model, trainer, cmd, safe_point=None)
+    execute_command(runtime, model, trainer, cmd, safe_point=None)
 
     assert cmd.status == "failed"
     assert "in-flight loss" in cmd.error

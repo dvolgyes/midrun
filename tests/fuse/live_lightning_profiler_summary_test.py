@@ -57,7 +57,6 @@ def _make_runtime(profiler: Profiler, level: str) -> tuple[MidrunRuntime, _Model
     runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
     model = _Model()
     model.trainer = _FakeTrainer(profiler)
-    runtime._gather_ranks(model)
     runtime.lightning_profiler = profiler
     runtime.lightning_profiler_level = level
     return runtime, model

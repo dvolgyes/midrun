@@ -80,7 +80,7 @@ def test_failed_fit_stops_services(
 
     def _record_services(batch, batch_idx):
         if batch_idx == 1:
-            seen["rest_url"] = model._midrun.rest_url
+            seen["rest_url"] = model.midrun.rest_url
             seen["mounted"] = _mounted(mountpoint)
         return original(batch, batch_idx)
 
@@ -90,11 +90,11 @@ def test_failed_fit_stops_services(
         _fit(model, tmp_path)
 
     assert seen["rest_url"] is not None and seen["mounted"] is True
-    assert model._midrun.rest_url is None
+    assert model.midrun.rest_url is None
     with pytest.raises(httpx2.ConnectError):
         httpx2.get(f"{seen['rest_url']}/health", timeout=2)
     assert not _mounted(mountpoint)
-    assert model._midrun.state.read().status == "failed"
+    assert model.midrun.state.read().status == "failed"
 
 
 _MOUNT_AND_WAIT = """

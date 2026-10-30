@@ -23,6 +23,7 @@ from torch.testing._internal.two_tensor import TwoTensor
 from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
 from midrun.runtime.artifacts import ArtifactStore
+from midrun.runtime.command_specs.execute_command import execute_command
 from midrun.runtime.commands.parse_when import parse_when
 from midrun.runtime.runtime import MidrunRuntime
 from midrun.runtime.virtual_fs.virtual_file_content import virtual_file_content
@@ -122,7 +123,7 @@ def _run_command(
     runtime: MidrunRuntime, model: torch.nn.Module, trainer: _FakeTrainer, kind: str
 ) -> Any:
     cmd = runtime.command_queue.submit(kind, {}, parse_when("now"))
-    runtime._execute(model, trainer, cmd, safe_point=None)
+    execute_command(runtime, model, trainer, cmd, safe_point=None)
     return cmd
 
 

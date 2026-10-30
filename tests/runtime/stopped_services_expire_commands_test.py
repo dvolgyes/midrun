@@ -26,7 +26,7 @@ class _Model(MidrunMixin, PL.LightningModule):
     def test_step(self, batch, batch_idx):
         if self.stop_id is None:
             # A training safe point never comes during `test`.
-            command = self._midrun.command_queue.submit(
+            command = self.midrun.command_queue.submit(
                 "stop", {}, parse_when({"safe_point": "train_batch_end"})
             )
             self.stop_id = command.id
@@ -62,6 +62,6 @@ def test_a_stop_queued_during_test_does_not_stop_the_next_fit(tmp_path) -> None:
     trainer.fit(model, _loader())
 
     assert trainer.global_step == 3
-    command = model._midrun.command_queue.get(model.stop_id)
+    command = model.midrun.command_queue.get(model.stop_id)
     assert command.status == "expired"
     assert command.error is not None

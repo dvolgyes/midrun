@@ -48,7 +48,6 @@ def _published(tmp_path: Path, metrics: dict[str, object], lrs: list[object]):
     runtime.artifacts = ArtifactStore(tmp_path)
     model = _Model()
     model.trainer = _FakeTrainer(metrics, lrs)
-    runtime._gather_ranks(model)
     runtime.on_fit_start(model)
     runtime.process_safe_point(model, SafePoint.TRAIN_BATCH_END)
     return runtime, model

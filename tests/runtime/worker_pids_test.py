@@ -3,8 +3,6 @@
 import multiprocessing
 import os
 
-import pytest
-
 from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
 from midrun.runtime.runtime import MidrunRuntime
@@ -35,15 +33,15 @@ def test_gather_ranks_captures_own_pid_with_no_workers() -> None:
     assert ranks[0].worker_pids == ()
 
 
-def test_current_rank_info_requires_gather_ranks_first() -> None:
-    runtime = _make_runtime()
-    with pytest.raises(AssertionError):
-        runtime._current_rank_info()
+def test_current_rank_info_defaults_to_this_process_before_gather_ranks() -> None:
+    info = _make_runtime()._current_rank_info()
+    assert info.global_rank == 0
+    assert info.pid == os.getpid()
+    assert info.worker_pids == ()
 
 
 def test_current_rank_info_tracks_active_children() -> None:
     runtime = _make_runtime()
-    runtime._gather_ranks(_FakeModule())
 
     ctx = multiprocessing.get_context("spawn")
     ready = ctx.Event()
@@ -64,7 +62,6 @@ def test_current_rank_info_tracks_active_children() -> None:
 
 def test_publish_refreshes_worker_pids_on_every_call() -> None:
     runtime = _make_runtime()
-    runtime._gather_ranks(_FakeModule())
 
     ctx = multiprocessing.get_context("spawn")
     ready = ctx.Event()

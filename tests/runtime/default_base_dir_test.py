@@ -120,15 +120,15 @@ def test_a_new_runtime_resumes_the_tree_of_the_same_logger_version(tmp_path) -> 
 def test_without_a_logger_one_runtime_keeps_one_tree(tmp_path) -> None:
     model = _Model(**_SERVICES_OFF)
     _fit(model, tmp_path, logger=False)
-    base_dir = tmp_path / "midrun" / model._midrun.run_id
+    base_dir = tmp_path / "midrun" / model.midrun.run_id
     first_session = _session_id(base_dir)
     _fit(model, tmp_path, logger=False)
     other = _Model(**_SERVICES_OFF)
     _fit(other, tmp_path, logger=False)
 
     assert _session_id(base_dir) == first_session
-    assert other._midrun.run_id != model._midrun.run_id
-    assert (tmp_path / "midrun" / other._midrun.run_id / _MARKER_NAME).is_file()
+    assert other.midrun.run_id != model.midrun.run_id
+    assert (tmp_path / "midrun" / other.midrun.run_id / _MARKER_NAME).is_file()
     assert not (tmp_path / _MARKER_NAME).exists()
 
 

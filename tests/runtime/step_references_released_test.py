@@ -82,7 +82,7 @@ def test_a_failed_fit_releases_the_in_flight_batch(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="boom"):
         trainer.fit(model, loader)
 
-    _assert_released(model._midrun)
+    _assert_released(model.midrun)
 
 
 def test_teardown_releases_the_in_flight_batch() -> None:
@@ -100,7 +100,6 @@ def test_teardown_releases_the_in_flight_batch() -> None:
 def test_a_released_exception_hold_drops_the_exception_and_its_batch() -> None:
     runtime = _runtime()
     pl_module = _FakePLModule()
-    runtime._gather_ranks(pl_module)
     runtime.current_step.begin(
         batch=torch.ones(2), batch_idx=0, epoch=0, global_step=0, started_ns=0
     )

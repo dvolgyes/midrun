@@ -20,7 +20,7 @@ async def wait_for_command(
 
     A hold command moves straight from `queued` to `succeeded`/`failed` synchronously
     on the training thread the instant `RunGate.enter` returns (see
-    `MidrunRuntime._execute`), so this doubles as "wait for the hold to actually
+    `execute_command`), so this doubles as "wait for the hold to actually
     engage." A command still `queued` when this returns hasn't reached its safe point
     yet -- e.g. a `train_epoch_end` hold armed mid-epoch -- and stays pollable via
     `GET /commands/{id}` or `GET /holds`.

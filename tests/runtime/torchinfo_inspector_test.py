@@ -9,6 +9,7 @@ import torch
 from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
 from midrun.runtime.artifacts import ArtifactStore
+from midrun.runtime.command_specs.execute_command import execute_command
 from midrun.runtime.commands.parse_when import parse_when
 from midrun.runtime.runtime import MidrunRuntime
 from midrun.runtime.torchinfo_inspector.basic_summary_json import (
@@ -116,7 +117,7 @@ def test_torchinfo_capture_command_writes_artifact(tmp_path: Path) -> None:
     )
 
     cmd = runtime.command_queue.submit("torchinfo_capture", {}, parse_when("now"))
-    runtime._execute(model, trainer, cmd, safe_point=None)
+    execute_command(runtime, model, trainer, cmd, safe_point=None)
 
     assert cmd.status == "succeeded"
     assert (Path(cmd.result["path"]) / "summary.txt").exists()
@@ -129,7 +130,7 @@ def test_torchinfo_capture_fails_without_in_flight_batch(tmp_path: Path) -> None
     model = _Model()
 
     cmd = runtime.command_queue.submit("torchinfo_capture", {}, parse_when("now"))
-    runtime._execute(model, trainer, cmd, safe_point=None)
+    execute_command(runtime, model, trainer, cmd, safe_point=None)
 
     assert cmd.status == "failed"
     assert "in-flight batch" in cmd.error
