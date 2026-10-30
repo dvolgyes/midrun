@@ -75,6 +75,18 @@ class RankSync:
         dist.broadcast_object_list(message, src=0, group=self._group)
         return obj if dist.get_rank(self._group) == 0 else cast("T", message[0])
 
+    def broadcast_flags(self, *flags: bool) -> tuple[bool, ...]:
+        """Returns rank 0's `flags` on every rank, sent as one small tensor.
+
+        This costs less than `broadcast`, which pickles its object, so a caller sends
+        flags first and an object only when the flags say that one is needed.
+        """
+        if self._group is None:
+            return flags
+        value = torch.tensor([int(flag) for flag in flags])
+        dist.broadcast(value, src=0, group=self._group)
+        return tuple(bool(flag) for flag in value.tolist())
+
     def any_rank(self, flag: bool) -> bool:
         """Returns whether `flag` is true on at least one rank."""
         if self._group is None:

@@ -501,19 +501,21 @@ class MidrunRuntime:
 
         Only rank 0 has the command queue and the gate, so it sends its due commands
         and its hold state to the other ranks. They run only `_ALL_RANK_KINDS`. This
-        is a collective: every rank must call it at the same safe point.
+        is a collective: every rank must call it at the same safe point. Rank 0 sends
+        its flags first and pickles its commands only when some are due.
         """
         due = self._due_commands(
             safe_point, trainer.current_epoch, trainer.global_step, allowed
         )
-        commands, held = self.rank_sync.broadcast((due, self.gate.is_held()))
-        if not commands:
+        has_due, held = self.rank_sync.broadcast_flags(bool(due), self.gate.is_held())
+        if not has_due:
             return held
-        for command in commands:
+        for command in self.rank_sync.broadcast(due):
             if self._is_rank_zero or command.kind in _ALL_RANK_KINDS:
                 self._execute(pl_module, trainer, command, safe_point)
         # A command can enter or release a hold, so rank 0 sends its state again.
-        return self.rank_sync.broadcast(self.gate.is_held())
+        (held,) = self.rank_sync.broadcast_flags(self.gate.is_held())
+        return held
 
     def _due_commands(
         self,
