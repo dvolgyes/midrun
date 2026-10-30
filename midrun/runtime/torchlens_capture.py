@@ -35,13 +35,9 @@ def torchlens_capture(model: Any, batch: Any) -> dict[str, str | bytes]:
     # leaves them wrapped after returning -- corrupting every later real forward
     # pass in the process, not just this model's. unwrap_when_done=True is what
     # actually restores the original torch callables; a per-model copy wouldn't
-    # help here since the wrapping isn't model-scoped.
-    was_training = model.training
-    model.eval()
-    try:
-        trace = tl.trace(model, batch, layers_to_save="none", unwrap_when_done=True)
-    finally:
-        model.train(was_training)
+    # help here since the wrapping isn't model-scoped. The caller sets the mode, with
+    # `inspector_forward`.
+    trace = tl.trace(model, batch, layers_to_save="none", unwrap_when_done=True)
     summary_text = trace.summary(level="overview")
     with tempfile.TemporaryDirectory() as tmp_dir:
         out_path = Path(tmp_dir) / "graph"

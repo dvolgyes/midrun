@@ -3,6 +3,7 @@
 from typing import TYPE_CHECKING, Any
 
 from midrun.runtime import forward_input
+from midrun.runtime.inspector_forward import inspector_forward
 from midrun.runtime.torchinfo_inspector.torchinfo_rich_summary import (
     torchinfo_rich_summary,
 )
@@ -21,13 +22,17 @@ def live_model_summary(rt: "MidrunRuntime") -> bytes:
 
     Raises:
         TimeoutError: No safe point was reached within `LIVE_CAPTURE_TIMEOUT_S`.
-        ValueError: The safe point had no in-flight batch.
+        ValueError: The safe point had no in-flight batch, or the parameters are
+            sharded.
     """
 
     def compute(pl_module: Any) -> str:
         batch = require_in_flight_batch(rt, "model/summary-live.txt")
-        target = forward_input.resolve(pl_module, batch)
-        return torchinfo_rich_summary(pl_module, target)["summary.txt"]
+        with inspector_forward(
+            rt.backend, pl_module.trainer, pl_module, "model/summary-live.txt"
+        ):
+            target = forward_input.resolve(pl_module, batch)
+            return torchinfo_rich_summary(pl_module, target)["summary.txt"]
 
     return encode_text(
         rt.live_captures.request(compute, timeout=LIVE_CAPTURE_TIMEOUT_S)

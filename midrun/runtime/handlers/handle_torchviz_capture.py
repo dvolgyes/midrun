@@ -9,6 +9,7 @@ from midrun.runtime.graph_inspectors.torchviz_capture import torchviz_capture
 from midrun.runtime.graph_inspectors.torchviz_capture_live import (
     torchviz_capture_live,
 )
+from midrun.runtime.inspector_forward import inspector_forward
 
 if TYPE_CHECKING:
     from midrun.runtime.runtime import MidrunRuntime
@@ -27,9 +28,10 @@ def handle_torchviz_capture(
     graph of a new forward pass on the in-flight batch.
 
     Raises:
-        ValueError: The loss or the batch that the capture needs is missing.
+        ValueError: The loss or the batch that the capture needs is missing, or
+            the parameters are sharded.
     """
-    del trainer, safe_point
+    del safe_point
     # Both options read saved tensors, which the failed backward of an exception hold
     # has already freed, so they default to on only in a live capture.
     live = runtime._exception_hold is None
@@ -52,6 +54,9 @@ def handle_torchviz_capture(
         # not-yet-backwarded forward pass instead.
         if runtime.current_step.batch is None:
             raise ValueError("torchviz_capture requires an in-flight batch")
-        target = forward_input.resolve(pl_module, runtime.current_step.batch)
-        files = torchviz_capture_live(pl_module, target, show_attrs, show_saved)
+        with inspector_forward(
+            runtime.backend, trainer, pl_module, "torchviz_capture", needs_grad=True
+        ):
+            target = forward_input.resolve(pl_module, runtime.current_step.batch)
+            files = torchviz_capture_live(pl_module, target, show_attrs, show_saved)
     return runtime.artifact_store.write_debug_capture("torchviz-graph", files)

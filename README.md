@@ -195,6 +195,19 @@ hold lists it under `joined_ids`, and a release with either id releases the run.
 Other routes: `/run`, `/metrics`, `/optimizers`, `/artifacts`, `/telemetry/pipeline`, `/inspectors`,
 `/debug/cuda-memory/snapshot`, `/files/<path>` (the same tree as `procfs/`).
 
+### Model inspectors
+
+The four inspector commands and the live files `model/summary-live.txt` and `model/graph.dot` run one forward pass on
+the in-flight batch, on rank 0 only. In an exception hold, `torchviz_capture` draws the failed loss instead, without a
+forward pass. The forward pass runs in eval mode: dropout is off and batch norm uses its running statistics, so the
+result can differ from the training forward pass. Gradients are off, except for `torchviz_capture`, which needs the
+autograd graph. After the capture, each module gets back its training mode.
+
+Under a strategy that shards the parameters (`FSDPStrategy`, `ModelParallelStrategy`, `DeepSpeedStrategy`), or when a
+parameter is a wrapper tensor such as a `DTensor`, a forward pass on rank 0 alone would wait for collectives that the
+other ranks do not join. In that case the inspectors refuse to run: the command fails with a `refused` error, and a read
+of a live file fails. The training continues.
+
 ### Tunable hyperparameters
 
 `set_hparam` changes only the attributes that the model declares in `midrun_tunable_hparams`:
