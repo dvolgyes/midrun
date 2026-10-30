@@ -12,6 +12,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections.abc import Iterator
@@ -25,6 +26,7 @@ from trainctl.debugger.gdb_capture.check_gdb_available import (
 )
 from trainctl.debugger.gdb_capture.gdb_attach_error import GdbAttachError
 from trainctl.debugger.gdb_capture.gdb_capture import gdb_capture
+from trainctl.debugger.gdb_capture.schedule_pending_call import schedule_pending_call
 from trainctl.debugger.hold_client import HoldClient, HoldNotActiveError
 
 pytestmark = pytest.mark.skipif(shutil.which("gdb") is None, reason="gdb not installed")
@@ -132,6 +134,49 @@ def test_capture_snippet_with_literal_braces_survives_placeholder_substitution(
     )
     result = gdb_capture(target_process.pid, snippet, poll_timeout_s=15)
     assert result == {"a": {"nested": 1}, "b": [1, 2, 3]}
+
+
+@_attach_permitted
+def test_capture_waits_for_a_report_that_is_still_being_written(
+    target_process: subprocess.Popen[bytes],
+) -> None:
+    snippet = (
+        "import time\n"
+        "f = open({out_path}, 'w')\n"
+        "f.write('{\"ok\"')\n"
+        "f.flush()\n"
+        "time.sleep(0.5)\n"
+        "f.write(': true}')\n"
+        "f.close()\n"
+    )
+    result = gdb_capture(target_process.pid, snippet, poll_timeout_s=15)
+    assert result == {"ok": True}
+
+
+@_attach_permitted
+def test_capture_report_is_in_a_private_directory(
+    target_process: subprocess.Popen[bytes],
+) -> None:
+    snippet = (
+        "import json, os, stat\n"
+        "directory = os.stat(os.path.dirname({out_path}))\n"
+        "report = {'mode': stat.S_IMODE(directory.st_mode), 'uid': directory.st_uid}\n"
+        "with open({out_path}, 'w') as f:\n"
+        "    json.dump(report, f)\n"
+    )
+    result = gdb_capture(target_process.pid, snippet, poll_timeout_s=15)
+    assert result == {"mode": 0o700, "uid": os.getuid()}
+
+
+def test_failed_schedule_leaves_no_snippet_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])  # noqa: S603 -- fixed, non-shell argv; test-only process
+    proc.wait(timeout=10)
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
+    with pytest.raises(GdbAttachError):
+        schedule_pending_call(proc.pid, "pass", max_attempts=1)
+    assert list(tmp_path.iterdir()) == []
 
 
 @_attach_permitted

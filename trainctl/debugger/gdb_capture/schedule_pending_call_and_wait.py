@@ -1,5 +1,6 @@
 """Schedules a Python snippet through gdb and waits for its JSON report."""
 
+import contextlib
 import json
 import tempfile
 import time
@@ -31,27 +32,30 @@ def schedule_pending_call_and_wait(
     Raises:
         TimeoutError: the target's eval loop never serviced the pending call
             within `poll_timeout_s` -- e.g. it is genuinely stuck in a call that
-            never returns control to the interpreter.
+            never returns control to the interpreter -- or the report did not
+            become complete JSON in that time.
     """
-    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
-        out_path = Path(f.name)
-    out_path.unlink()
-    snippet_path = schedule_pending_call(
-        pid,
-        python_snippet.replace("{out_path}", repr(str(out_path))),
-        max_attempts=max_attempts,
-        gdb_bin=gdb_bin,
-    )
-    deadline = time.monotonic() + poll_timeout_s
-    try:
+    # A private (0700) directory: no other user can plant or swap the report or
+    # the snippet. A late call can recreate files during cleanup; those stay.
+    with tempfile.TemporaryDirectory(
+        prefix="trainctl-gdb-", ignore_cleanup_errors=True
+    ) as private_dir:
+        out_path = Path(private_dir) / "report.json"
+        _ = schedule_pending_call(
+            pid,
+            python_snippet.replace("{out_path}", repr(str(out_path))),
+            max_attempts=max_attempts,
+            gdb_bin=gdb_bin,
+            directory=Path(private_dir),
+        )
+        deadline = time.monotonic() + poll_timeout_s
         while time.monotonic() < deadline:
             if out_path.exists():
-                return dict(json.loads(out_path.read_text(encoding="utf-8")))
+                # The snippet creates the report before it finishes writing it.
+                with contextlib.suppress(json.JSONDecodeError, UnicodeDecodeError):
+                    return dict(json.loads(out_path.read_text(encoding="utf-8")))
             time.sleep(0.05)
         raise TimeoutError(
             f"pid {pid} never serviced the pending call within {poll_timeout_s}s "
             "-- it may be stuck in a call that never returns to the interpreter"
         )
-    finally:
-        snippet_path.unlink(missing_ok=True)
-        out_path.unlink(missing_ok=True)

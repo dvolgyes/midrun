@@ -13,7 +13,12 @@ from trainctl.debugger.gdb_capture.gdb_attach_error import GdbAttachError
 
 
 def schedule_pending_call(
-    pid: int, python_snippet: str, *, max_attempts: int = 20, gdb_bin: str = "gdb"
+    pid: int,
+    python_snippet: str,
+    *,
+    max_attempts: int = 20,
+    gdb_bin: str = "gdb",
+    directory: Path | None = None,
 ) -> Path:
     """Attaches to `pid`, enqueues `python_snippet` via `Py_AddPendingCall`, detaches immediately -- the snippet itself runs later, on the target's own schedule.
 
@@ -31,9 +36,12 @@ def schedule_pending_call(
             top-level variables of the same name.
         max_attempts: Retry budget for abandoned evaluations.
         gdb_bin: `gdb` executable to invoke.
+        directory: Where the snippet file is created; the system temp directory
+            when None.
 
     Returns:
-        The temp file path the snippet writes its own output to once serviced.
+        The snippet file, which the caller deletes once the call is serviced. It
+        is deleted here when scheduling fails.
 
     Raises:
         GdbUnavailableError: `gdb_bin` is missing or unusable.
@@ -41,7 +49,9 @@ def schedule_pending_call(
             retry budget was exhausted.
     """
     check_gdb_available(gdb_bin)
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".py", dir=directory, delete=False
+    ) as f:
         # An exception escaping a pending call raises SystemError in whatever
         # code the target runs next, so the snippet's own errors stop here.
         f.write(
@@ -51,11 +61,17 @@ def schedule_pending_call(
         snippet_path = Path(f.name)
 
     last_error: Exception | None = None
-    for attempt in range(1, max_attempts + 1):
-        try:
-            attempt_pending_call(pid, snippet_path, gdb_bin)
-            return snippet_path
-        except GdbAbandonedEvaluationError as exc:
-            last_error = exc
-            time.sleep(0.1 * attempt)
-    raise GdbAttachError(f"gave up after {max_attempts} attempts: {last_error}")
+    scheduled = False
+    try:
+        for attempt in range(1, max_attempts + 1):
+            try:
+                attempt_pending_call(pid, snippet_path, gdb_bin)
+                scheduled = True
+                return snippet_path
+            except GdbAbandonedEvaluationError as exc:
+                last_error = exc
+                time.sleep(0.1 * attempt)
+        raise GdbAttachError(f"gave up after {max_attempts} attempts: {last_error}")
+    finally:
+        if not scheduled:
+            snippet_path.unlink(missing_ok=True)
