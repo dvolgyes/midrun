@@ -58,6 +58,7 @@ from midrun.runtime.pipeline_pressure import PipelinePressureTracker
 from midrun.runtime.profiler import ProfilerRun
 from midrun.runtime.rank_sync import RankSync
 from midrun.runtime.record_bad_batch import record_bad_batch
+from midrun.runtime.start_rest_server import start_rest_server
 from midrun.runtime.state.exception_breakpoint_info import ExceptionBreakpointInfo
 from midrun.runtime.state.initial_snapshot import initial_snapshot
 from midrun.runtime.state.rank_info import RankInfo
@@ -66,7 +67,6 @@ from midrun.runtime.state.state_store import StateStore
 from midrun.runtime.torchinfo_inspector.basic_summary_json import basic_summary_json
 from midrun.runtime.torchinfo_inspector.basic_summary_text import basic_summary_text
 from midrun.runtime.trainer_stage_name import trainer_stage_name
-from midrun.runtime.wait_own_rest_ready import wait_own_rest_ready
 from midrun.torch_debug.manager import TorchDebugManager
 
 _ALLOWED_DURING_HOLD = frozenset(
@@ -958,26 +958,11 @@ class MidrunRuntime:
         self._start_rest_on_socket(sock, port)
 
     def _start_rest_on_socket(self, sock: socket.socket, port: int) -> None:
-        import uvicorn
-
         from midrun.rest.app import build_app
 
-        app = build_app(self)
-        uv_config = uvicorn.Config(
-            app, host=self.config.rest_host, port=port, log_level="warning"
+        server, thread = start_rest_server(
+            build_app(self), sock, self.config.rest_host, port, self.run_id
         )
-        server = uvicorn.Server(uv_config)
-        thread = threading.Thread(
-            target=server.run,
-            kwargs={"sockets": [sock]},
-            name="midrun-rest",
-            daemon=True,
-        )
-        thread.start()
-        if not wait_own_rest_ready(
-            f"http://{self.config.rest_host}:{port}/health", self.run_id, timeout=10
-        ):
-            raise RuntimeError("REST server did not become ready in time")
         self._rest_server = server
         self._rest_thread = thread
         self._rest_port = port
