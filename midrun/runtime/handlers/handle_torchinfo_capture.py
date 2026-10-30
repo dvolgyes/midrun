@@ -2,10 +2,9 @@
 
 from typing import TYPE_CHECKING, Any
 
-from midrun.runtime import forward_input
 from midrun.runtime.commands.command import Command
 from midrun.runtime.events import SafePoint
-from midrun.runtime.inspector_forward import inspector_forward
+from midrun.runtime.run_on_in_flight_batch import run_on_in_flight_batch
 from midrun.runtime.torchinfo_inspector.torchinfo_rich_summary import (
     torchinfo_rich_summary,
 )
@@ -27,9 +26,11 @@ def handle_torchinfo_capture(
         ValueError: No batch is in flight, or the parameters are sharded.
     """
     del command, safe_point
-    if runtime.current_step.batch is None:
-        raise ValueError("torchinfo_capture requires an in-flight batch")
-    with inspector_forward(runtime.backend, trainer, pl_module, "torchinfo_capture"):
-        target = forward_input.resolve(pl_module, runtime.current_step.batch)
-        files = torchinfo_rich_summary(pl_module, target)
+    files = run_on_in_flight_batch(
+        lambda target: torchinfo_rich_summary(pl_module, target),
+        runtime,
+        trainer,
+        pl_module,
+        "torchinfo_capture",
+    )
     return runtime.artifact_store.write_debug_capture("torchinfo-summary", files)

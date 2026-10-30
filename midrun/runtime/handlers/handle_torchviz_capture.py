@@ -2,14 +2,13 @@
 
 from typing import TYPE_CHECKING, Any
 
-from midrun.runtime import forward_input
 from midrun.runtime.commands.command import Command
 from midrun.runtime.events import SafePoint
 from midrun.runtime.graph_inspectors.torchviz_capture import torchviz_capture
 from midrun.runtime.graph_inspectors.torchviz_capture_live import (
     torchviz_capture_live,
 )
-from midrun.runtime.inspector_forward import inspector_forward
+from midrun.runtime.run_on_in_flight_batch import run_on_in_flight_batch
 
 if TYPE_CHECKING:
     from midrun.runtime.runtime import MidrunRuntime
@@ -52,11 +51,14 @@ def handle_torchviz_capture(
         # Lightning itself by the time any command can run, so its graph is gone
         # ("Trying to backward through the graph a second time") -- run a fresh,
         # not-yet-backwarded forward pass instead.
-        if runtime.current_step.batch is None:
-            raise ValueError("torchviz_capture requires an in-flight batch")
-        with inspector_forward(
-            runtime.backend, trainer, pl_module, "torchviz_capture", needs_grad=True
-        ):
-            target = forward_input.resolve(pl_module, runtime.current_step.batch)
-            files = torchviz_capture_live(pl_module, target, show_attrs, show_saved)
+        files = run_on_in_flight_batch(
+            lambda target: torchviz_capture_live(
+                pl_module, target, show_attrs, show_saved
+            ),
+            runtime,
+            trainer,
+            pl_module,
+            "torchviz_capture",
+            needs_grad=True,
+        )
     return runtime.artifact_store.write_debug_capture("torchviz-graph", files)

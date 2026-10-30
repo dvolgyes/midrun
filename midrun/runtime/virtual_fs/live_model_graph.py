@@ -2,12 +2,10 @@
 
 from typing import TYPE_CHECKING, Any
 
-from midrun.runtime import forward_input
 from midrun.runtime.graph_inspectors.torchview_dot import torchview_dot
-from midrun.runtime.inspector_forward import inspector_forward
+from midrun.runtime.run_on_in_flight_batch import run_on_in_flight_batch
 from midrun.runtime.virtual_fs.encode_text import encode_text
 from midrun.runtime.virtual_fs.live_capture_timeout import LIVE_CAPTURE_TIMEOUT_S
-from midrun.runtime.virtual_fs.require_in_flight_batch import require_in_flight_batch
 
 if TYPE_CHECKING:
     from midrun.runtime.runtime import MidrunRuntime
@@ -25,12 +23,13 @@ def live_model_graph(rt: "MidrunRuntime") -> bytes:
     """
 
     def compute(pl_module: Any) -> str:
-        batch = require_in_flight_batch(rt, "model/graph.dot")
-        with inspector_forward(
-            rt.backend, pl_module.trainer, pl_module, "model/graph.dot"
-        ):
-            target = forward_input.resolve(pl_module, batch)
-            return torchview_dot(pl_module, target)
+        return run_on_in_flight_batch(
+            lambda target: torchview_dot(pl_module, target),
+            rt,
+            pl_module.trainer,
+            pl_module,
+            "model/graph.dot",
+        )
 
     return encode_text(
         rt.live_captures.request(compute, timeout=LIVE_CAPTURE_TIMEOUT_S)

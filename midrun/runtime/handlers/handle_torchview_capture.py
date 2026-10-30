@@ -2,11 +2,10 @@
 
 from typing import TYPE_CHECKING, Any
 
-from midrun.runtime import forward_input
 from midrun.runtime.commands.command import Command
 from midrun.runtime.events import SafePoint
 from midrun.runtime.graph_inspectors.torchview_capture import torchview_capture
-from midrun.runtime.inspector_forward import inspector_forward
+from midrun.runtime.run_on_in_flight_batch import run_on_in_flight_batch
 
 if TYPE_CHECKING:
     from midrun.runtime.runtime import MidrunRuntime
@@ -25,9 +24,11 @@ def handle_torchview_capture(
         ValueError: No batch is in flight, or the parameters are sharded.
     """
     del command, safe_point
-    if runtime.current_step.batch is None:
-        raise ValueError("torchview_capture requires an in-flight batch")
-    with inspector_forward(runtime.backend, trainer, pl_module, "torchview_capture"):
-        target = forward_input.resolve(pl_module, runtime.current_step.batch)
-        files = torchview_capture(pl_module, target)
+    files = run_on_in_flight_batch(
+        lambda target: torchview_capture(pl_module, target),
+        runtime,
+        trainer,
+        pl_module,
+        "torchview_capture",
+    )
     return runtime.artifact_store.write_debug_capture("torchview-graph", files)
