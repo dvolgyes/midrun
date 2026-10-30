@@ -20,6 +20,18 @@ def handle_checkpoint(
     del pl_module, safe_point
     label = command.args["label"]
     # Every rank saves, as Lightning requires, so every rank must use rank 0's path.
-    path = runtime.rank_sync.broadcast(runtime.artifact_store.checkpoint_path(label))
-    trainer.save_checkpoint(str(path))
+    # Only rank 0 reserves it, so the other ranks leave no empty files.
+    reserved = (
+        runtime.artifact_store.reserve_checkpoint_path(label)
+        if runtime.on_rank_zero
+        else None
+    )
+    path = runtime.rank_sync.broadcast(reserved)
+    try:
+        trainer.save_checkpoint(str(path))
+    except BaseException:
+        # An empty or partial file must not look like a saved checkpoint.
+        if reserved is not None:
+            reserved.unlink(missing_ok=True)
+        raise
     return {"checkpoint_path": str(path)}

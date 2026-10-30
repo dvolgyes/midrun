@@ -73,12 +73,12 @@ def test_write_debug_capture_ids_dont_collide_under_concurrency(tmp_path: Path) 
 def test_checkpoint_path_rejects_unsafe_labels(tmp_path: Path, bad_label: str) -> None:
     store = ArtifactStore(tmp_path / "artifacts")
     with pytest.raises(ValueError, match="invalid checkpoint label"):
-        store.checkpoint_path(bad_label)
+        store.reserve_checkpoint_path(bad_label)
 
 
 def test_checkpoint_path_stays_in_checkpoints_dir(tmp_path: Path) -> None:
     store = ArtifactStore(tmp_path)
-    path = store.checkpoint_path("before-lr_change.v2")
+    path = store.reserve_checkpoint_path("before-lr_change.v2")
     assert path.parent == tmp_path / "checkpoints"
     assert path.name.endswith("-before-lr_change.v2.ckpt")
 
@@ -126,6 +126,34 @@ def test_processes_sharing_an_artifact_dir_keep_each_others_artifacts(
     contents = [(Path(path) / payload).read_text() for path in paths]
     assert "first" in contents[0]
     assert "second" in contents[1]
+
+
+_CHECKPOINT_IN_A_NEW_PROCESS = """
+import sys
+from pathlib import Path
+from midrun.runtime.artifacts import ArtifactStore
+
+path = ArtifactStore(Path(sys.argv[1])).reserve_checkpoint_path("best")
+path.write_text(sys.argv[2])
+print(path)
+"""
+
+
+def test_a_later_process_does_not_overwrite_an_earlier_checkpoint(
+    tmp_path: Path,
+) -> None:
+    """A resumed run numbers its checkpoints from 1 again, in the same directory."""
+    paths = [
+        subprocess.run(  # noqa: S603 -- fixed interpreter and script
+            [sys.executable, "-c", _CHECKPOINT_IN_A_NEW_PROCESS, str(tmp_path), writer],
+            capture_output=True,
+            check=True,
+            text=True,
+        ).stdout.strip()
+        for writer in ("first", "second")
+    ]
+    assert paths[0] != paths[1]
+    assert [Path(path).read_text() for path in paths] == ["first", "second"]
 
 
 @pytest.mark.parametrize("bad_filename", ["", "x\0y", "manifest.json", ".hidden"])

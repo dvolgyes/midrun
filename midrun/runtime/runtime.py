@@ -244,6 +244,11 @@ class MidrunRuntime:
             )
         return self.artifacts
 
+    @property
+    def on_rank_zero(self) -> bool:
+        """Whether this process is global rank 0, as `setup_environment` found."""
+        return self._is_rank_zero
+
     # ---- Lightning lifecycle ------------------------------------------------
 
     def setup_environment(self, pl_module: Any, stage: str) -> None:

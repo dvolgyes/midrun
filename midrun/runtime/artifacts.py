@@ -38,17 +38,32 @@ class ArtifactStore:
         (self.root / "snapshots").mkdir(parents=True, exist_ok=True)
         (self.root / "debug").mkdir(parents=True, exist_ok=True)
 
-    def checkpoint_path(self, label: str) -> Path:
-        """Returns a fresh checkpoint file path under `checkpoints/`.
+    def reserve_checkpoint_path(self, label: str) -> Path:
+        """Creates an empty checkpoint file under `checkpoints/` and returns its path.
+
+        Ids are process-local, so a resumed run or another run sharing `root` may hold
+        an id already; exclusive creation skips to the next id. The caller writes the
+        checkpoint over the empty file, or removes it.
 
         Raises:
             ValueError: `label` does not match `ARTIFACT_NAME_PATTERN`.
+            FileExistsError: `_MAX_ID_ATTEMPTS` consecutive ids were all taken.
         """
         if not _ARTIFACT_NAME.fullmatch(label):
             raise ValueError(
                 f"invalid checkpoint label {label!r}: must match {ARTIFACT_NAME_PATTERN}"
             )
-        return self.root / "checkpoints" / f"ckpt-{next_id('c')}-{label}.ckpt"
+        checkpoints = self.root / "checkpoints"
+        for _ in range(_MAX_ID_ATTEMPTS):
+            path = checkpoints / f"ckpt-{next_id('c')}-{label}.ckpt"
+            try:
+                path.touch(exist_ok=False)
+            except FileExistsError:
+                continue
+            return path
+        raise FileExistsError(
+            f"no free checkpoint id under {checkpoints} after {_MAX_ID_ATTEMPTS} attempts"
+        )
 
     def write_snapshot(self, kind: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Writes a snapshot's manifest and payload; returns the manifest.
