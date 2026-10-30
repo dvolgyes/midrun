@@ -22,6 +22,9 @@ from midrun.runtime.graph_inspectors.torchview_available import (
 from midrun.runtime.graph_inspectors.torchview_capture import torchview_capture
 from midrun.runtime.graph_inspectors.torchviz_available import torchviz_available
 from midrun.runtime.graph_inspectors.torchviz_capture import torchviz_capture
+from midrun.runtime.graph_inspectors.torchviz_capture_live import (
+    torchviz_capture_live,
+)
 from midrun.runtime.runtime import MidrunRuntime
 
 pytestmark = pytest.mark.skipif(
@@ -92,6 +95,31 @@ def test_torchviz_capture_renders_svg_and_dot() -> None:
     files = torchviz_capture(model, loss)
     assert b"<svg" in files["graph.svg"] or files["graph.svg"].startswith(b"<?xml")
     assert "digraph" in files["graph.dot"]
+
+
+class _TwoInputModel(torch.nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.fc = torch.nn.Linear(4, 2)
+
+    def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        return self.fc(a) * b
+
+
+@pytest.mark.parametrize(
+    "forward_input",
+    [
+        (torch.randn(3, 4), torch.randn(3, 2)),
+        [torch.randn(3, 4), torch.randn(3, 2)],
+        {"a": torch.randn(3, 4), "b": torch.randn(3, 2)},
+    ],
+    ids=["tuple", "list", "dict"],
+)
+def test_torchviz_capture_live_unpacks_a_multi_input_forward_input(
+    forward_input: object,
+) -> None:
+    files = torchviz_capture_live(_TwoInputModel(), forward_input)
+    assert "MulBackward0" in files["graph.dot"]
 
 
 def test_torchview_capture_command_writes_artifact(tmp_path: Path) -> None:

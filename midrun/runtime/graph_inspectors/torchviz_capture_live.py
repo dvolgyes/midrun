@@ -1,6 +1,7 @@
 """Renders the autograd graph of a fresh forward pass with torchviz."""
 
 import shutil
+from collections.abc import Mapping
 from typing import Any
 
 import torch
@@ -20,6 +21,9 @@ def torchviz_capture_live(
     afterward) so it doesn't perturb BatchNorm running stats mid-training, matching
     `torchinfo_rich_summary`'s own guarantee.
 
+    A list or tuple `forward_input` is passed as positional arguments and a mapping
+    as keyword arguments, as torchinfo and torchview do.
+
     Raises:
         ImportError: torchviz or the `dot` binary is unavailable.
     """
@@ -29,7 +33,12 @@ def torchviz_capture_live(
     model.eval()
     try:
         with torch.enable_grad():
-            output = model(forward_input)
+            if isinstance(forward_input, list | tuple):
+                output = model(*forward_input)
+            elif isinstance(forward_input, Mapping):
+                output = model(**forward_input)
+            else:
+                output = model(forward_input)
     finally:
         model.train(was_training)
     return torchviz_capture(model, output, show_attrs, show_saved)
