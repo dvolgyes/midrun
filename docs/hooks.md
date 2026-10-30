@@ -81,9 +81,9 @@ A tensor argument is *described*, never evaluated —
 `{"kind": "tensor", "shape": [...], "dtype": "...", "device": "...", "requires_grad": false}`. No `.item()`,
 `.tolist()`, or `.cpu()` runs on this path. Nested mappings/lists/tuples are traversed up to `hooks_max_metadata_items`
 / `hooks_max_metadata_depth`; a cycle is reported as `{"kind": "cycle"}` rather than recursing. A NaN or infinite float
-becomes `{"kind": "float", "value": "nan"}` (or `"inf"`, `"-inf"`), so the file is always standard JSON. If the encoded
-document would exceed `hooks_max_params_bytes`, `arguments` is dropped entirely (not partially re-truncated) and
-`truncated_reason` records why.
+becomes `{"kind": "float", "value": "nan"}` (or `"inf"`, `"-inf"`), so the file is always standard JSON. If the
+`params.json` file (indented JSON, as written) would exceed `hooks_max_params_bytes`, `arguments` is dropped entirely
+(not partially re-truncated) and `truncated_reason` records why.
 
 ## The heavy hook manifest
 
@@ -190,9 +190,9 @@ first, so the two are not a single simultaneous snapshot.
   explicitly `chmod +x`'d. Scripts run as the training process's own user, with its own environment and filesystem
   access; midrun adds no privilege boundary beyond the execute bit itself.
 - `hooks_max_params_bytes`, `hooks_max_metadata_items`/`_depth`, `hooks_max_export_bytes`, and `hooks_max_output_bytes`
-  are hard caps enforced *before* the corresponding resource is spent (before encoding, before traversing deeper, before
-  copying a tensor off its device, before retaining more of a stream) — a misbehaving or oversized batch cannot turn a
-  hook into an unbounded memory or disk consumer.
+  are hard caps enforced *before* the corresponding resource is spent (before writing `params.json`, before traversing
+  deeper, before copying a tensor off its device, before retaining more of a stream) — a misbehaving or oversized batch
+  cannot turn a hook into an unbounded memory or disk consumer.
 - A script that hangs is bounded only by `hooks_timeout_s` (`None` by default — set an explicit value outside
   interactive sessions); once it fires, the *entire process group* is killed. The group is also killed when a script
   exits on its own, so a hook cannot leave orphaned background work behind in its process group.

@@ -212,6 +212,25 @@ def test_build_light_params_drops_arguments_entirely_when_over_byte_budget() -> 
     assert "max_params_bytes" in reason
 
 
+def test_written_params_file_never_exceeds_the_byte_budget(tmp_path) -> None:
+    # Many small nested lists: the indented file is several times the compact JSON.
+    arguments = {"batch": [[[i] for i in range(8)] for _ in range(60)]}
+    max_params_bytes = 4096
+    params, _truncated, _reason = build_light_params(
+        context=_context(),
+        occurrence_id="occ-1",
+        invocation_id="inv-1",
+        arguments=arguments,
+        max_params_bytes=max_params_bytes,
+        max_metadata_items=1000,
+        max_metadata_depth=8,
+    )
+
+    written = write_json_file(tmp_path / "params.json", params)
+
+    assert written.stat().st_size <= max_params_bytes
+
+
 def test_new_hook_id_returns_distinct_hex_strings() -> None:
     first = new_hook_id()
     second = new_hook_id()

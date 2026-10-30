@@ -1,11 +1,11 @@
 """Assembles the params.json document of a light hook."""
 
-import json
 import os
 import time
 from collections.abc import Mapping
 from typing import Any
 
+from midrun.hooks.encode_json_document import encode_json_document
 from midrun.hooks.payload.describe_arguments import describe_arguments
 from midrun.hooks.payload.occurrence_context import OccurrenceContext
 
@@ -24,9 +24,9 @@ def build_light_params(
 ) -> tuple[dict[str, Any], bool, str | None]:
     """Assembles the light hook's `params.json` document.
 
-    Enforces `max_params_bytes` on the encoded result: if the described arguments
-    would push the document over budget, `arguments` is dropped entirely (not
-    partially re-truncated) and the truncation reason records why.
+    Enforces `max_params_bytes` on the bytes that `write_json_file` writes: if the
+    described arguments would push the document over budget, `arguments` is dropped
+    entirely (not partially re-truncated) and the truncation reason records why.
 
     Returns:
         A tuple of `(params, truncated, reason)`, mirroring `describe_arguments`.
@@ -37,7 +37,7 @@ def build_light_params(
     params = _assemble(
         context, occurrence_id, invocation_id, described, truncated, reason
     )
-    encoded = json.dumps(params).encode("utf-8")
+    encoded = encode_json_document(params).encode("utf-8")
     if len(encoded) <= max_params_bytes:
         return params, truncated, reason
     reason = "max_params_bytes" if reason is None else f"{reason}; max_params_bytes"

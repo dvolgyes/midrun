@@ -1,9 +1,10 @@
 """Writes a JSON document to a file."""
 
-import json
 import secrets
 from pathlib import Path
 from typing import Any
+
+from midrun.hooks.encode_json_document import encode_json_document
 
 
 def write_json_file(path: Path, document: dict[str, Any]) -> Path:
@@ -17,7 +18,7 @@ def write_json_file(path: Path, document: dict[str, Any]) -> Path:
         ValueError: `document` holds a NaN or infinite float, which standard JSON
             cannot represent; nothing is written.
     """
-    encoded = json.dumps(document, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    encoded = encode_json_document(document)
     temporary = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
     replaced = False
     try:
