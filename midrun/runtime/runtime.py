@@ -331,10 +331,12 @@ class MidrunRuntime:
     def teardown(self, pl_module: Any, stage: str) -> None:
         """Stops Midrun's services. Idempotent; releases any dangling hold first."""
         del pl_module, stage
+        self.current_step.clear()
         self._stop_services(final_status="finished")
 
     def stop_after_failure(self) -> None:
         """Stops Midrun's services after an uncaught exception; the final status is `failed`."""
+        self.current_step.clear()
         self._stop_services(final_status="failed")
 
     def _stop_services(self, final_status: str) -> None:
@@ -656,6 +658,8 @@ class MidrunRuntime:
         )
         self._publish(pl_module, status="exception_held")
         self._exception_hold_loop(pl_module, trainer)
+        # The caller re-raises: drop the live references, the traceback frames among them.
+        self.current_step.clear()
         self._publish(pl_module, status="running")
 
     def _exception_hold_loop(self, pl_module: Any, trainer: Any) -> None:
