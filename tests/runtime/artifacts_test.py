@@ -1,6 +1,8 @@
 """Behavioral tests for ArtifactStore.write_debug_capture (multi-file + metadata)."""
 
 import json
+import subprocess
+import sys
 import threading
 from pathlib import Path
 
@@ -79,6 +81,51 @@ def test_checkpoint_path_stays_in_checkpoints_dir(tmp_path: Path) -> None:
     path = store.checkpoint_path("before-lr_change.v2")
     assert path.parent == tmp_path / "checkpoints"
     assert path.name.endswith("-before-lr_change.v2.ckpt")
+
+
+_WRITE_IN_A_NEW_PROCESS = """
+import json
+import sys
+from pathlib import Path
+from trainctl.runtime.artifacts import ArtifactStore
+
+store = ArtifactStore(Path(sys.argv[1]))
+if sys.argv[2] == "snapshot":
+    manifest = store.write_snapshot("runtime", {"writer": sys.argv[3]})
+else:
+    manifest = store.write_debug_capture("kind", {"writer.txt": sys.argv[3]})
+print(manifest["path"])
+"""
+
+
+@pytest.mark.parametrize(
+    ("artifact", "payload"),
+    [("snapshot", "runtime.json"), ("capture", "writer.txt")],
+)
+def test_processes_sharing_an_artifact_dir_keep_each_others_artifacts(
+    tmp_path: Path, artifact: str, payload: str
+) -> None:
+    """Each process numbers its ids from 1; a later run or DDP rank must not overwrite."""
+    paths = [
+        subprocess.run(  # noqa: S603 -- fixed interpreter and script
+            [
+                sys.executable,
+                "-c",
+                _WRITE_IN_A_NEW_PROCESS,
+                str(tmp_path),
+                artifact,
+                writer,
+            ],
+            capture_output=True,
+            check=True,
+            text=True,
+        ).stdout.strip()
+        for writer in ("first", "second")
+    ]
+    assert paths[0] != paths[1]
+    contents = [(Path(path) / payload).read_text() for path in paths]
+    assert "first" in contents[0]
+    assert "second" in contents[1]
 
 
 @pytest.mark.parametrize("bad_filename", ["", "x\0y", "manifest.json", ".hidden"])

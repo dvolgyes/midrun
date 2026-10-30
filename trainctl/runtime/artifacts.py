@@ -20,6 +20,8 @@ ARTIFACT_NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
 
 _ARTIFACT_NAME = re.compile(ARTIFACT_NAME_PATTERN)
 _RESERVED_CAPTURE_FILENAMES = frozenset({"manifest.json"})
+# Ids already taken by earlier runs or other ranks that one new artifact skips at most.
+_MAX_ID_ATTEMPTS = 100_000
 
 
 class ArtifactStore:
@@ -57,9 +59,7 @@ class ArtifactStore:
         Returns:
             The written manifest (id, kind, created_at, and payload path).
         """
-        snap_id = next_id("snap")
-        snap_dir = self.root / "snapshots" / snap_id
-        snap_dir.mkdir(parents=True, exist_ok=True)
+        snap_id, snap_dir = _new_artifact_dir(self.root / "snapshots", "snap")
         manifest = {"id": snap_id, "kind": kind, "created_at": time.time()}
         (snap_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
         (snap_dir / f"{kind}.json").write_text(
@@ -101,9 +101,7 @@ class ArtifactStore:
                     f"invalid capture filename {filename!r}: must match"
                     f" {ARTIFACT_NAME_PATTERN} and not be manifest.json"
                 )
-        dbg_id = next_id("dbg")
-        dbg_dir = self.root / "debug" / dbg_id
-        dbg_dir.mkdir(parents=True, exist_ok=True)
+        dbg_id, dbg_dir = _new_artifact_dir(self.root / "debug", "dbg")
         manifest = {
             "id": dbg_id,
             "kind": kind,
@@ -119,6 +117,28 @@ class ArtifactStore:
                 (dbg_dir / filename).write_text(content)
         manifest["path"] = str(dbg_dir)
         return manifest
+
+
+def _new_artifact_dir(parent: Path, prefix: str) -> tuple[str, Path]:
+    """Creates a directory under `parent` named by a fresh id; returns the id and the directory.
+
+    Ids are process-local, so an earlier run or another DDP rank sharing `parent`
+    may hold an id already; exclusive creation skips to the next id.
+
+    Raises:
+        FileExistsError: `_MAX_ID_ATTEMPTS` consecutive ids were all taken.
+    """
+    for _ in range(_MAX_ID_ATTEMPTS):
+        artifact_id = next_id(prefix)
+        directory = parent / artifact_id
+        try:
+            directory.mkdir(parents=True)
+        except FileExistsError:
+            continue
+        return artifact_id, directory
+    raise FileExistsError(
+        f"no free {prefix} id under {parent} after {_MAX_ID_ATTEMPTS} attempts"
+    )
 
 
 def _json_default(value: object) -> object:
