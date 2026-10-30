@@ -103,14 +103,15 @@ STATIC_FILES: dict[str, Callable[["TrainctlRuntime"], bytes]] = {
         str(rt._rest_port) if rt._rest_port else ""
     ),
     "/meta/rest/url": lambda rt: encode_text(rt.rest_url or ""),
+    # The published URL is set only once the frontend answers.
     "/meta/pytorch-debug/enabled": lambda rt: encode_text(
-        _bool(rt.torch_debug.frontend_url is not None)
+        _bool(rt.state.read().torch_debug_url is not None)
     ),
     "/meta/pytorch-debug/port": lambda rt: encode_text(
-        str(rt.torch_debug._selected_port or "")
+        str(rt.torch_debug._selected_port) if rt.state.read().torch_debug_url else ""
     ),
     "/meta/pytorch-debug/url": lambda rt: encode_text(
-        rt.torch_debug.frontend_url or ""
+        rt.state.read().torch_debug_url or ""
     ),
     "/meta/artifacts-path": lambda rt: encode_text(
         str(rt.artifacts.root) if rt.artifacts else ""
@@ -182,6 +183,6 @@ STATIC_FILES: dict[str, Callable[["TrainctlRuntime"], bytes]] = {
     "/debug/README.md": lambda rt: encode_text(DEBUG_README),
     "/debug/pytorch/README.md": lambda rt: encode_text(DEBUG_README),
     "/debug/pytorch/status": lambda rt: encode_json(
-        {"enabled": rt.torch_debug._started, "url": rt.torch_debug.frontend_url}
+        {"enabled": rt.torch_debug._started, "url": rt.state.read().torch_debug_url}
     ),
 }

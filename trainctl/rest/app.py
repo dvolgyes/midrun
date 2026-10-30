@@ -242,7 +242,7 @@ def build_app(runtime: "TrainctlRuntime") -> FastAPI:
     def debug_pytorch_status() -> dict[str, Any]:
         return {
             "enabled": runtime.torch_debug._started,
-            "url": runtime.torch_debug.frontend_url,
+            "url": runtime.state.read().torch_debug_url,
         }
 
     @app.get("/debug/cuda-memory/snapshot")

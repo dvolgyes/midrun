@@ -1,5 +1,6 @@
 """Behavioral test: REST starts with default service options in a non-distributed run."""
 
+import json
 import socket
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from loguru import logger
 from trainctl.config import TrainctlConfig
 from trainctl.load_backend import load_backend
 from trainctl.runtime.runtime import TrainctlRuntime
+from trainctl.runtime.virtual_fs.virtual_file_content import virtual_file_content
 
 
 class _FakeModule:
@@ -101,6 +103,21 @@ def test_an_unanswering_torch_debug_frontend_url_is_not_published(
             assert runtime.state.read().torch_debug_url is None
             assert any("did not answer" in warning for warning in warnings)
             assert (runtime.rest_url is not None) == rest_enabled
+            for path, unpublished in [
+                ("/meta/pytorch-debug/enabled", b"false\n"),
+                ("/meta/pytorch-debug/url", b"\n"),
+                ("/meta/pytorch-debug/port", b"\n"),
+            ]:
+                assert virtual_file_content(runtime, path) == unpublished, path
+            fuse_status = json.loads(
+                virtual_file_content(runtime, "/debug/pytorch/status")
+            )
+            assert fuse_status["url"] is None
+            if rest_enabled:
+                rest_status = httpx2.get(
+                    f"{runtime.rest_url}/debug/pytorch/status", timeout=5
+                ).json()
+                assert rest_status["url"] is None
         finally:
             logger.remove(sink_id)
             runtime.teardown(module, "fit")
