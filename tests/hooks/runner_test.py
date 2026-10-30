@@ -346,7 +346,7 @@ def test_output_is_logged_while_the_script_still_runs(tmp_path, shell) -> None:
         log=log,
     )
     assert result.exit_code == 0
-    assert log.infos[0] == "[hook script.sh stdout] first\n"
+    assert log.infos[0] == "[hook script.sh stdout] first"
 
 
 def test_binary_output_does_not_raise(tmp_path, shell, log) -> None:
