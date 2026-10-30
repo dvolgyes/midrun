@@ -50,7 +50,9 @@ class CommandQueue:
         return command
 
     def refuse(self, kind: str, reason: str) -> list[str]:
-        """Refuses all later submissions of `kind` and cancels its queued commands.
+        """Refuses later submissions of `kind` and cancels its queued commands.
+
+        The refusal lasts until `clear_refusals`.
 
         Returns:
             The ids of the cancelled commands.
@@ -65,6 +67,11 @@ class CommandQueue:
             for command in cancelled:
                 command.status = "cancelled"
             return [command.id for command in cancelled]
+
+    def clear_refusals(self) -> None:
+        """Accepts again every command kind that `refuse` refused."""
+        with self._lock:
+            self._refusals.clear()
 
     def submit_once(
         self, kind: str, args: dict[str, Any], when: CommandWhen

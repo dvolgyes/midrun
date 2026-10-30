@@ -216,3 +216,30 @@ def test_a_hold_after_an_executed_stop_is_refused(tmp_path) -> None:
 
     assert [response.status_code for response in responses] == [409] * 3
     assert [c.kind for c in runtime.command_queue.list_all()] == ["stop"]
+
+
+def test_a_new_run_accepts_holds_after_a_stopped_run(tmp_path) -> None:
+    model = _EndlessModel()
+    client = TestClient(build_app(model._midrun))
+    loader = DataLoader(
+        TensorDataset(torch.randn(64, 4), torch.randn(64, 1)), batch_size=4
+    )
+
+    def fit(max_epochs: int) -> None:
+        PL.Trainer(
+            default_root_dir=str(tmp_path),
+            max_epochs=max_epochs,
+            enable_progress_bar=False,
+            logger=False,
+            enable_checkpointing=False,
+            accelerator="cpu",
+        ).fit(model, loader)
+
+    client.post("/control/stop")
+    fit(max_epochs=1000)
+    assert client.post("/control/pause").status_code == 409
+    fit(max_epochs=1)
+
+    response = client.post("/control/pause")
+    assert response.status_code == 200, response.text
+    assert response.json()["queued"] is True
