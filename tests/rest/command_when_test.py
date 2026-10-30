@@ -51,7 +51,7 @@ def test_invalid_when_is_rejected_at_submission(tmp_path: Path, when: object) ->
         "/commands", json={"kind": "snapshot", "execution": {"when": when}}
     )
 
-    assert response.status_code == 400, response.text
+    assert response.status_code == 422, response.text
     assert runtime.command_queue.list_all() == []
 
 

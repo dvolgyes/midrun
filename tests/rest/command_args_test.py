@@ -1,6 +1,6 @@
 """Behavioral tests for command argument checks at submission.
 
-A command with an unknown kind or invalid args gets a 400 and is never queued, so the
+A command with an unknown kind or invalid args gets a 422 and is never queued, so the
 training thread never runs it with a coerced value.
 """
 
@@ -61,8 +61,8 @@ def test_invalid_command_is_rejected_at_submission(
 
     response = client.post("/commands", json={"kind": kind, "args": args})
 
-    assert response.status_code == 400, response.text
-    assert detail in response.json()["detail"]
+    assert response.status_code == 422, response.text
+    assert detail in response.json()["detail"][0]["msg"]
     assert runtime.command_queue.list_all() == []
 
 
@@ -75,7 +75,7 @@ def test_nan_learning_rate_is_rejected_at_submission(tmp_path: Path) -> None:
         headers={"content-type": "application/json"},
     )
 
-    assert response.status_code == 400, response.text
+    assert response.status_code == 422, response.text
     assert runtime.command_queue.list_all() == []
 
 
@@ -86,7 +86,7 @@ def test_unknown_snapshot_kind_is_rejected_by_the_snapshots_route(
 
     response = client.post("/snapshots", json={"kind": "bogus"})
 
-    assert response.status_code == 400, response.text
+    assert response.status_code == 422, response.text
     assert runtime.command_queue.list_all() == []
 
 

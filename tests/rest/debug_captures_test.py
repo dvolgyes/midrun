@@ -60,7 +60,7 @@ def test_post_debug_captures_rejects_path_traversal(tmp_path: Path) -> None:
     response = client.post(
         "/debug/captures", json={"kind": "bad", "files": {"../x.txt": "y"}}
     )
-    assert response.status_code == 400
+    assert response.status_code == 422
 
 
 def test_get_unknown_artifact_id_is_404(tmp_path: Path) -> None:
@@ -74,7 +74,7 @@ def test_post_debug_captures_cannot_overwrite_the_manifest(tmp_path: Path) -> No
     response = client.post(
         "/debug/captures", json={"kind": "bad", "files": {"manifest.json": "{}"}}
     )
-    assert response.status_code == 400
+    assert response.status_code == 422
     assert client.get("/artifacts").json()["debug"] == []
 
 

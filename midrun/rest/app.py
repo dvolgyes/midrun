@@ -20,9 +20,10 @@ from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from midrun.rest.argument_error import argument_error
 from midrun.rest.attachment_static_files import AttachmentStaticFiles
 from midrun.rest.command_dict import command_dict
-from midrun.rest.parse_when_or_400 import parse_when_or_400
+from midrun.rest.parse_when_or_422 import parse_when_or_422
 from midrun.rest.reject_invalid_request import reject_invalid_request
 from midrun.rest.reject_refused_command import reject_refused_command
 from midrun.rest.require_artifact_store import require_artifact_store
@@ -81,12 +82,13 @@ def build_app(runtime: "MidrunRuntime") -> FastAPI:
     )
 
     @app.exception_handler(InvalidCommandError)
-    def reject_invalid_command(
+    async def reject_invalid_command(
         request: Request, exc: InvalidCommandError
     ) -> JSONResponse:
-        """Maps a command with an unknown kind or invalid args to status 400."""
-        del request
-        return JSONResponse(status_code=400, content={"detail": str(exc)})
+        """Maps a command with an unknown kind or invalid args to status 422."""
+        return await reject_invalid_request(
+            request, argument_error(("body",), str(exc))
+        )
 
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
@@ -133,7 +135,7 @@ def build_app(runtime: "MidrunRuntime") -> FastAPI:
     def submit_command(body: CommandIn) -> dict[str, Any]:
         if body.kind == "release_exception" and runtime.state.read().exception is None:
             raise HTTPException(status_code=409, detail="no exception hold is active")
-        when = parse_when_or_400(body.execution.when)
+        when = parse_when_or_422(body.execution.when, loc=("body", "execution", "when"))
         command = runtime.command_queue.submit(body.kind, body.args, when)
         runtime.gate.notify()
         return command_dict(command)
@@ -166,7 +168,7 @@ def build_app(runtime: "MidrunRuntime") -> FastAPI:
     # Async, so a request that waits for its hold uses no worker thread.
     @app.post("/holds", response_model=None)
     async def arm_hold(body: HoldIn) -> dict[str, Any] | JSONResponse:
-        when = parse_when_or_400(body.when)
+        when = parse_when_or_422(body.when)
         command = runtime.command_queue.submit("hold", {"reason": body.reason}, when)
         runtime.gate.notify()
         command = await wait_for_command(runtime, command.id, timeout_s=body.timeout_s)
@@ -229,7 +231,7 @@ def build_app(runtime: "MidrunRuntime") -> FastAPI:
 
     @app.post("/checkpoints")
     def create_checkpoint(body: CheckpointIn) -> dict[str, Any]:
-        when = parse_when_or_400(body.when)
+        when = parse_when_or_422(body.when)
         command = runtime.command_queue.submit(
             "checkpoint", {"label": body.label}, when
         )
@@ -238,7 +240,7 @@ def build_app(runtime: "MidrunRuntime") -> FastAPI:
 
     @app.post("/snapshots")
     def create_snapshot(body: SnapshotIn) -> dict[str, Any]:
-        when = parse_when_or_400(body.when)
+        when = parse_when_or_422(body.when)
         command = runtime.command_queue.submit("snapshot", {"kind": body.kind}, when)
         runtime.gate.notify()
         return command_dict(command)
@@ -275,7 +277,7 @@ def build_app(runtime: "MidrunRuntime") -> FastAPI:
         try:
             return store.write_debug_capture(body.kind, body.files, body.metadata)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise argument_error(("body", "files"), str(exc)) from exc
 
     @app.get("/debug/pytorch/status")
     def debug_pytorch_status() -> dict[str, Any]:

@@ -90,8 +90,11 @@ lightning_logs/version_0/
 └── midrun.log                 midrun log, including hook output
 ```
 
-The REST port is 8090. If 8090 is in use, midrun tries the next ports. The address that the run actually uses is in
-`procfs/meta/rest/url`:
+The REST port is 8090. If 8090 is in use, midrun tries the next ports, `rest_port_search` ports in total. In a
+distributed run with the PyTorch distributed debug server on, rank zero starts REST and the debug server as a pair
+instead: it adds the same offset, a multiple of 100, to both base ports (8090 and 25999), and tries
+`paired_port_search_attempts` offsets. `rest_port_search` and `torch_debug_port_search` do not apply in that case. The
+address that the run actually uses is in `procfs/meta/rest/url`:
 
 ```sh
 RUN=lightning_logs/version_0
@@ -173,7 +176,7 @@ By default a command runs at the next point where it is safe. To run it later, a
 Safe points are `train_batch_end`, `train_epoch_end`, `validation_epoch_end`, `before_optimizer_step` and `fit_end`.
 Instead of `epoch`, you can give `global_step`. Without `safe_point`, the `epoch` or `global_step` condition applies at
 any safe point. With only `safe_point`, the command runs at the next occurrence of that safe point. The REST API rejects
-any other `when` value with status 400.
+any other `when` value with status 422.
 
 | Command kind | What it does |
 | -- | -- |
@@ -188,8 +191,10 @@ any other `when` value with status 400.
 | `profile`, `set_lightning_profiler` | Profile some training steps. |
 
 The REST API checks the kind and the arguments of a command when it receives the command. It rejects an unknown kind, a
-missing or unknown argument, and a value of the wrong type with status 400. It does not convert values: the string
-`"false"` is not a boolean, and `7.9` is not an integer.
+missing or unknown argument, and a value of the wrong type with status 422. The type check is strict: the string
+`"false"` is not a boolean, and `7.9` and `7.0` are not integers. The only conversion is from an integer to a float: for
+a float argument, `{"value": 1}` is accepted and becomes `1.0`. Every invalid argument, in any route, gets status 422
+with a list of errors: `{"detail": [{"loc": ["body", ...], "msg": "...", "type": "..."}]}`.
 
 While the run is held, only some command kinds run. `GET $URL/holds` lists the other queued commands under `waiting`.
 They run after the hold ends. After `release_exception` they never run, because the run then ends with the exception.
