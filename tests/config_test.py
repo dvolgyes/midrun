@@ -4,7 +4,9 @@ import os
 import stat
 
 import pytest
+from lightning.pytorch import LightningModule
 
+from midrun import MidrunMixin
 from midrun.config import MidrunConfig
 
 
@@ -157,3 +159,43 @@ def test_valid_rest_allowed_hosts_entries_are_kept_as_a_tuple() -> None:
     entries = ["proxy.example", "10.0.0.5", "::1", "[fd00::2]"]
     config = MidrunConfig(rest_allowed_hosts=entries)  # type: ignore[arg-type]
     assert config.rest_allowed_hosts == tuple(entries)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("pipeline_pressure_window", 0),
+        ("pipeline_pressure_window", -1),
+        ("rest_port", 0),
+        ("rest_port", 70000),
+        ("torch_debug_port", -1),
+        ("torch_debug_port", 65536),
+        ("rest_port_search", 0),
+        ("torch_debug_port_search", 0),
+        ("paired_port_search_attempts", -3),
+    ],
+)
+def test_out_of_range_service_option_raises_at_construction(
+    field_name: str, value: int
+) -> None:
+    with pytest.raises(ValueError, match=field_name):
+        MidrunConfig(**{field_name: value})
+
+
+@pytest.mark.parametrize("field_name", ["rest_port", "torch_debug_port"])
+def test_port_range_bounds_are_accepted(field_name: str) -> None:
+    assert getattr(MidrunConfig(**{field_name: 1}), field_name) == 1
+    assert getattr(MidrunConfig(**{field_name: 65535}), field_name) == 65535
+
+
+def test_empty_rest_host_raises_at_construction() -> None:
+    with pytest.raises(ValueError, match="rest_host"):
+        MidrunConfig(rest_host="")
+
+
+def test_mixin_keyword_arguments_are_validated_like_the_config() -> None:
+    class _Module(MidrunMixin, LightningModule):
+        pass
+
+    with pytest.raises(ValueError, match="pipeline_pressure_window"):
+        _Module(pipeline_pressure_window=-1)

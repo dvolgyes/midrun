@@ -16,6 +16,15 @@ _POSITIVE_INT_HOOKS_FIELDS = (
     "hooks_max_output_bytes",
 )
 
+_POSITIVE_INT_SERVICE_FIELDS = (
+    "pipeline_pressure_window",
+    "rest_port_search",
+    "torch_debug_port_search",
+    "paired_port_search_attempts",
+)
+
+_PORT_FIELDS = ("rest_port", "torch_debug_port")
+
 
 @dataclass(frozen=True)
 class MidrunConfig:
@@ -152,10 +161,12 @@ class MidrunConfig:
     run_log_enabled: bool = True
 
     def __post_init__(self) -> None:
-        """Canonicalizes path-like fields and validates hook/logging settings.
+        """Canonicalizes path-like fields and validates service and hook settings.
 
         Raises:
-            ValueError: A hook setting is out of range, an explicitly given
+            ValueError: A port is outside 1..65535, a port search count or the
+                pipeline-pressure window is not positive, `rest_host` is empty,
+                a hook setting is out of range, an explicitly given
                 `hooks_source_dir`/`hooks_shell` does not exist as required, or a
                 `rest_allowed_hosts` entry is not a bare host name or IP address.
         """
@@ -177,6 +188,7 @@ class MidrunConfig:
             hooks_shell = Path(hooks_shell).absolute()
             object.__setattr__(self, "hooks_shell", hooks_shell)
 
+        self._check_service_ranges()
         if self.hooks_rank_policy not in _VALID_HOOKS_RANK_POLICIES:
             raise ValueError(
                 f"hooks_rank_policy must be one of {_VALID_HOOKS_RANK_POLICIES}, "
@@ -208,3 +220,15 @@ class MidrunConfig:
             raise ValueError(
                 f"hooks_shell {hooks_shell} does not exist or is not executable"
             )
+
+    def _check_service_ranges(self) -> None:
+        for field_name in _POSITIVE_INT_SERVICE_FIELDS:
+            value = getattr(self, field_name)
+            if value <= 0:
+                raise ValueError(f"{field_name} must be positive, got {value!r}")
+        for field_name in _PORT_FIELDS:
+            value = getattr(self, field_name)
+            if not 1 <= value <= 65535:
+                raise ValueError(f"{field_name} must be in 1..65535, got {value!r}")
+        if not self.rest_host:
+            raise ValueError("rest_host must not be empty")
