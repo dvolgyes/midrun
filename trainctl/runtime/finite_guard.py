@@ -79,6 +79,15 @@ class DataloaderFiniteGuard:
         for ref in iter_batch_tensors(batch):
             if bool(torch.isfinite(ref.tensor).all()):
                 continue
+            # isposinf/isneginf reject complex input, so a complex element counts
+            # when either of its components is infinite.
+            if ref.tensor.is_complex():
+                components = torch.view_as_real(ref.tensor)
+                posinf = torch.isposinf(components).any(dim=-1)
+                neginf = torch.isneginf(components).any(dim=-1)
+            else:
+                posinf = torch.isposinf(ref.tensor)
+                neginf = torch.isneginf(ref.tensor)
             bad.append(
                 BadTensorInfo(
                     path=ref.path,
@@ -86,8 +95,8 @@ class DataloaderFiniteGuard:
                     dtype=str(ref.tensor.dtype),
                     device=str(ref.tensor.device),
                     nan_count=int(torch.isnan(ref.tensor).sum()),
-                    posinf_count=int(torch.isposinf(ref.tensor).sum()),
-                    neginf_count=int(torch.isneginf(ref.tensor).sum()),
+                    posinf_count=int(posinf.sum()),
+                    neginf_count=int(neginf.sum()),
                 )
             )
         if not bad:

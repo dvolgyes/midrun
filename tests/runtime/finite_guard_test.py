@@ -101,6 +101,24 @@ def test_check_finds_nan_posinf_neginf_counts() -> None:
     assert guard.failures == 1
 
 
+def test_check_counts_complex_elements_by_their_components() -> None:
+    guard = DataloaderFiniteGuard(enabled=True)
+    batch = torch.tensor(
+        [
+            complex(float("nan"), 0),
+            complex(float("inf"), 1),
+            complex(1, float("-inf")),
+            1j,
+        ]
+    )
+
+    report = guard.check(batch)
+
+    assert report is not None
+    bad = report.bad_tensors[0]
+    assert (bad.nan_count, bad.posinf_count, bad.neginf_count) == (1, 1, 1)
+
+
 def test_check_returns_none_for_finite_batch() -> None:
     guard = DataloaderFiniteGuard(enabled=True)
     report = guard.check({"x": torch.ones(4)})
