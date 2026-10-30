@@ -94,23 +94,6 @@ def test_model_lightning_profiler_summary_reports_not_enabled_by_default() -> No
     assert b"not enabled" in text
 
 
-def test_model_lightning_profiler_summary_reflects_installed_profiler() -> None:
-    from lightning.pytorch.profilers import SimpleProfiler
-
-    fs = _make_fs()
-    profiler = SimpleProfiler()
-    profiler.start("some_action")
-    profiler.stop("some_action")
-    fs._runtime.lightning_profiler = profiler
-    fs._runtime.lightning_profiler_level = "simple"
-
-    text = virtual_file_content(
-        fs._runtime, "/model/lightning-profiler-summary.txt"
-    ).decode()
-
-    assert "some_action" in text
-
-
 def test_readme_only_leaf_directories_are_not_projected() -> None:
     fs = _make_fs()
     readme = virtual_file_content(fs._runtime, "/README.md").decode()

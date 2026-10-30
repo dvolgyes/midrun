@@ -46,6 +46,10 @@ model/
     source traced against the in-flight batch -- nothing is persisted, so
     incidental traversal (ls, find, indexers) never litters GET /artifacts, and
     graph.dot skips rendering entirely (no Graphviz `dot` binary needed).
+    lightning-profiler-summary.txt is lazy in the same way, except with no
+    Lightning profiler installed: the training thread computes the summary, and
+    for the pytorch level the read ends the profile and installs a fresh
+    PyTorchProfiler.
     Rendered SVGs (torchview_capture, torchviz_capture) and TorchLens traces
     (torchlens_capture) stay deliberate, persisted POST /commands captures,
     listed under GET /artifacts -- there is no live "latest" pointer for those.
@@ -174,11 +178,6 @@ STATIC_FILES: dict[str, Callable[["MidrunRuntime"], bytes]] = {
     ),
     "/state/lightning-profiler.json": lambda rt: encode_json(
         {"level": rt.lightning_profiler_level}
-    ),
-    "/model/lightning-profiler-summary.txt": lambda rt: encode_text(
-        rt.lightning_profiler.summary()
-        if rt.lightning_profiler
-        else "lightning profiler not enabled"
     ),
     "/debug/README.md": lambda rt: encode_text(DEBUG_README),
     "/debug/pytorch/README.md": lambda rt: encode_text(DEBUG_README),

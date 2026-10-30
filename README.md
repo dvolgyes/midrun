@@ -241,8 +241,10 @@ watch -n1 cat $RUN/procfs/state/pipeline/summary.json
 | `model/` | class, hyperparameters, summary, tunable hyperparameters, inspector results |
 | `debug/pytorch/` | `torch.distributed.debug` status |
 
-`model/summary-live.txt` and `model/graph.dot` are made on demand at the next optimizer step. A read of these files
-waits for that step and fails after 30 seconds if the training is held.
+`model/summary-live.txt`, `model/graph.dot` and `model/lightning-profiler-summary.txt` are made on demand at the next
+optimizer step. A read of these files waits for that step and fails after 30 seconds if the training is held. When no
+Lightning profiler is set, `model/lightning-profiler-summary.txt` does not wait. A read at the `pytorch` level ends the
+PyTorch profile, so midrun then sets a new `PyTorchProfiler`, and the file says so.
 
 When the run ends or fails, midrun unmounts `procfs/`. If the training process is killed (for example with `kill -9`), a
 small watcher process unmounts `procfs/` when the training process exits. If the mount still stays and shows
