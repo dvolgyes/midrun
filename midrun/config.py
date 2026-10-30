@@ -74,8 +74,9 @@ class MidrunConfig:
         hooks_rank_policy: `rank_zero` dispatches hooks only on the global-rank-zero
             process; `all` dispatches on every rank.
         hooks_shell: Explicit interpreter used to launch a hook script; must be an
-            existing executable file when given. `None` resolves to the first `bash`
-            found on `PATH` at bootstrap.
+            existing executable file when given. A relative path is made absolute
+            against the working directory at construction. `None` resolves to the
+            first `bash` found on `PATH` at bootstrap.
         hooks_max_params_bytes: Byte limit for a light hook's encoded parameters JSON;
             an oversized payload is truncated with the reason recorded, not silently
             dropped.
@@ -153,7 +154,9 @@ class MidrunConfig:
             object.__setattr__(self, "hooks_source_dir", hooks_source_dir)
         hooks_shell = self.hooks_shell
         if hooks_shell is not None:
-            hooks_shell = Path(hooks_shell)
+            # A hook launches with cwd set to the live tree, so a relative path
+            # must not keep depending on the process cwd.
+            hooks_shell = Path(hooks_shell).absolute()
             object.__setattr__(self, "hooks_shell", hooks_shell)
 
         if self.hooks_rank_policy not in _VALID_HOOKS_RANK_POLICIES:

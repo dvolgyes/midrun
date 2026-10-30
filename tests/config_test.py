@@ -105,3 +105,23 @@ def test_hooks_shell_accepts_an_executable_file(tmp_path) -> None:
 
     config = MidrunConfig(hooks_enabled=True, hooks_shell=shell)
     assert config.hooks_shell == shell
+
+
+def test_relative_hooks_shell_names_the_validated_file_from_any_directory(
+    tmp_path, monkeypatch
+) -> None:
+    # Hooks launch with cwd set to the live `hooks/` tree, not the process cwd.
+    shell = tmp_path / "bin" / "mybash"
+    shell.parent.mkdir()
+    shell.write_text("#!/bin/sh\n")
+    shell.chmod(0o755)
+    monkeypatch.chdir(tmp_path)
+    config = MidrunConfig(hooks_enabled=True, hooks_shell="bin/mybash")
+
+    elsewhere = tmp_path / "hooks"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    assert config.hooks_shell is not None
+    assert config.hooks_shell.is_file()
+    assert config.hooks_shell.samefile(shell)
