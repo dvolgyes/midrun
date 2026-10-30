@@ -16,6 +16,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn, SupportsIndex
 
+import torch
 from loguru import logger
 
 from midrun.config import MidrunConfig
@@ -144,7 +145,8 @@ class MidrunRuntime:
             `midrun.runtime.virtual_fs.live_files.LIVE_FILES`.
         tunable_hparams: Current value/type of each hparam the model opted into via
             `midrun_tunable_hparams`, refreshed at every safe point and in a hold.
-            Entries declared via the dict form also carry `min`/`max`/`label`.
+            A tensor's value is read when this property is read, not at the safe
+            point. Entries declared via the dict form also carry `min`/`max`/`label`.
         rank_sync: Control-plane collectives with the other ranks of a distributed
             run.
         services: The REST, FUSE and torch debug servers and their handles.
@@ -210,7 +212,7 @@ class MidrunRuntime:
         self.lightning_profiler: Any | None = None
         self.lightning_profiler_level: str = "off"
         self.live_captures: LiveCaptureBroker = LiveCaptureBroker()
-        self.tunable_hparams: dict[str, HparamValue] = {}
+        self._tunable_hparams: dict[str, tuple[HparamValue, torch.Tensor | None]] = {}
         self._tunable_hparam_specs: dict[str, TunableHparamSpec] = {}
         self._unreadable_hparams_reported = set()
 
@@ -236,6 +238,20 @@ class MidrunRuntime:
     def fuse_mountpoint(self) -> Path | None:
         """The active FUSE mountpoint, once started."""
         return self.services.fuse_mountpoint
+
+    @property
+    def tunable_hparams(self) -> dict[str, HparamValue]:
+        """See the class attributes.
+
+        The REST and FUSE threads read this, so a safe point never copies a tensor to
+        the host and waits for its device.
+        """
+        return {
+            name: described
+            if tensor is None
+            else replace(described, value=describe_hparam(tensor).value)
+            for name, (described, tensor) in self._tunable_hparams.items()
+        }
 
     @property
     def _hook_session(self) -> HookSession | None:
@@ -439,13 +455,15 @@ class MidrunRuntime:
         `cuda_memory_history`/`profiler_run`'s thread-safety idiom. A single
         unreadable knob is logged once and skipped rather than blanking the rest.
         """
-        fresh: dict[str, HparamValue] = {}
+        fresh: dict[str, tuple[HparamValue, torch.Tensor | None]] = {}
         for name, spec in self._tunable_hparam_specs.items():
             try:
                 parent, leaf = resolve_hparam_path(pl_module, trainer, spec.path)
-                described = describe_hparam(get_field(parent, leaf))
-                fresh[name] = replace(
-                    described, min=spec.min, max=spec.max, label=spec.label
+                value = get_field(parent, leaf)
+                described = describe_hparam(value, read_tensor=False)
+                fresh[name] = (
+                    replace(described, min=spec.min, max=spec.max, label=spec.label),
+                    value if isinstance(value, torch.Tensor) else None,
                 )
             except Exception as exc:  # noqa: BLE001 -- one broken knob must not blank the dict
                 if name not in self._unreadable_hparams_reported:
@@ -453,7 +471,7 @@ class MidrunRuntime:
                     logger.warning(
                         "midrun tunable hparam {!r} unreadable: {}", name, exc
                     )
-        self.tunable_hparams = fresh
+        self._tunable_hparams = fresh
 
     def _hold_loop(self, pl_module: Any, trainer: Any) -> None:
         """Blocks every rank while rank 0's gate is held.

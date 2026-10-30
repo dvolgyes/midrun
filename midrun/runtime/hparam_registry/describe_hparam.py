@@ -9,8 +9,11 @@ from midrun.runtime.hparam_registry.hparam_value import HparamValue
 MAX_INLINE_TENSOR_ELEMENTS = 4096
 
 
-def describe_hparam(value: Any) -> HparamValue:
+def describe_hparam(value: Any, *, read_tensor: bool = True) -> HparamValue:
     """Reports a tunable hparam's current value, type, and (for tensors) dtype/device/shape.
+
+    With `read_tensor` False, a tensor's value stays None: the call then does not copy
+    the tensor to the host, so it does not wait for the tensor's device.
 
     Raises:
         ValueError: `value`'s type is not one of bool/int/float/str/`torch.Tensor`.
@@ -18,7 +21,7 @@ def describe_hparam(value: Any) -> HparamValue:
     if isinstance(value, torch.Tensor):
         inline_value = (
             value.detach().cpu().tolist()
-            if value.numel() <= MAX_INLINE_TENSOR_ELEMENTS
+            if read_tensor and value.numel() <= MAX_INLINE_TENSOR_ELEMENTS
             else None
         )
         return HparamValue(
