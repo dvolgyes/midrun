@@ -174,7 +174,7 @@ STATIC_FILES: dict[str, Callable[["MidrunRuntime"], bytes]] = {
         {**asdict(rt.cuda_memory_history), **cheap_cuda_memory_stats()}
     ),
     "/state/profiler.json": lambda rt: encode_json(
-        rt.profiler_run.phase_state() if rt.profiler_run else {"state": "idle"}
+        run.phase_state() if (run := rt.profiler_run) else {"state": "idle"}
     ),
     "/state/lightning-profiler.json": lambda rt: encode_json(
         {"level": rt.lightning_profiler_level}
