@@ -475,3 +475,16 @@ def test_check_and_assign_float_tensor_accepts_int_elements() -> None:
 
     assert torch.equal(model.weight, torch.tensor([4.0, 5.0, 6.0]))
     assert model.weight.dtype == torch.float32
+
+
+def test_check_and_assign_updates_a_parameter_in_place() -> None:
+    model = _Model()
+    model.weight = torch.nn.Parameter(torch.tensor([1.0, 2.0, 3.0]))
+    original = model.weight
+
+    result = _assign(model, "weight", [4.0, 5.0, 6.0])
+
+    assert model.weight is original
+    assert torch.equal(model.weight.detach(), torch.tensor([4.0, 5.0, 6.0]))
+    assert model.weight.requires_grad
+    assert result.value == [4.0, 5.0, 6.0]

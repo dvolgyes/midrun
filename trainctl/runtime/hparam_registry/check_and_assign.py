@@ -36,7 +36,9 @@ def check_and_assign(
     value = typed_hparam_value(current, leaf, new_value)
     validate_bounds(spec, value)
     if isinstance(current, torch.Tensor):
-        current.copy_(value)
+        # Without no_grad, an in-place copy into an `nn.Parameter` raises.
+        with torch.no_grad():
+            current.copy_(value)
     else:
         set_field(parent, leaf, value)
     return replace(
