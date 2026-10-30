@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from pygdbmi.constants import GdbTimeoutError
 from pygdbmi.gdbcontroller import GdbController
 
 from midrun.debugger.gdb_capture.evaluate_mi_expression import (
@@ -12,7 +13,13 @@ from midrun.debugger.gdb_capture.require_attached import require_attached
 
 
 def attempt_pending_call(pid: int, snippet_path: Path, gdb_bin: str) -> None:
-    """One attach-call-detach attempt; see `schedule_pending_call` for why this can need retries."""
+    """One attach-call-detach attempt; see `schedule_pending_call` for why this can need retries.
+
+    Raises:
+        GdbAttachError: The attach or the call failed, or gdb did not answer an MI
+            request in time (the pygdbmi `GdbTimeoutError` is the cause).
+        GdbAbandonedEvaluationError: gdb abandoned the call; retryable.
+    """
     gdbmi = GdbController(
         command=[gdb_bin, "--nx", "--quiet", "--interpreter=mi3", "-p", str(pid)]
     )
@@ -32,5 +39,7 @@ def attempt_pending_call(pid: int, snippet_path: Path, gdb_bin: str) -> None:
         if rc != "0":
             raise GdbAttachError(f"Py_AddPendingCall failed to enqueue (rc={rc})")
         gdbmi.write("-target-detach", timeout_sec=5)
+    except GdbTimeoutError as exc:
+        raise GdbAttachError(f"gdb gave no answer for pid {pid}: {exc}") from exc
     finally:
         gdbmi.exit()

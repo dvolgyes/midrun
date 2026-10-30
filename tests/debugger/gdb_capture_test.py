@@ -19,6 +19,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from pygdbmi.constants import GdbTimeoutError
 
 from midrun.debugger.gdb_capture.check_gdb_available import (
     GdbUnavailableError,
@@ -177,6 +178,27 @@ def test_failed_schedule_leaves_no_snippet_file(
     with pytest.raises(GdbAttachError):
         schedule_pending_call(proc.pid, "pass", max_attempts=1)
     assert list(tmp_path.iterdir()) == []
+
+
+def test_silent_gdb_raises_gdb_attach_error_with_the_timeout_as_cause(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    silent_gdb = tmp_path / "gdb"
+    silent_gdb.write_text(
+        '#!/bin/sh\n[ "$1" = --version ] && exec echo "GNU gdb 99"\nexec sleep 60\n'
+    )
+    silent_gdb.chmod(0o755)
+    snippet_dir = tmp_path / "snippets"
+    snippet_dir.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(snippet_dir))
+
+    with pytest.raises(GdbAttachError, match="no answer") as excinfo:
+        schedule_pending_call(
+            os.getpid(), "pass", max_attempts=1, gdb_bin=str(silent_gdb)
+        )
+
+    assert isinstance(excinfo.value.__cause__, GdbTimeoutError)
+    assert list(snippet_dir.iterdir()) == []
 
 
 @_attach_permitted
