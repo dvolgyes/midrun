@@ -12,12 +12,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 from trainctl.rest.command_dict import command_dict
 from trainctl.rest.parse_when_or_400 import parse_when_or_400
+from trainctl.rest.reject_invalid_request import reject_invalid_request
 from trainctl.rest.schemas.checkpoint_in import CheckpointIn
 from trainctl.rest.schemas.command_in import CommandIn
 from trainctl.rest.schemas.debug_capture_in import DebugCaptureIn
@@ -49,7 +51,10 @@ if TYPE_CHECKING:
 
 def build_app(runtime: "TrainctlRuntime") -> FastAPI:
     """Builds the REST app bound to one `TrainctlRuntime` instance."""
-    app = FastAPI(title="trainctl")
+    app = FastAPI(
+        title="trainctl",
+        exception_handlers={RequestValidationError: reject_invalid_request},
+    )
 
     @app.exception_handler(InvalidCommandError)
     def reject_invalid_command(

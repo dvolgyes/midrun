@@ -115,3 +115,18 @@ def test_release_exception_without_an_exception_hold_is_rejected(
 
     assert response.status_code == 409, response.text
     assert runtime.command_queue.list_all() == []
+
+
+def test_a_non_finite_hold_timeout_is_rejected_as_invalid(tmp_path: Path) -> None:
+    runtime = _runtime(tmp_path)
+    client = TestClient(build_app(runtime), raise_server_exceptions=False)
+
+    response = client.post(
+        "/holds",
+        content='{"timeout_s": NaN}',
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"][0]["loc"] == ["body", "timeout_s"]
+    assert runtime.command_queue.list_all() == []
