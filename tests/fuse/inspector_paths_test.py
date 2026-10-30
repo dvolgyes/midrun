@@ -66,11 +66,18 @@ def test_state_profiler_json_reflects_active_run() -> None:
         "p1", warmup_steps=0, active_steps=2, level="basic", then_hold=False
     )
     fs._runtime.profiler_run = run
+    run.start()
+    try:
+        waiting = json.loads(virtual_file_content(fs._runtime, "/state/profiler.json"))
+        # The arming batch ends with the wait step.
+        run.step()
+        active = json.loads(virtual_file_content(fs._runtime, "/state/profiler.json"))
+    finally:
+        run.stop()
 
-    payload = json.loads(virtual_file_content(fs._runtime, "/state/profiler.json"))
-
-    assert payload["state"] == "active"
-    assert payload["active_steps"] == 2
+    assert waiting["state"] == "waiting"
+    assert active["state"] == "active"
+    assert active["active_steps"] == 2
 
 
 def test_state_lightning_profiler_json_is_off_by_default() -> None:
