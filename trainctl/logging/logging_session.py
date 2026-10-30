@@ -60,16 +60,18 @@ class LoggingSession:
         """
         if self._handler is not None:
             return
-        for name in logger_names:
-            for existing in resolve_std_logger(name).handlers:
+        # Names can repeat or alias one logger ("" and "root"): save each logger once,
+        # or a second save records the bridged state and close() restores that.
+        std_loggers = {resolve_std_logger(name): name for name in logger_names}
+        for std_logger, name in std_loggers.items():
+            for existing in std_logger.handlers:
                 if isinstance(existing, LoguruBridgeHandler):
                     raise RuntimeError(
                         f"logger {name!r} is already bridged by session "
                         f"{existing.session_id!r}; close that session first"
                     )
         handler = LoguruBridgeHandler(self.session_id)
-        for name in logger_names:
-            std_logger = resolve_std_logger(name)
+        for std_logger in std_loggers:
             self._saved.append(SavedLoggerState(std_logger))
             for existing in list(std_logger.handlers):
                 std_logger.removeHandler(existing)

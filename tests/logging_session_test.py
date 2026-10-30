@@ -75,6 +75,31 @@ def test_close_restores_original_handler_propagate_and_level() -> None:
     assert std_logger.level == logging.WARNING
 
 
+@pytest.mark.parametrize(
+    ("names", "resolved"), [((_NAME, _NAME), _NAME), (("", "root"), None)]
+)
+def test_close_restores_a_logger_named_twice(
+    names: tuple[str, ...], resolved: str | None
+) -> None:
+    """Two names for one logger: the second save must not record the bridged state."""
+    std_logger = logging.getLogger(resolved)
+    handlers = list(std_logger.handlers)
+    propagate = std_logger.propagate
+    marker = logging.NullHandler()
+    std_logger.addHandler(marker)
+    std_logger.propagate = True
+    try:
+        session = LoggingSession("session-twice")
+        session.install(names)
+        session.close()
+
+        assert std_logger.handlers == [*handlers, marker]
+        assert std_logger.propagate is True
+    finally:
+        std_logger.handlers = handlers
+        std_logger.propagate = propagate
+
+
 def test_close_is_idempotent() -> None:
     session = LoggingSession("session-c")
     session.install()
