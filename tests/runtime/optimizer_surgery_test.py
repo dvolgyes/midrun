@@ -448,3 +448,27 @@ def test_optimizer_summary_of_a_tensor_lr_reports_a_float(tmp_path: Path) -> Non
     ):
         lr = json.loads(path.read_text())["0"]["param_groups"][0]["lr"]
         assert lr == pytest.approx(0.01)
+
+
+def _reject_constant(name: str) -> None:
+    raise ValueError(f"non-standard JSON constant {name}")
+
+
+@pytest.mark.parametrize("lr", [float("nan"), float("inf")])
+def test_optimizer_summary_of_a_non_finite_lr_is_standard_json(
+    tmp_path: Path, lr: float
+) -> None:
+    runtime = _make_runtime()
+    runtime.artifacts = ArtifactStore(tmp_path)
+    model = torch.nn.Linear(2, 2)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+    optimizer.param_groups[0]["lr"] = lr
+    trainer = _FakeTrainer(optimizers=[optimizer])
+    pl_module = _FakePLModule(trainer, model)
+
+    capture = _submit_and_run(runtime, pl_module, trainer, "save_optimizer_summary", {})
+
+    assert capture.status == "succeeded", capture.error
+    text = (Path(capture.result["path"]) / "optimizer.json").read_text()
+    summary = json.loads(text, parse_constant=_reject_constant)
+    assert summary["0"]["param_groups"][0]["lr"] is None

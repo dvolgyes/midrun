@@ -1,4 +1,4 @@
-"""Encodes the JSON content of a virtual file."""
+"""Encodes a value as standard JSON, as the REST API does."""
 
 from typing import Any
 

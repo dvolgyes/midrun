@@ -1,9 +1,9 @@
-"""Behavioral tests: virtual JSON files are standard JSON, as the REST API's are."""
+"""Behavioral tests: encode_json writes standard JSON, as the REST API does."""
 
 import json
 from dataclasses import dataclass
 
-from midrun.runtime.virtual_fs.encode_json import encode_json
+from midrun.encode_json import encode_json
 
 
 def _strict_loads(encoded: bytes) -> object:

@@ -12,8 +12,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from midrun.encode_json import encode_json
 from midrun.runtime.commands.next_id import next_id
-from midrun.runtime.virtual_fs.encode_json import encode_json
 from midrun.write_atomically import write_atomically
 
 # Allowed checkpoint labels and capture filenames: one plain path component.

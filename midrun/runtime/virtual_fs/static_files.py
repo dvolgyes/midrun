@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from midrun.runtime import inspectors_registry
 from midrun.runtime.cuda_memory.cheap_cuda_memory_stats import cheap_cuda_memory_stats
-from midrun.runtime.virtual_fs.encode_json import encode_json
+from midrun.encode_json import encode_json
 from midrun.runtime.virtual_fs.encode_text import encode_text
 
 if TYPE_CHECKING:
