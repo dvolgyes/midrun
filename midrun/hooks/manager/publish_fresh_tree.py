@@ -2,7 +2,6 @@
 
 import errno
 import os
-import shutil
 import socket
 import stat as stat_module
 import tempfile
@@ -19,6 +18,7 @@ from midrun.hooks.manager.hooks_tree_layout import (
     PROVENANCE_NAME,
     SCHEMA_VERSION,
 )
+from midrun.hooks.manager.remove_staging_tree import remove_staging_tree
 from midrun.hooks.manager.seed_missing_slots import seed_missing_slots
 from midrun.hooks.manager.write_readme_if_absent import write_readme_if_absent
 from midrun.hooks.write_json_file import write_json_file
@@ -120,7 +120,7 @@ def publish_fresh_tree(
             ) from exc
     finally:
         if not published:
-            shutil.rmtree(staging_dir, ignore_errors=True)
+            remove_staging_tree(staging_dir)
 
     write_json_file(marker_path, record)
     log.info(

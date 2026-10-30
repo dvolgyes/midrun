@@ -292,6 +292,25 @@ def test_lost_publish_race_reports_unpublished_and_cleans_up_staging(
     assert (live_dir / "already-here.txt").read_text() == "winner\n"
 
 
+def test_lost_publish_race_cleans_up_the_staging_copy_of_a_read_only_baseline(
+    tmp_path, log
+) -> None:
+    source = tmp_path / "baseline"
+    (source / "light").mkdir(parents=True)
+    (source / "light" / "on_fit_start.sh").write_text("#!/usr/bin/env bash\n")
+    (source / "light").chmod(0o555)
+    source.chmod(0o555)
+    base_dir = tmp_path / "run"
+    base_dir.mkdir()
+    live_dir = base_dir / "hooks"
+    live_dir.mkdir()
+    (live_dir / "already-here.txt").write_text("winner\n")
+
+    assert publish_fresh_tree(base_dir, live_dir, source, "s-14", log) is False
+
+    assert list(base_dir.glob(".hooks-staging-*")) == []
+
+
 def test_losing_the_publish_race_resumes_the_winners_tree(
     tmp_path, monkeypatch, log
 ) -> None:
