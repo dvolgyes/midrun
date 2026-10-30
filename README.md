@@ -128,6 +128,14 @@ To use the dashboard from another computer, forward the port over SSH:
 ssh -L 8090:127.0.0.1:8090 <training-host>
 ```
 
+The REST API accepts a request only when its `Host` header names this machine, so that a web page cannot read the API
+through DNS rebinding. Other names get status 400 (`Invalid host header`). The accepted names are `localhost`,
+`127.0.0.1`, `[::1]`, `rest_host` when it is not `0.0.0.0` or `::`, the host name and the fully qualified name of the
+machine, the server address in `SSH_CONNECTION` (the address that you connected to with SSH), and the IP address in the
+`MIDRUN_WHITELIST_IP` environment variable. To open the API under another name, for example through a reverse proxy, add
+the name to `rest_allowed_hosts`. The check reads the environment when REST starts. midrun does not start REST when
+`MIDRUN_WHITELIST_IP` is not one IPv4 or IPv6 address.
+
 ## Control the run with REST
 
 ```sh
@@ -284,6 +292,7 @@ description of each option.
 | -- | -- | -- |
 | `midrun_enabled` | `True` | Master switch for all services. |
 | `rest_enabled`, `rest_host`, `rest_port`, `rest_port_search` | `True`, `127.0.0.1`, `8090`, `100` | REST API and dashboard. |
+| `rest_allowed_hosts` | `()` | Extra `Host` header names for the REST API, for example a reverse proxy. |
 | `fuse_enabled`, `fuse_mountpoint` | `True`, `<log_dir>/procfs` | Read-only filesystem view. |
 | `artifact_dir` | `<log_dir>/artifacts` | Checkpoints, snapshots, debug captures. |
 | `torch_debug_enabled`, `torch_debug_port` | `True`, `25999` | `torch.distributed.debug` server; starts only when torch.distributed is initialized. |
@@ -309,7 +318,8 @@ description of each option.
   authentication. It shows stack traces and process dumps of all ranks. On a shared network, set
   `torch_debug_enabled=False`.
 - The REST API has no authentication and listens on `127.0.0.1`. Anybody with a shell on the training machine can
-  control the run. Do not bind it to a public interface.
+  control the run. Do not bind it to a public interface. A web page in your browser can still send requests that change
+  the run (cross-site request forgery), but the `Host` check stops it from reading the answers.
 - midrun starts its services in `setup` and stops them in `teardown`, so they exist only while `fit`, `validate`, `test`
   or `predict` runs.
 

@@ -125,3 +125,35 @@ def test_relative_hooks_shell_names_the_validated_file_from_any_directory(
     assert config.hooks_shell is not None
     assert config.hooks_shell.is_file()
     assert config.hooks_shell.samefile(shell)
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "",
+        "http://proxy.example",
+        "proxy.example:8090",
+        "[::1]:8090",
+        "proxy example",
+        " proxy.example",
+        "proxy.example/",
+        "*",
+        "*.example",
+        "user@proxy.example",
+        "[127.0.0.1]",
+    ],
+)
+def test_invalid_rest_allowed_hosts_entry_raises_at_construction(entry: str) -> None:
+    with pytest.raises(ValueError, match="rest_allowed_hosts"):
+        MidrunConfig(rest_allowed_hosts=(entry,))
+
+
+def test_non_string_rest_allowed_hosts_entry_raises_at_construction() -> None:
+    with pytest.raises(ValueError, match="rest_allowed_hosts"):
+        MidrunConfig(rest_allowed_hosts=(8090,))  # type: ignore[arg-type]
+
+
+def test_valid_rest_allowed_hosts_entries_are_kept_as_a_tuple() -> None:
+    entries = ["proxy.example", "10.0.0.5", "::1", "[fd00::2]"]
+    config = MidrunConfig(rest_allowed_hosts=entries)  # type: ignore[arg-type]
+    assert config.rest_allowed_hosts == tuple(entries)

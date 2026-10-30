@@ -58,6 +58,7 @@ from midrun.runtime.pipeline_pressure import PipelinePressureTracker
 from midrun.runtime.profiler import ProfilerRun
 from midrun.runtime.rank_sync import RankSync
 from midrun.runtime.record_bad_batch import record_bad_batch
+from midrun.runtime.rest_base_url import rest_base_url
 from midrun.runtime.start_logging_session import start_logging_session
 from midrun.runtime.start_rest_server import start_rest_server
 from midrun.runtime.state.exception_breakpoint_info import ExceptionBreakpointInfo
@@ -227,7 +228,7 @@ class MidrunRuntime:
         """The reachable REST base URL, once started."""
         if self._rest_port is None:
             return None
-        return f"http://{self.config.rest_host}:{self._rest_port}"
+        return rest_base_url(self.config.rest_host, self._rest_port)
 
     @property
     def fuse_mountpoint(self) -> Path | None:

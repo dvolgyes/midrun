@@ -7,6 +7,8 @@ see the module docstring in `midrun.runtime.runtime`.
 """
 
 import json
+import os
+import socket
 from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
@@ -16,6 +18,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from midrun.rest.attachment_static_files import AttachmentStaticFiles
 from midrun.rest.command_dict import command_dict
@@ -27,6 +30,7 @@ from midrun.rest.schemas.command_in import CommandIn
 from midrun.rest.schemas.debug_capture_in import DebugCaptureIn
 from midrun.rest.schemas.hold_in import HoldIn
 from midrun.rest.schemas.snapshot_in import SnapshotIn
+from midrun.rest.trusted_hosts import trusted_hosts
 from midrun.rest.wait_for_command import wait_for_command
 from midrun.runtime import inspectors_registry
 from midrun.runtime.command_args.validate_command_args import InvalidCommandError
@@ -60,6 +64,18 @@ def build_app(runtime: "MidrunRuntime") -> FastAPI:
             RequestValidationError: reject_invalid_request,
             RefusedCommandError: reject_refused_command,
         },
+    )
+    # Host-header allowlist: a page that rebinds its domain to this machine
+    # must not read the API as same-origin.
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=trusted_hosts(
+            runtime.config.rest_host,
+            runtime.config.rest_allowed_hosts,
+            os.environ,
+            (socket.gethostname(), socket.getfqdn()),
+        ),
+        www_redirect=False,
     )
 
     @app.exception_handler(InvalidCommandError)

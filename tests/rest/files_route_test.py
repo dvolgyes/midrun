@@ -22,7 +22,7 @@ def _client() -> tuple[TestClient, MidrunRuntime]:
         rest_enabled=False, fuse_enabled=False, torch_debug_enabled=False
     )
     runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
-    return TestClient(build_app(runtime)), runtime
+    return TestClient(build_app(runtime), base_url="http://localhost"), runtime
 
 
 def test_get_file_matches_virtual_file_content() -> None:

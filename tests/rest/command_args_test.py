@@ -27,7 +27,7 @@ def _runtime_and_client(tmp_path: Path) -> tuple[MidrunRuntime, TestClient]:
     )
     runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
     runtime.artifacts = ArtifactStore(tmp_path)
-    return runtime, TestClient(build_app(runtime))
+    return runtime, TestClient(build_app(runtime), base_url="http://localhost")
 
 
 def test_every_accepted_kind_has_a_handler() -> None:

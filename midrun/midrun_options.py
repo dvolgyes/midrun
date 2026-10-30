@@ -1,5 +1,6 @@
 """The keyword arguments that `MidrunMixin.__init__` accepts."""
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TypedDict
 
@@ -21,6 +22,7 @@ class MidrunOptions(TypedDict, total=False):
         rest_host: See `MidrunConfig`.
         rest_port: See `MidrunConfig`.
         rest_port_search: See `MidrunConfig`.
+        rest_allowed_hosts: See `MidrunConfig`.
         torch_debug_enabled: See `MidrunConfig`.
         torch_debug_port: See `MidrunConfig`.
         torch_debug_port_search: See `MidrunConfig`.
@@ -53,6 +55,7 @@ class MidrunOptions(TypedDict, total=False):
     rest_host: str
     rest_port: int
     rest_port_search: int
+    rest_allowed_hosts: Sequence[str]
     torch_debug_enabled: bool
     torch_debug_port: int
     torch_debug_port_search: int

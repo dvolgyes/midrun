@@ -6,6 +6,7 @@ import threading
 import uvicorn
 from fastapi import FastAPI
 
+from midrun.runtime.rest_base_url import rest_base_url
 from midrun.runtime.wait_own_rest_ready import wait_own_rest_ready
 
 
@@ -40,7 +41,9 @@ def start_rest_server(
         daemon=True,
     )
     thread.start()
-    if not wait_own_rest_ready(f"http://{host}:{port}/health", run_id, timeout=10):
+    if not wait_own_rest_ready(
+        f"{rest_base_url(host, port)}/health", run_id, timeout=10
+    ):
         server.should_exit = True
         thread.join(timeout=5)
         sock.close()

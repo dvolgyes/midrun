@@ -13,7 +13,7 @@ def _client() -> TestClient:
         rest_enabled=False, fuse_enabled=False, torch_debug_enabled=False
     )
     runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
-    return TestClient(build_app(runtime))
+    return TestClient(build_app(runtime), base_url="http://localhost")
 
 
 def test_inspectors_reports_availability_for_all_four() -> None:

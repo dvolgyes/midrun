@@ -17,7 +17,7 @@ def _client(tmp_path: Path) -> TestClient:
     )
     runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
     runtime.artifacts = ArtifactStore(tmp_path)
-    return TestClient(build_app(runtime))
+    return TestClient(build_app(runtime), base_url="http://localhost")
 
 
 def test_post_debug_captures_round_trip(tmp_path: Path) -> None:

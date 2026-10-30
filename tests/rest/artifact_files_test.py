@@ -21,7 +21,7 @@ def _client(tmp_path: Path) -> tuple[TestClient, MidrunRuntime]:
     )
     runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
     runtime.artifacts = ArtifactStore(tmp_path)
-    return TestClient(build_app(runtime)), runtime
+    return TestClient(build_app(runtime), base_url="http://localhost"), runtime
 
 
 def test_get_artifact_includes_files_url(tmp_path: Path) -> None:

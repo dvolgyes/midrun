@@ -62,7 +62,7 @@ def _fit_while(
 
     def _drive() -> None:
         _wait_until(lambda: model._trainer is not None and trainer.global_step > 0)
-        client = TestClient(build_app(model._midrun))
+        client = TestClient(build_app(model._midrun), base_url="http://localhost")
         try:
             drive(client)
         except BaseException as exc:  # noqa: BLE001 -- reported by the main thread
@@ -166,7 +166,7 @@ class _StepTrainer:
 def test_a_pause_after_a_stop_in_the_same_step_does_not_hold(tmp_path) -> None:
     runtime = _EndlessModel()._midrun
     trainer = _StepTrainer()
-    client = TestClient(build_app(runtime))
+    client = TestClient(build_app(runtime), base_url="http://localhost")
     stop = client.post("/control/stop").json()
     hold_id = client.post("/control/pause").json()["hold_id"]
 
@@ -184,7 +184,7 @@ def test_a_pause_after_a_stop_in_the_same_step_does_not_hold(tmp_path) -> None:
 
 def test_a_continue_before_the_pause_is_due_cancels_the_pause() -> None:
     runtime = _EndlessModel()._midrun
-    client = TestClient(build_app(runtime))
+    client = TestClient(build_app(runtime), base_url="http://localhost")
     later = client.post(
         "/holds", json={"when": {"safe_point": "train_epoch_end"}, "timeout_s": 0}
     ).json()
@@ -204,7 +204,7 @@ def test_a_continue_before_the_pause_is_due_cancels_the_pause() -> None:
 
 def test_a_hold_after_an_executed_stop_is_refused(tmp_path) -> None:
     runtime = _EndlessModel()._midrun
-    client = TestClient(build_app(runtime))
+    client = TestClient(build_app(runtime), base_url="http://localhost")
     client.post("/control/stop")
     runtime._run_due_commands(None, _StepTrainer(), SafePoint.TRAIN_BATCH_END, None)
 
@@ -220,7 +220,7 @@ def test_a_hold_after_an_executed_stop_is_refused(tmp_path) -> None:
 
 def test_a_new_run_accepts_holds_after_a_stopped_run(tmp_path) -> None:
     model = _EndlessModel()
-    client = TestClient(build_app(model._midrun))
+    client = TestClient(build_app(model._midrun), base_url="http://localhost")
     loader = DataLoader(
         TensorDataset(torch.randn(64, 4), torch.randn(64, 1)), batch_size=4
     )

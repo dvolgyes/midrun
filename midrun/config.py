@@ -4,6 +4,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from midrun.rest.check_allowed_hosts import check_allowed_hosts
+
 _VALID_HOOKS_RANK_POLICIES = ("rank_zero", "all")
 
 _POSITIVE_INT_HOOKS_FIELDS = (
@@ -30,6 +32,14 @@ class MidrunConfig:
         rest_host: Bind host for the REST server.
         rest_port: First REST port to try.
         rest_port_search: Number of sequential ports to try if `rest_port` is taken.
+        rest_allowed_hosts: Extra host names or IP addresses (without scheme or
+            port) that the REST API accepts in the Host header, such as a reverse
+            proxy's name. The API always accepts `localhost`, `127.0.0.1`, `[::1]`,
+            `rest_host` when it is not a wildcard, the machine's host name and
+            fully qualified name, the server address in `SSH_CONNECTION`, and the
+            IP address in the `MIDRUN_WHITELIST_IP` environment variable. It
+            rejects other Host headers with status 400, so that a web page cannot
+            read it through DNS rebinding.
         torch_debug_enabled: Start `torch.distributed.debug`'s HTTP server, when available.
         torch_debug_port: First frontend port to try for the distributed debug server.
         torch_debug_port_search: Number of sequential ports to try for the debug frontend
@@ -107,6 +117,7 @@ class MidrunConfig:
     rest_host: str = "127.0.0.1"
     rest_port: int = 8090
     rest_port_search: int = 100
+    rest_allowed_hosts: tuple[str, ...] = ()
 
     torch_debug_enabled: bool = True
     torch_debug_port: int = 25999
@@ -144,9 +155,13 @@ class MidrunConfig:
         """Canonicalizes path-like fields and validates hook/logging settings.
 
         Raises:
-            ValueError: A hook setting is out of range, or an explicitly given
-                `hooks_source_dir`/`hooks_shell` does not exist as required.
+            ValueError: A hook setting is out of range, an explicitly given
+                `hooks_source_dir`/`hooks_shell` does not exist as required, or a
+                `rest_allowed_hosts` entry is not a bare host name or IP address.
         """
+        object.__setattr__(
+            self, "rest_allowed_hosts", check_allowed_hosts(self.rest_allowed_hosts)
+        )
         if self.fuse_mountpoint is not None:
             object.__setattr__(self, "fuse_mountpoint", Path(self.fuse_mountpoint))
         if self.artifact_dir is not None:

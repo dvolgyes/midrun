@@ -401,7 +401,9 @@ def test_set_learning_rate_updates_a_tensor_lr_in_place_and_reports_floats() -> 
     assert command.status == "succeeded"
     assert optimizer.param_groups[0]["lr"] is lr
     assert lr.item() == 0.5
-    response = TestClient(build_app(runtime)).get(f"/commands/{command.id}")
+    response = TestClient(build_app(runtime), base_url="http://localhost").get(
+        f"/commands/{command.id}"
+    )
     assert response.status_code == 200
     assert response.json()["result"]["groups"]["0"] == {
         "before": pytest.approx(0.1),
@@ -418,7 +420,7 @@ def test_published_learning_rates_of_a_tensor_lr_are_floats_over_rest() -> None:
 
     runtime._publish(pl_module, "running")
 
-    client = TestClient(build_app(runtime))
+    client = TestClient(build_app(runtime), base_url="http://localhost")
     optimizers = client.get("/optimizers")
     assert optimizers.status_code == 200
     assert optimizers.json() == {"learning_rates": [pytest.approx(0.01)]}

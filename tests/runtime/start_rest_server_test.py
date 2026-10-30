@@ -63,3 +63,40 @@ def test_a_stopped_server_exits_before_its_stop_join_timeout_with_a_hung_request
         thread.join(timeout=5)
 
         assert not thread.is_alive()
+
+
+def test_a_wildcard_bind_host_passes_the_readiness_probe_and_host_check(
+    tmp_path,
+) -> None:
+    from midrun.config import MidrunConfig
+    from midrun.load_backend import load_backend
+    from midrun.rest.app import build_app
+    from midrun.runtime.artifacts import ArtifactStore
+    from midrun.runtime.runtime import MidrunRuntime
+
+    runtime = MidrunRuntime(
+        MidrunConfig(
+            rest_enabled=False,
+            fuse_enabled=False,
+            torch_debug_enabled=False,
+            rest_host="0.0.0.0",  # noqa: S104 -- never bound; the socket is loopback
+        ),
+        load_backend("lightning.pytorch"),
+    )
+    runtime.artifacts = ArtifactStore(tmp_path)
+    # Connecting to 0.0.0.0 reaches this loopback socket on Linux, as it would
+    # reach a wildcard-bound one.
+    sock = socket.create_server(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+
+    server, thread = start_rest_server(
+        build_app(runtime),
+        sock,
+        "0.0.0.0",
+        port,
+        runtime.run_id,  # noqa: S104
+    )
+
+    server.should_exit = True
+    thread.join(timeout=5)
+    assert not thread.is_alive()

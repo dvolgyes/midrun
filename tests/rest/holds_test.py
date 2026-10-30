@@ -39,7 +39,7 @@ def test_waiting_hold_requests_do_not_block_health(tmp_path: Path) -> None:
     # More waiting requests than the server's default worker-thread limit (40).
     waiting_requests = 45
     statuses: list[int] = []
-    with TestClient(build_app(runtime)) as client:
+    with TestClient(build_app(runtime), base_url="http://localhost") as client:
 
         def arm() -> None:
             response = client.post("/holds", json={"timeout_s": 5})
@@ -69,7 +69,7 @@ def test_waiting_hold_requests_do_not_block_health(tmp_path: Path) -> None:
 
 def test_hold_timeout_above_the_limit_is_rejected(tmp_path: Path) -> None:
     runtime = _runtime(tmp_path)
-    client = TestClient(build_app(runtime))
+    client = TestClient(build_app(runtime), base_url="http://localhost")
 
     response = client.post("/holds", json={"timeout_s": 61})
 
@@ -79,7 +79,7 @@ def test_hold_timeout_above_the_limit_is_rejected(tmp_path: Path) -> None:
 
 def test_negative_hold_timeout_is_rejected(tmp_path: Path) -> None:
     runtime = _runtime(tmp_path)
-    client = TestClient(build_app(runtime))
+    client = TestClient(build_app(runtime), base_url="http://localhost")
 
     response = client.post("/holds", json={"timeout_s": -1})
 
@@ -89,7 +89,7 @@ def test_negative_hold_timeout_is_rejected(tmp_path: Path) -> None:
 
 def test_cancel_of_a_command_that_is_not_a_hold_is_rejected(tmp_path: Path) -> None:
     runtime = _runtime(tmp_path)
-    client = TestClient(build_app(runtime))
+    client = TestClient(build_app(runtime), base_url="http://localhost")
     command = runtime.command_queue.submit(
         "snapshot", {"kind": "runtime"}, parse_when("now")
     )
@@ -102,7 +102,7 @@ def test_cancel_of_a_command_that_is_not_a_hold_is_rejected(tmp_path: Path) -> N
 
 def test_holds_lists_the_commands_that_wait_while_held(tmp_path: Path) -> None:
     runtime = _runtime(tmp_path)
-    client = TestClient(build_app(runtime))
+    client = TestClient(build_app(runtime), base_url="http://localhost")
     command = runtime.command_queue.submit("save_current_batch", {}, parse_when("now"))
     assert client.get("/holds").json()["waiting"] == []
 
@@ -116,7 +116,7 @@ def test_release_exception_without_an_exception_hold_is_rejected(
     tmp_path: Path,
 ) -> None:
     runtime = _runtime(tmp_path)
-    client = TestClient(build_app(runtime))
+    client = TestClient(build_app(runtime), base_url="http://localhost")
 
     response = client.post("/commands", json={"kind": "release_exception"})
 
@@ -126,7 +126,9 @@ def test_release_exception_without_an_exception_hold_is_rejected(
 
 def test_a_non_finite_hold_timeout_is_rejected_as_invalid(tmp_path: Path) -> None:
     runtime = _runtime(tmp_path)
-    client = TestClient(build_app(runtime), raise_server_exceptions=False)
+    client = TestClient(
+        build_app(runtime), base_url="http://localhost", raise_server_exceptions=False
+    )
 
     response = client.post(
         "/holds",
@@ -144,7 +146,7 @@ def test_a_hold_due_while_another_is_active_joins_it(
     tmp_path: Path, released: str
 ) -> None:
     runtime = _runtime(tmp_path)
-    client = TestClient(build_app(runtime))
+    client = TestClient(build_app(runtime), base_url="http://localhost")
     first = client.post("/holds", json={"reason": "A", "timeout_s": 0}).json()["id"]
     second = client.post("/holds", json={"reason": "B", "timeout_s": 0}).json()["id"]
 
