@@ -1,8 +1,9 @@
 """Disk artifact layout for checkpoints, snapshots, and debug captures.
 
-Artifacts are written by the training thread (via command handlers) and read back
-read-only through the FUSE `artifacts/` tree. This module owns only the on-disk layout
-and manifest format, not the FUSE projection.
+Artifacts are written by the training thread (via command handlers) as real files
+under `root`, a sibling of the FUSE mount that the mount does not project (its
+`meta/artifacts-path` names `root`); REST serves them at `/artifact-files/`. This
+module owns only the on-disk layout and manifest format.
 """
 
 import json
