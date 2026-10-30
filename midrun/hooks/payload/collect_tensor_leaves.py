@@ -55,9 +55,10 @@ def _collect_leaves(
     items = value.items() if isinstance(value, Mapping) else enumerate(value)
     state.seen.add(object_id)
     for index, (key, item) in enumerate(items):
-        if index >= state.max_items:
+        if index >= state.max_items or state.nodes_left <= 0:
             state.truncated = True
-            state.reasons.add("max_items")
+            state.reasons.add("max_items" if index >= state.max_items else "max_nodes")
             break
+        state.nodes_left -= 1
         _collect_leaves(item, f"{path}/{key}", state, leaves, depth=depth + 1)
     state.seen.discard(object_id)

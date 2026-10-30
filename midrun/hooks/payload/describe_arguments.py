@@ -18,7 +18,8 @@ def describe_arguments(
 
     Args:
         arguments: The callback's own arguments, by name (e.g. `{"batch": ..., "batch_idx": ...}`).
-        max_items: Maximum entries kept per traversed `Mapping`/`list`/`tuple`.
+        max_items: Maximum entries kept per traversed `Mapping`/`list`/`tuple`; the
+            whole description also stops after 10 x `max_items` values.
         max_depth: Maximum recursion depth below `arguments` itself.
 
     Returns:
@@ -34,6 +35,7 @@ def describe_arguments(
 
 
 def _describe(value: Any, state: TraversalState, *, depth: int) -> Any:
+    state.nodes_left -= 1
     if isinstance(value, torch.Tensor):
         return {
             "kind": "tensor",
@@ -75,18 +77,19 @@ def _describe_items(
     items: Any, state: TraversalState, *, depth: int, object_id: int, is_mapping: bool
 ) -> Any:
     state.seen.add(object_id)
-    kept: list[tuple[Any, Any]] = []
+    described: list[tuple[Any, Any]] = []
     omitted = 0
     for key, value in items:
-        if len(kept) >= state.max_items:
+        if len(described) >= state.max_items or state.nodes_left <= 0:
             omitted += 1
             continue
-        kept.append((key, value))
-    described = [(key, _describe(value, state, depth=depth + 1)) for key, value in kept]
+        described.append((key, _describe(value, state, depth=depth + 1)))
     state.seen.discard(object_id)
     if omitted:
         state.truncated = True
-        state.reasons.add("max_items")
+        state.reasons.add(
+            "max_items" if len(described) >= state.max_items else "max_nodes"
+        )
     if is_mapping:
         result: dict[str, Any] = {str(key): value for key, value in described}
         if omitted:

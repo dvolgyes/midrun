@@ -153,6 +153,46 @@ def test_cycle_is_detected_and_does_not_recurse_forever() -> None:
     assert truncated is False
 
 
+def _count_leaves(described) -> int:
+    if isinstance(described, dict):
+        return sum(_count_leaves(value) for value in described.values())
+    if isinstance(described, list):
+        return sum(_count_leaves(value) for value in described)
+    return 1
+
+
+def test_the_whole_description_has_a_node_budget_of_ten_times_max_items() -> None:
+    batch = [list(range(100)) for _ in range(100)]
+    described, truncated, reason = describe_arguments(
+        {"batch": batch}, max_items=100, max_depth=8
+    )
+    assert _count_leaves(described) <= 10 * 100
+    assert truncated is True
+    assert "max_nodes" in reason
+
+
+def test_shared_references_do_not_multiply_the_described_nodes() -> None:
+    # Each level holds the same list 100 times: 100**4 paths through 4 objects.
+    level = [0] * 100
+    for _ in range(3):
+        level = [level] * 100
+    described, truncated, reason = describe_arguments(
+        {"batch": level}, max_items=100, max_depth=8
+    )
+    assert _count_leaves(described) <= 10 * 100
+    assert truncated is True
+    assert "max_nodes" in reason
+
+
+def test_a_description_within_the_node_budget_is_not_truncated() -> None:
+    batch = [list(range(9)) for _ in range(9)]
+    described, truncated, _reason = describe_arguments(
+        {"batch": batch}, max_items=10, max_depth=8
+    )
+    assert described["batch"] == batch
+    assert truncated is False
+
+
 class _Widget:
     pass
 
@@ -326,6 +366,19 @@ def test_collect_tensor_leaves_respects_bounds_and_is_cycle_safe() -> None:
     assert leaves == []
     assert truncated is True
     assert "max_depth" in reason
+
+
+def test_collect_tensor_leaves_stops_at_the_node_budget() -> None:
+    # The same list 100 times per level: 100**4 paths to one tensor.
+    level = [torch.zeros(1)] * 100
+    for _ in range(3):
+        level = [level] * 100
+    leaves, truncated, reason = collect_tensor_leaves(
+        {"batch": level}, ("batch",), max_items=100, max_depth=8
+    )
+    assert len(leaves) <= 10 * 100
+    assert truncated is True
+    assert "max_nodes" in reason
 
 
 def test_prepare_heavy_export_succeeds_empty_when_argument_absent_or_no_tensor_args() -> (
