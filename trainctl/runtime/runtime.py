@@ -944,8 +944,8 @@ class TrainctlRuntime:
         subprocess.run(["fusermount3", "-u", str(self._fuse_mountpoint)], check=False)  # noqa: S603, S607 -- own mount
         self._fuse_thread.join(timeout=5)
         if self._fuse_watcher is not None:
-            # Closing stdin tells the watcher to check once and exit.
-            self._fuse_watcher.communicate(timeout=5)
+            # A byte on stdin tells the watcher to check once and exit.
+            self._fuse_watcher.communicate(b"\n", timeout=5)
         self._fuse_ops = None
         self._fuse_thread = None
         self._fuse_mountpoint = None

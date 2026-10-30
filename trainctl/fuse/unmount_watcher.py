@@ -2,9 +2,11 @@
 
 `trainctl.fuse.process_guard` runs this file by path (not as a package module, so
 the watcher does not import torch or Lightning) with the training process's pid,
-the mountpoint, and the FUSE filesystem name. It stops when its stdin closes (a
-normal teardown, or the death of every process holding the pipe) or when its
-parent pid changes (the training process died). Then, if a FUSE mount with that
+the mountpoint, and the FUSE filesystem name. It stops when its stdin becomes
+readable (a byte from a normal teardown, or EOF at the death of every process
+holding the pipe) or when its parent pid changes (the training process died). A
+teardown writes a byte because fork-started children, such as DataLoader workers,
+inherit the pipe's write end and keep EOF away. Then, if a FUSE mount with that
 filesystem name is still at the mountpoint, it lazily unmounts it.
 
 fusermount's own `auto_unmount` option is not used: on a tested host (libfuse 2.9.9
@@ -51,7 +53,7 @@ def _wait_for_parent_exit(parent_pid: int) -> None:
     stdin = sys.stdin.fileno()
     while os.getppid() == parent_pid:
         readable, _, _ = select.select([stdin], [], [], _POLL_S)
-        if readable and not os.read(stdin, 4096):
+        if readable:
             return
 
 

@@ -36,7 +36,7 @@ def mount_guarded(
         wait_ready: Returns whether the mount became ready within the given seconds.
 
     Returns:
-        The unmount watcher process. Closing its stdin tells it to check once and exit.
+        The unmount watcher process. A byte on its stdin tells it to check once and exit.
 
     Raises:
         RuntimeError: The mount failed or did not become ready in time.
