@@ -256,7 +256,10 @@ async function loadOverview() {
 function renderReadonlyHparams(hparams, tunable) {
   const container = byId("readonly-hparams-list");
   container.replaceChildren();
-  const tunableNames = new Set(Object.keys(tunable ?? {}));
+  // A tunable path such as "hparams.dropout" names the hparams.json key "dropout".
+  const tunableNames = new Set(
+    Object.keys(tunable ?? {}).map((path) => path.replace(/^hparams\./, "")),
+  );
   const names = Object.keys(hparams).filter((name) => !tunableNames.has(name));
   if (names.length === 0) {
     container.append(
