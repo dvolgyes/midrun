@@ -7,6 +7,8 @@ the training thread executes it at a safe point via `handle_set_hparam`, and
 isolation.
 """
 
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -244,3 +246,37 @@ def test_set_hparam_result_has_the_declared_bounds_and_label(tmp_path: Path) -> 
         1.0,
         "Learning rate",
     )
+
+
+def test_tunable_hparams_shows_a_set_hparam_that_runs_during_a_hold(
+    tmp_path: Path,
+) -> None:
+    runtime = _make_runtime(tmp_path)
+    model = _ready_model(runtime)
+    runtime.command_queue.submit("hold", {"reason": "inspect"}, parse_when("now"))
+    training = threading.Thread(
+        target=runtime.process_safe_point, args=(model, SafePoint.TRAIN_BATCH_END)
+    )
+    training.start()
+    try:
+        deadline = time.monotonic() + 5
+        while not runtime.gate.is_held() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        command = runtime.command_queue.submit(
+            "set_hparam",
+            {"name": "augmentation_strength", "value": 0.9},
+            parse_when("now"),
+        )
+        runtime.gate.notify()
+        while (
+            runtime.tunable_hparams["augmentation_strength"].value != 0.9
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.01)
+
+        assert runtime.command_queue.get(command.id).status == "succeeded"
+        assert runtime.gate.is_held()
+        assert runtime.tunable_hparams["augmentation_strength"].value == 0.9
+    finally:
+        runtime.gate.release()
+        training.join(timeout=5)

@@ -141,8 +141,8 @@ class MidrunRuntime:
             `SafePoint.BEFORE_OPTIMIZER_STEP` -- see
             `midrun.runtime.virtual_fs.live_files.LIVE_FILES`.
         tunable_hparams: Current value/type of each hparam the model opted into via
-            `midrun_tunable_hparams`, refreshed at every safe point. Entries
-            declared via the dict form also carry `min`/`max`/`label`.
+            `midrun_tunable_hparams`, refreshed at every safe point and in a hold.
+            Entries declared via the dict form also carry `min`/`max`/`label`.
         rank_sync: Control-plane collectives with the other ranks of a distributed
             run.
     """
@@ -494,6 +494,7 @@ class MidrunRuntime:
             pl_module, trainer, safe_point=None, allowed=_ALLOWED_DURING_HOLD
         ):
             self._publish(pl_module, status="held")
+            self._refresh_tunable_hparams(pl_module, trainer)
             if self._is_rank_zero:
                 self.gate.wait_for_control_event(timeout=0.1)
         self._publish(pl_module, status="running")
