@@ -17,7 +17,10 @@ def resolve_enabled_script(live_dir: Path, modality: str, name: str) -> Path | N
     bit set. Callers must call this again immediately before launch -- the exec bit,
     or the file itself, can change at any moment between checks.
     """
-    script_path = live_dir / modality / f"{name}.sh"
+    # This runs at every callback, mostly for disabled scripts, so the path stays a
+    # string until the script is known to be enabled: a pathlib join costs more
+    # than the lstat itself.
+    script_path = f"{live_dir}{os.sep}{modality}{os.sep}{name}.sh"
     try:
         st = os.lstat(script_path)
     except OSError:
@@ -26,4 +29,4 @@ def resolve_enabled_script(live_dir: Path, modality: str, name: str) -> Path | N
         return None
     if not st.st_mode & 0o111:
         return None
-    return script_path
+    return Path(script_path)
