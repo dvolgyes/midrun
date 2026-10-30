@@ -191,3 +191,39 @@ def test_snapshot_payload_encodes_non_finite_floats_as_null(tmp_path: Path) -> N
 
     written = _strict_loads((Path(manifest["path"]) / "metrics.json").read_text())
     assert written == {"loss": None, "steps": [None]}
+
+
+def test_a_concurrent_reader_never_sees_a_partial_manifest(tmp_path: Path) -> None:
+    store = ArtifactStore(tmp_path)
+    metadata = {f"key-{i}": "x" * 100 for i in range(20_000)}
+    done = threading.Event()
+    torn_reads: list[int] = []
+
+    def write_captures() -> None:
+        for _ in range(20):
+            store.write_debug_capture("kind", {"data.txt": "payload"}, metadata)
+        done.set()
+
+    complete: set[Path] = set()
+    writer = threading.Thread(target=write_captures)
+    writer.start()
+    while not done.is_set():
+        for capture_dir in (tmp_path / "debug").iterdir():
+            manifest_path = capture_dir / "manifest.json"
+            if capture_dir in complete or not manifest_path.exists():
+                continue
+            text = manifest_path.read_text()
+            try:
+                json.loads(text)
+            except json.JSONDecodeError:
+                torn_reads.append(len(text))
+            else:
+                complete.add(capture_dir)
+    writer.join()
+
+    assert torn_reads == []
+    for capture_dir in (tmp_path / "debug").iterdir():
+        assert sorted(entry.name for entry in capture_dir.iterdir()) == [
+            "data.txt",
+            "manifest.json",
+        ]

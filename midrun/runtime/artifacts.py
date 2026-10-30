@@ -14,6 +14,7 @@ from typing import Any
 
 from midrun.runtime.commands.next_id import next_id
 from midrun.runtime.virtual_fs.encode_json import encode_json
+from midrun.write_atomically import write_atomically
 
 # Allowed checkpoint labels and capture filenames: one plain path component.
 ARTIFACT_NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
@@ -76,7 +77,7 @@ class ArtifactStore:
         """
         snap_id, snap_dir = _new_artifact_dir(self.root / "snapshots", "snap")
         manifest = {"id": snap_id, "kind": kind, "created_at": time.time()}
-        (snap_dir / "manifest.json").write_bytes(encode_json(manifest))
+        write_atomically(snap_dir / "manifest.json", encode_json(manifest))
         (snap_dir / f"{kind}.json").write_bytes(encode_json(payload))
         manifest["path"] = str(snap_dir)
         return manifest
@@ -122,7 +123,7 @@ class ArtifactStore:
             "metadata": metadata or {},
             "files": sorted(files),
         }
-        (dbg_dir / "manifest.json").write_bytes(encode_json(manifest))
+        write_atomically(dbg_dir / "manifest.json", encode_json(manifest))
         for filename, content in files.items():
             if isinstance(content, bytes):
                 (dbg_dir / filename).write_bytes(content)
