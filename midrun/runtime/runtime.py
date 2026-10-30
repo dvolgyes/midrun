@@ -30,6 +30,9 @@ from midrun.runtime.commands.next_id import next_id
 from midrun.runtime.cuda_memory.cuda_memory_history_state import (
     CudaMemoryHistoryState,
 )
+from midrun.runtime.cuda_memory.set_cuda_memory_history import (
+    set_cuda_memory_history,
+)
 from midrun.runtime.current_step import CurrentStep
 from midrun.runtime.default_base_dir import default_base_dir
 from midrun.runtime.distributed_initialized import distributed_initialized
@@ -349,6 +352,10 @@ class MidrunRuntime:
         self.command_queue.expire_queued("the stage stopped before the command ran")
         self.gate.release()
         self._guarded("REST shutdown", self._stop_rest)
+        if self.cuda_memory_history.enabled:
+            # Recording is process-global: it would outlive the stage. REST is
+            # down, so nothing turns it on again.
+            self.cuda_memory_history = set_cuda_memory_history(False, max_entries=None)
         self._guarded("FUSE shutdown", self._stop_fuse)
         self._guarded("pytorch distributed debug shutdown", self.torch_debug.stop)
         if (run := self.profiler_run) is not None:
