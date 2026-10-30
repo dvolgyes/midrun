@@ -10,6 +10,9 @@ from pathlib import Path
 from typing import Any
 
 import torch
+from loguru import logger
+
+from midrun.runtime.artifacts import ArtifactStore
 
 _LEVEL_KWARGS: dict[str, dict[str, Any]] = {
     "basic": {},
@@ -73,12 +76,46 @@ class ProfilerRun:
     def step(self) -> bool:
         """Advances the profiler at the end of a batch.
 
+        A failed step stops the profiler before the error propagates, so that it
+        does not stay enabled.
+
         Returns:
             True once `warmup_steps + active_steps` full batches have been stepped.
         """
-        self._prof.step()
+        try:
+            self._prof.step()
+        except Exception:
+            self.stop()
+            raise
         self.steps_done += 1
         return self.steps_done > self.warmup_steps + self.active_steps
+
+    def stop(self) -> None:
+        """Stops the profiler without exporting anything."""
+        self._prof.stop()
+
+    def save(self, artifact_store: ArtifactStore) -> None:
+        """Stops the profiler and saves what it recorded as a `profiler` debug capture.
+
+        A run cut short before its last active step, e.g. by the end of training, is
+        saved with `truncated` and the number of full `recorded_steps` in its
+        metadata. A run that recorded nothing yet is only stopped, with a warning.
+        """
+        if self.steps_done <= self.warmup_steps:
+            self.stop()
+            logger.warning(
+                "midrun: profile {} stopped before it recorded anything "
+                "({} of {} wait and warmup steps done); nothing was saved",
+                self.id,
+                self.steps_done,
+                1 + self.warmup_steps,
+            )
+            return
+        metadata: dict[str, Any] = {"level": self.level}
+        recorded_steps = self.steps_done - 1 - self.warmup_steps
+        if recorded_steps < self.active_steps:
+            metadata |= {"truncated": True, "recorded_steps": recorded_steps}
+        artifact_store.write_debug_capture("profiler", self.finalize(), metadata)
 
     def finalize(self) -> dict[str, str | bytes]:
         """Stops the profiler and returns its exported artifact contents.

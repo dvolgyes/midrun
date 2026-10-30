@@ -149,6 +149,7 @@ class MidrunRuntime:
 
     _unreadable_hparams_reported: set[str]
     rank_sync: RankSync
+    profiler_run: ProfilerRun | None
 
     def __init__(self, config: MidrunConfig, backend: LightningBackend) -> None:
         self.config: MidrunConfig = config
@@ -200,7 +201,7 @@ class MidrunRuntime:
         self.cuda_memory_history: CudaMemoryHistoryState = CudaMemoryHistoryState(
             enabled=False, max_entries=None, started_at=None
         )
-        self.profiler_run: ProfilerRun | None = None
+        self.profiler_run = None
         self.lightning_profiler: Any | None = None
         self.lightning_profiler_level: str = "off"
         self.live_captures: LiveCaptureBroker = LiveCaptureBroker()
@@ -327,6 +328,9 @@ class MidrunRuntime:
         self._guarded("REST shutdown", self._stop_rest)
         self._guarded("FUSE shutdown", self._stop_fuse)
         self._guarded("pytorch distributed debug shutdown", self.torch_debug.stop)
+        if (run := self.profiler_run) is not None:
+            self.profiler_run = None
+            self._guarded("profiler shutdown", lambda: run.save(self.artifact_store))
         self.state.update(status=final_status)
 
     # ---- lifecycle hooks --------------------------------------------------------
@@ -622,16 +626,12 @@ class MidrunRuntime:
             return
         if not done:
             return
-        then_hold = run.then_hold
         try:
-            files = run.finalize()
-            self.artifact_store.write_debug_capture(
-                "profiler", files, metadata={"level": run.level}
-            )
+            run.save(self.artifact_store)
         except Exception as exc:  # noqa: BLE001 -- inspector must never destabilize training
             logger.warning("midrun: profiler finalize failed: {}", exc)
         self.profiler_run = None
-        if then_hold:
+        if run.then_hold:
             trainer = pl_module.trainer
             self.gate.enter(
                 next_id("profiler"),

@@ -5,11 +5,15 @@ import threading
 import time
 from pathlib import Path
 
+import lightning.pytorch as PL
 import pytest
 import torch
+from loguru import logger
+from torch.utils.data import DataLoader, TensorDataset
 
 from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
+from midrun.mixin import MidrunMixin
 from midrun.runtime.artifacts import ArtifactStore
 from midrun.runtime.commands.parse_when import parse_when
 from midrun.runtime.profiler import ProfilerRun
@@ -121,10 +125,8 @@ def test_profile_command_rejects_second_concurrent_arm(tmp_path: Path) -> None:
         assert "already armed" in second.error
     finally:
         # torch.profiler's underlying session is process-global; leaving the first
-        # run started would corrupt later tests in this process. One step ends the
-        # arming batch, so the run has recorded something to finalize.
-        runtime.profiler_run.step()
-        runtime.profiler_run.finalize()
+        # run started would corrupt later tests in this process.
+        runtime.profiler_run.stop()
 
 
 def test_finish_train_batch_advances_and_finalizes_profiler(tmp_path: Path) -> None:
@@ -226,3 +228,97 @@ def test_profile_armed_mid_batch_records_the_next_full_batch(tmp_path: Path) -> 
     names = _traced_op_names(capture_dir)
     assert "aten::linear" in names
     assert "aten::cumsum" not in names
+
+
+class _ProfiledModel(MidrunMixin, PL.LightningModule):
+    def __init__(self, profile_args: dict[str, object], artifact_dir: Path) -> None:
+        super().__init__(
+            rest_enabled=False,
+            fuse_enabled=False,
+            torch_debug_enabled=False,
+            hooks_enabled=False,
+            artifact_dir=artifact_dir,
+        )
+        self.layer = torch.nn.Linear(4, 1)
+        self.profile_args = profile_args
+
+    def on_fit_start(self) -> None:
+        super().on_fit_start()
+        self._midrun.command_queue.submit(
+            "profile", self.profile_args, parse_when("now")
+        )
+
+    def training_step(self, batch, batch_idx):
+        return self.layer(batch[0]).sum()
+
+    def configure_optimizers(self):
+        return torch.optim.SGD(self.parameters(), lr=0.01)
+
+
+def _fit_with_profile(tmp_path: Path, profile_args: dict[str, object]) -> MidrunRuntime:
+    model = _ProfiledModel(profile_args, tmp_path / "artifacts")
+    trainer = PL.Trainer(
+        default_root_dir=str(tmp_path),
+        max_steps=3,
+        accelerator="cpu",
+        enable_progress_bar=False,
+        enable_model_summary=False,
+        logger=False,
+        enable_checkpointing=False,
+    )
+    loader = DataLoader(TensorDataset(torch.randn(16, 4)), batch_size=4)
+    trainer.fit(model, loader)
+    return model._midrun
+
+
+def test_run_end_stops_an_active_profile_and_saves_it_as_truncated(
+    tmp_path: Path,
+) -> None:
+    runtime = _fit_with_profile(tmp_path, {"warmup_steps": 0, "active_steps": 50})
+
+    assert not torch.autograd.profiler._is_profiler_enabled
+    assert runtime.profiler_run is None
+    (capture_dir,) = (runtime.artifact_store.root / "debug").iterdir()
+    manifest = json.loads((capture_dir / "manifest.json").read_text())
+    assert manifest["kind"] == "profiler"
+    assert manifest["metadata"]["truncated"] is True
+    assert manifest["metadata"]["recorded_steps"] == 2
+    assert "aten::linear" in _traced_op_names(capture_dir)
+
+
+def test_run_end_before_a_profile_records_stops_it_and_warns(tmp_path: Path) -> None:
+    warnings: list[str] = []
+    sink_id = logger.add(warnings.append, level="WARNING", format="{message}")
+    try:
+        runtime = _fit_with_profile(tmp_path, {"warmup_steps": 10, "active_steps": 1})
+    finally:
+        logger.remove(sink_id)
+
+    assert not torch.autograd.profiler._is_profiler_enabled
+    assert runtime.profiler_run is None
+    assert not list((runtime.artifact_store.root / "debug").iterdir())
+    assert any("nothing was saved" in message for message in warnings)
+
+
+def test_failed_profiler_step_stops_the_profiler(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = _make_runtime(tmp_path)
+    trainer = _FakeTrainer()
+    pl_module = _FakePLModule(trainer)
+    cmd = runtime.command_queue.submit(
+        "profile", {"warmup_steps": 0, "active_steps": 5}, parse_when("now")
+    )
+    runtime._execute(pl_module, trainer, cmd, safe_point=None)
+    runtime.finish_train_batch(pl_module)
+    assert torch.autograd.profiler._is_profiler_enabled
+
+    def _fail() -> None:
+        raise RuntimeError("step broke")
+
+    monkeypatch.setattr(runtime.profiler_run._prof, "step", _fail)
+    runtime.begin_train_batch(pl_module, batch={"x": 1}, batch_idx=1)
+    runtime.finish_train_batch(pl_module)
+
+    assert runtime.profiler_run is None
+    assert not torch.autograd.profiler._is_profiler_enabled
