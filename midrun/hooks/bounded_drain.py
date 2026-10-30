@@ -45,7 +45,8 @@ class BoundedDrain:
 
     def _run(self) -> None:
         try:
-            for chunk in iter(lambda: self._stream.read(_READ_CHUNK_SIZE), b""):
+            # `read1` returns what the pipe has now; `read` would wait for a full chunk.
+            for chunk in iter(lambda: self._stream.read1(_READ_CHUNK_SIZE), b""):
                 self._record(chunk)
         finally:
             self._stream.close()

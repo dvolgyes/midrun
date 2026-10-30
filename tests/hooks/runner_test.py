@@ -298,6 +298,41 @@ def test_streamed_log_output_stops_at_the_limit(tmp_path, shell) -> None:
     assert "9900 more bytes" in dropped[0]
 
 
+class _ReleasingLog(_RecordingLog):
+    """Creates `release` as soon as a logged line contains `first`."""
+
+    def __init__(self, release: Path) -> None:
+        super().__init__()
+        self._release = release
+
+    def info(self, message, *args) -> None:
+        super().info(message, *args)
+        if "first" in message.format(*args):
+            self._release.touch()
+
+
+def test_output_is_logged_while_the_script_still_runs(tmp_path, shell) -> None:
+    # The script blocks until the log has seen its first line, so a drain that
+    # logs only at EOF lets it time out (exit 3) instead of finishing (exit 0).
+    script = _write_script(
+        tmp_path,
+        "#!/usr/bin/env bash\necho first\n"
+        "for _ in $(seq 100); do [ -e release ] && exit 0; sleep 0.02; done\nexit 3\n",
+    )
+    log = _ReleasingLog(tmp_path / "release")
+    result = run_script(
+        script,
+        [],
+        cwd=tmp_path,
+        shell=shell,
+        timeout_s=10.0,
+        max_output_bytes=1024,
+        log=log,
+    )
+    assert result.exit_code == 0
+    assert log.infos[0] == "[hook script.sh stdout] first\n"
+
+
 def test_binary_output_does_not_raise(tmp_path, shell, log) -> None:
     script = _write_script(tmp_path, "#!/usr/bin/env bash\nprintf '\\xff\\xfe'\n")
     result = run_script(
