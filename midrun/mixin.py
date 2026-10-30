@@ -162,12 +162,19 @@ class MidrunMixin(_MixinBase):
             self._midrun.on_fit_start(self)
 
     def teardown(self, stage: str) -> None:
-        """Lightning's `teardown` hook; stops Midrun's services for this stage."""
+        """Lightning's `teardown` hook; stops Midrun's services for this stage.
+
+        Lightning calls this after the callbacks' `teardown`, so the logging session
+        closes here, after the services stop, and the run log keeps their warnings.
+        """
         try:
             if self._midrun.config.enabled:
                 self._midrun.teardown(self, stage)
         finally:
-            super().teardown(stage)
+            try:
+                self._midrun.close_logging_session()
+            finally:
+                super().teardown(stage)
 
     def on_train_batch_start(self, batch: Any, batch_idx: int) -> int | None:
         """Lightning's `on_train_batch_start` hook; forwards to `MidrunRuntime`."""
@@ -288,8 +295,9 @@ class _ServiceGuardMethods:
     callback stops Midrun's services there, also when the hooks adapter is not
     attached, so no REST server, FUSE mount, or debug server outlives a failed run.
 
-    This callback also owns the logging session of each stage `_run`, so that the
-    run log and the Lightning logging bridge do not depend on `hooks_enabled`.
+    This callback also opens the logging session of each stage `_run`, and closes it
+    after a failure, so that the run log and the Lightning logging bridge do not
+    depend on `hooks_enabled`. After a normal run, `MidrunMixin.teardown` closes it.
 
     Attributes:
         runtime: The model's `MidrunRuntime`.
@@ -305,11 +313,6 @@ class _ServiceGuardMethods:
         """Opens the logging session, unless the hooks adapter's `setup` opened it."""
         del stage
         self.runtime.open_logging_session(trainer, pl_module)
-
-    def teardown(self, trainer: object, pl_module: object, stage: str) -> None:
-        """Closes the logging session."""
-        del trainer, pl_module, stage
-        self.runtime.close_logging_session()
 
     def on_exception(
         self, trainer: object, pl_module: object, exception: BaseException

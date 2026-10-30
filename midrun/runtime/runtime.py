@@ -341,8 +341,8 @@ class MidrunRuntime:
         """Opens this stage `_run`'s logging session, unless it is open, and returns it.
 
         Idempotent. The first Midrun callback `setup` of the `_run` opens it: the hooks
-        adapter's, which needs its logger, else the service guard's. The service guard
-        closes it with `close_logging_session`.
+        adapter's, which needs its logger, else the service guard's. The mixin's
+        `teardown` or the guard's `on_exception` closes it (`close_logging_session`).
         """
         if self._logging_session is None:
             # Set before the bridge or the file can fail, so that the close finds it.

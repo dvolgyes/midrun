@@ -237,10 +237,12 @@ On an uncaught exception, Lightning skips both the model's and the callback's ow
 `finally`, before the original exception propagates.
 
 The logging session (the `midrun.log` / `midrun-rank-N.log` run log and the Lightning logging bridge) does not depend on
-`hooks_enabled`. Midrun's service guard callback, which `configure_callbacks()` always appends after the hooks adapter,
-closes it in its `teardown` and in its `on_exception`. The first Midrun callback `setup` of the stage opens it: the
-adapter's when hooks are enabled, because the hooks tree logs through it, else the service guard's. The `all` value of
-`hooks_rank_policy` selects the per-rank file name also when hooks are disabled.
+`hooks_enabled`. The LightningModule `teardown` of `MidrunMixin` closes it after it stops Midrun's services, so the run
+log also records shutdown warnings. After an uncaught exception, Midrun's service guard callback, which
+`configure_callbacks()` always appends after the hooks adapter, closes it in its `on_exception`. The first Midrun
+callback `setup` of the stage opens it: the adapter's when hooks are enabled, because the hooks tree logs through it,
+else the service guard's. The `all` value of `hooks_rank_policy` selects the per-rank file name also when hooks are
+disabled.
 
 ## Operator walkthrough
 

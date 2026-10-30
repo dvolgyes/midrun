@@ -11,6 +11,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from midrun.logging.loguru_bridge_handler import LoguruBridgeHandler
 from midrun.mixin import MidrunMixin
+from midrun.runtime.runtime import MidrunRuntime
 
 _FIT_STOPPED = "`Trainer.fit` stopped"
 
@@ -105,3 +106,16 @@ def test_a_failed_fit_without_hooks_closes_the_logging_session(tmp_path) -> None
 
     assert (tmp_path / "midrun.log").exists()
     assert not _is_bridged()
+
+
+def test_midrun_log_records_warnings_of_the_service_shutdown(
+    tmp_path, monkeypatch
+) -> None:
+    def fail() -> None:
+        raise OSError("unmount refused")
+
+    monkeypatch.setattr(MidrunRuntime, "_stop_fuse", lambda self: fail())
+    trainer = _fit(tmp_path, run_log_enabled=True)
+
+    log = (Path(trainer.log_dir) / "midrun.log").read_text()
+    assert "FUSE shutdown failed: unmount refused" in log
