@@ -25,6 +25,7 @@ from midrun.rest.command_dict import command_dict
 from midrun.rest.parse_when_or_400 import parse_when_or_400
 from midrun.rest.reject_invalid_request import reject_invalid_request
 from midrun.rest.reject_refused_command import reject_refused_command
+from midrun.rest.require_artifact_store import require_artifact_store
 from midrun.rest.schemas.checkpoint_in import CheckpointIn
 from midrun.rest.schemas.command_in import CommandIn
 from midrun.rest.schemas.debug_capture_in import DebugCaptureIn
@@ -234,21 +235,24 @@ def build_app(runtime: "MidrunRuntime") -> FastAPI:
 
     @app.get("/artifacts")
     def list_artifacts() -> dict[str, Any]:
-        root = runtime.artifact_store.root
+        root = require_artifact_store(runtime.artifacts).root
+        # An operator can delete a store directory while the run continues.
         return {
-            "checkpoints": sorted(
-                entry.name for entry in (root / "checkpoints").glob("*.ckpt")
-            ),
-            "snapshots": sorted(entry.name for entry in (root / "snapshots").iterdir()),
-            "debug": sorted(entry.name for entry in (root / "debug").iterdir()),
+            subdir: sorted(entry.name for entry in (root / subdir).glob(pattern))
+            if (root / subdir).is_dir()
+            else []
+            for subdir, pattern in (
+                ("checkpoints", "*.ckpt"),
+                ("snapshots", "*"),
+                ("debug", "*"),
+            )
         }
 
     @app.get("/artifacts/{artifact_id}")
     def get_artifact(artifact_id: str) -> dict[str, Any]:
+        root = require_artifact_store(runtime.artifacts).root
         for subdir in ("snapshots", "debug"):
-            manifest_path = (
-                runtime.artifact_store.root / subdir / artifact_id / "manifest.json"
-            )
+            manifest_path = root / subdir / artifact_id / "manifest.json"
             if manifest_path.exists():
                 manifest: dict[str, Any] = json.loads(manifest_path.read_text())
                 manifest["files_url"] = f"/artifact-files/{subdir}/{artifact_id}"
@@ -257,10 +261,9 @@ def build_app(runtime: "MidrunRuntime") -> FastAPI:
 
     @app.post("/debug/captures")
     def create_debug_capture(body: DebugCaptureIn) -> dict[str, Any]:
+        store = require_artifact_store(runtime.artifacts)
         try:
-            return runtime.artifact_store.write_debug_capture(
-                body.kind, body.files, body.metadata
-            )
+            return store.write_debug_capture(body.kind, body.files, body.metadata)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -273,12 +276,13 @@ def build_app(runtime: "MidrunRuntime") -> FastAPI:
 
     @app.get("/debug/cuda-memory/snapshot")
     def cuda_memory_snapshot() -> dict[str, Any]:
+        store = require_artifact_store(runtime.artifacts)
         try:
             snapshot_bytes = dump_cuda_memory_snapshot()
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         stats = cheap_cuda_memory_stats()
-        manifest = runtime.artifact_store.write_debug_capture(
+        manifest = store.write_debug_capture(
             "cuda-memory",
             {
                 "snapshot.pickle": snapshot_bytes,
