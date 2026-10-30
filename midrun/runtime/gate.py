@@ -8,7 +8,7 @@ any other command, and its handler calls `RunGate.enter`.
 
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 
 @dataclass(frozen=True)
@@ -21,6 +21,8 @@ class ActiveHold:
         epoch: Epoch at hold entry.
         step: Global step at hold entry.
         started_at: Unix timestamp of hold entry.
+        joined_ids: The later holds that became due while this hold was active. The
+            release of any of them, or of `command_id`, releases the run.
     """
 
     command_id: str
@@ -28,6 +30,7 @@ class ActiveHold:
     epoch: int
     step: int
     started_at: float
+    joined_ids: tuple[str, ...] = ()
 
 
 class RunGate:
@@ -42,7 +45,13 @@ class RunGate:
     def enter(
         self, command_id: str, safe_point: str, epoch: int, step: int
     ) -> ActiveHold:
-        """Marks the gate held. Must be called from the training thread."""
+        """Marks the gate held, or joins `command_id` to the active hold.
+
+        Must be called from the training thread.
+
+        Returns:
+            The active hold. Its `command_id` is not `command_id` if this call joined it.
+        """
         hold = ActiveHold(
             command_id=command_id,
             safe_point=safe_point,
@@ -51,6 +60,11 @@ class RunGate:
             started_at=time.time(),
         )
         with self._lock:
+            if self._active_hold is not None:
+                hold = replace(
+                    self._active_hold,
+                    joined_ids=(*self._active_hold.joined_ids, command_id),
+                )
             self._active_hold = hold
             self._release_event.clear()
         return hold

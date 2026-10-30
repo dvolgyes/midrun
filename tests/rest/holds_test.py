@@ -8,6 +8,7 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from midrun.config import MidrunConfig
@@ -15,7 +16,13 @@ from midrun.load_backend import load_backend
 from midrun.rest.app import build_app
 from midrun.runtime.artifacts import ArtifactStore
 from midrun.runtime.commands.parse_when import parse_when
+from midrun.runtime.events import SafePoint
 from midrun.runtime.runtime import MidrunRuntime
+
+
+class _StepTrainer:
+    current_epoch = 0
+    global_step = 0
 
 
 def _runtime(tmp_path: Path) -> MidrunRuntime:
@@ -130,3 +137,27 @@ def test_a_non_finite_hold_timeout_is_rejected_as_invalid(tmp_path: Path) -> Non
     assert response.status_code == 422, response.text
     assert response.json()["detail"][0]["loc"] == ["body", "timeout_s"]
     assert runtime.command_queue.list_all() == []
+
+
+@pytest.mark.parametrize("released", ["first", "second"])
+def test_a_hold_due_while_another_is_active_joins_it(
+    tmp_path: Path, released: str
+) -> None:
+    runtime = _runtime(tmp_path)
+    client = TestClient(build_app(runtime))
+    first = client.post("/holds", json={"reason": "A", "timeout_s": 0}).json()["id"]
+    second = client.post("/holds", json={"reason": "B", "timeout_s": 0}).json()["id"]
+
+    runtime._run_due_commands(
+        None, _StepTrainer(), SafePoint.TRAIN_BATCH_END, allowed=None
+    )
+
+    assert runtime.gate.active_hold().command_id == first
+    assert client.get(f"/commands/{second}").json()["result"] == {
+        "hold": "joined",
+        "active_hold_id": first,
+        "reason": "B",
+    }
+    response = client.post(f"/holds/{first if released == 'first' else second}/release")
+    assert response.status_code == 200, response.text
+    assert not runtime.gate.is_held()

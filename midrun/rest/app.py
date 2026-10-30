@@ -163,7 +163,7 @@ def build_app(runtime: "MidrunRuntime") -> FastAPI:
     @app.post("/holds/{command_id}/release")
     def release_hold(command_id: str) -> dict[str, Any]:
         active = runtime.gate.active_hold()
-        if active is None or active.command_id != command_id:
+        if active is None or command_id not in (active.command_id, *active.joined_ids):
             raise HTTPException(status_code=404, detail="no active hold with that id")
         runtime.gate.release()
         return {"released": command_id}

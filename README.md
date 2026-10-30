@@ -186,8 +186,10 @@ While the run is held, only some command kinds run. `GET $URL/holds` lists the o
 They run after the hold ends. After `release_exception` they never run, because the run then ends with the exception.
 `release_exception` returns status 409 when no exception hold is active. `POST $URL/holds/<id>/cancel` cancels only a
 hold that is not active yet. `POST $URL/control/continue` releases the active hold, and also cancels a pause from
-`POST $URL/control/pause` that is not active yet; it lists the cancelled ids under `cancelled_holds`. After a stop has
-run, a new hold (`POST $URL/holds`, `POST $URL/control/pause` or a `hold` command) returns status 409.
+`POST $URL/control/pause` that is not active yet; it lists the cancelled ids under `cancelled_holds`. A hold that
+becomes due while another hold is active joins it: its result names the active hold under `active_hold_id`, the active
+hold lists it under `joined_ids`, and a release with either id releases the run. After a stop has run, a new hold
+(`POST $URL/holds`, `POST $URL/control/pause` or a `hold` command) returns status 409.
 
 Other routes: `/run`, `/metrics`, `/optimizers`, `/artifacts`, `/telemetry/pipeline`, `/inspectors`,
 `/debug/cuda-memory/snapshot`, `/files/<path>` (the same tree as `procfs/`).

@@ -16,9 +16,15 @@ def handle_hold(
     command: Command,
     safe_point: SafePoint | None,
 ) -> dict[str, Any]:
-    """Marks the run gate held for `command` at `safe_point`."""
+    """Marks the run gate held for `command` at `safe_point`, or joins the active hold."""
     del pl_module
-    runtime.gate.enter(
+    hold = runtime.gate.enter(
         command.id, str(safe_point), trainer.current_epoch, trainer.global_step
     )
+    if hold.command_id != command.id:
+        return {
+            "hold": "joined",
+            "active_hold_id": hold.command_id,
+            "reason": command.args["reason"],
+        }
     return {"hold": "entered", "reason": command.args["reason"]}
