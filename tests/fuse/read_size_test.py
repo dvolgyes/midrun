@@ -6,10 +6,12 @@ open handle serves, also when the content changes between two calls.
 """
 
 import itertools
+import os
 import shutil
 import subprocess
 from collections.abc import Iterator
 from pathlib import Path
+from typing import BinaryIO
 
 import pytest
 
@@ -82,3 +84,21 @@ def test_cat_after_stat_reads_a_changing_file_completely(
             check=True,
         ).stdout
         assert _complete(content), content
+
+
+def _end_offset(file: BinaryIO) -> int:
+    """Seeks to the end; the kernel asks `getattr` with this handle's fh for its size."""
+    end = file.seek(0, os.SEEK_END)
+    _ = file.seek(0)
+    return end
+
+
+def test_seek_end_reports_the_size_of_its_own_handle(
+    mountpoint: Path, growing_file: str
+) -> None:
+    path = mountpoint / growing_file
+    with path.open("rb") as older:
+        with path.open("rb") as newer:
+            assert _end_offset(older) == len(older.read())
+            assert _end_offset(newer) == len(newer.read())
+        assert _end_offset(older) == len(older.read())

@@ -5,7 +5,8 @@ object on every `open()`; the mount uses FUSE direct I/O (see `TrainctlRuntime._
 so the kernel never serves a stale cached read. A generated file's bytes are
 materialized once per `open()` and reused for the `read()` calls against that handle
 (see `TrainctlFS.open`/`read`/`release`), matching the open-handle cache policy.
-While a path is open, `getattr` reports the length of its newest handle's bytes: the
+While a path is open, `getattr` reports the length of the asked handle's bytes (of
+the newest handle's for a path-only `stat`): the
 kernel limits splice and sendfile reads (system `cat`, `shutil.copyfile`) to that size,
 and the mount turns the kernel attribute cache off so `fstat` asks again.
 Checkpoints, snapshots, and debug captures are real files on the regular filesystem
@@ -59,7 +60,6 @@ class TrainctlFS(mfusepy.Operations):
         return self._ready.wait(timeout)
 
     def getattr(self, path: str, fh: int | None = None) -> dict[str, Any]:
-        del fh
         owner = {
             "st_uid": os.getuid(),
             "st_gid": os.getgid(),
@@ -68,8 +68,8 @@ class TrainctlFS(mfusepy.Operations):
         if is_virtual_dir(self._runtime, path):
             return {"st_mode": (stat.S_IFDIR | 0o755), "st_nlink": 2, **owner}
         with self._handles_lock:
-            handle = self._newest_handle.get(path)
-            content = self._handles[handle] if handle is not None else None
+            handle = self._newest_handle.get(path) if fh is None else fh
+            content = self._handles.get(handle) if handle is not None else None
         if content is not None:
             return {
                 "st_mode": (stat.S_IFREG | 0o444),
