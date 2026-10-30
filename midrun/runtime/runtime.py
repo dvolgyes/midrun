@@ -343,6 +343,8 @@ class MidrunRuntime:
                 return
             self._started = False
         self.state.update(status="stopping")
+        # A command queued for this stage must not run in the next one.
+        self.command_queue.expire_queued("the stage stopped before the command ran")
         self.gate.release()
         self._guarded("REST shutdown", self._stop_rest)
         self._guarded("FUSE shutdown", self._stop_fuse)

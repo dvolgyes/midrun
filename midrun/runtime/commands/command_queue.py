@@ -72,6 +72,23 @@ class CommandQueue:
                 command.status = "cancelled"
             return [command.id for command in cancelled]
 
+    def expire_queued(self, reason: str) -> list[str]:
+        """Marks every still-queued command `expired`, with `reason` as its error.
+
+        Returns:
+            The ids of the expired commands.
+        """
+        with self._lock:
+            expired = [
+                command
+                for command in self._commands.values()
+                if command.status == "queued"
+            ]
+            for command in expired:
+                command.status = "expired"
+                command.error = reason
+            return [command.id for command in expired]
+
     def submit_once(
         self, kind: str, args: dict[str, Any], when: CommandWhen
     ) -> tuple[Command, bool]:

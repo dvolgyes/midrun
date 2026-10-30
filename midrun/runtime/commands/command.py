@@ -23,9 +23,10 @@ class Command:
         args: Handler-specific arguments.
         when: The scheduling condition that makes this command due.
         created_at: Unix timestamp of submission.
-        status: `queued`, `executing`, `succeeded`, `failed`, or `cancelled`.
+        status: `queued`, `executing`, `succeeded`, `failed`, `cancelled`, or
+            `expired` (still queued when the stage stopped).
         result: Handler result payload, once succeeded.
-        error: Failure message, once failed.
+        error: Failure message, once failed or expired.
     """
 
     id: str
