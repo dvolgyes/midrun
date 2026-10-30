@@ -32,7 +32,7 @@ class _HookMethods:
     """
 
     def setup(self, trainer: Any, pl_module: Any, stage: str) -> None:
-        runtime = pl_module._midrun
+        runtime = pl_module.midrun
         try:
             runtime.ensure_hook_session(trainer, pl_module)
         except (RuntimeError, OSError) as exc:
@@ -48,7 +48,7 @@ class _HookMethods:
         try:
             _dispatch(trainer, pl_module, "teardown", stage_override=stage)
         finally:
-            pl_module._midrun.close_hook_session()
+            pl_module.midrun.close_hook_session()
 
     def on_fit_start(self, trainer: Any, pl_module: Any) -> None:
         _dispatch(trainer, pl_module, "on_fit_start")
@@ -292,7 +292,7 @@ class _HookMethods:
                 arguments={"exception": exception},
             )
         finally:
-            pl_module._midrun.close_hook_session()
+            pl_module.midrun.close_hook_session()
 
 
 def _dispatch(
@@ -305,7 +305,7 @@ def _dispatch(
     batch_idx: int | None = None,
     dataloader_idx: int | None = None,
 ) -> None:
-    runtime = pl_module._midrun
+    runtime = pl_module.midrun
     runtime.dispatch_hook(
         trainer,
         hook,

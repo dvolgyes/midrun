@@ -286,7 +286,7 @@ def build_app(runtime: "MidrunRuntime") -> FastAPI:
     @app.get("/debug/pytorch/status")
     def debug_pytorch_status() -> dict[str, Any]:
         return {
-            "enabled": runtime.torch_debug._started,
+            "enabled": runtime.torch_debug.started,
             "url": runtime.state.read().torch_debug_url,
         }
 

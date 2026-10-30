@@ -105,7 +105,7 @@ STATIC_FILES: dict[str, Callable[["MidrunRuntime"], bytes]] = {
         rt.config.rest_host if rt.rest_url else ""
     ),
     "/meta/rest/port": lambda rt: encode_text(
-        str(rt._rest_port) if rt._rest_port else ""
+        str(rt.services.rest_port) if rt.services.rest_port else ""
     ),
     "/meta/rest/url": lambda rt: encode_text(rt.rest_url or ""),
     # The published URL is set only once the frontend answers.
@@ -113,7 +113,7 @@ STATIC_FILES: dict[str, Callable[["MidrunRuntime"], bytes]] = {
         _bool(rt.state.read().torch_debug_url is not None)
     ),
     "/meta/pytorch-debug/port": lambda rt: encode_text(
-        str(rt.torch_debug._selected_port) if rt.state.read().torch_debug_url else ""
+        str(rt.torch_debug.selected_port) if rt.state.read().torch_debug_url else ""
     ),
     "/meta/pytorch-debug/url": lambda rt: encode_text(
         rt.state.read().torch_debug_url or ""
@@ -166,10 +166,10 @@ STATIC_FILES: dict[str, Callable[["MidrunRuntime"], bytes]] = {
         asdict(latest) if (latest := rt.pipeline.latest()) else None
     ),
     "/state/pipeline/summary.json": lambda rt: encode_json(rt.pipeline.summary()),
-    "/model/class": lambda rt: encode_text(rt._model_class_name or ""),
-    "/model/hparams.json": lambda rt: encode_json(rt._model_hparams),
-    "/model/summary.txt": lambda rt: encode_text(rt._model_summary or ""),
-    "/model/summary.json": lambda rt: encode_json(rt._model_summary_json),
+    "/model/class": lambda rt: encode_text(rt.model_info.class_name or ""),
+    "/model/hparams.json": lambda rt: encode_json(rt.model_info.hparams),
+    "/model/summary.txt": lambda rt: encode_text(rt.model_info.summary),
+    "/model/summary.json": lambda rt: encode_json(rt.model_info.summary_json),
     "/model/inspectors.json": lambda rt: encode_json(
         inspectors_registry.availability_snapshot()
     ),
@@ -188,6 +188,6 @@ STATIC_FILES: dict[str, Callable[["MidrunRuntime"], bytes]] = {
     "/debug/README.md": lambda rt: encode_text(DEBUG_README),
     "/debug/pytorch/README.md": lambda rt: encode_text(DEBUG_README),
     "/debug/pytorch/status": lambda rt: encode_json(
-        {"enabled": rt.torch_debug._started, "url": rt.state.read().torch_debug_url}
+        {"enabled": rt.torch_debug.started, "url": rt.state.read().torch_debug_url}
     ),
 }

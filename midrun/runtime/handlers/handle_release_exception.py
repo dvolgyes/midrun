@@ -24,5 +24,5 @@ def handle_release_exception(
     del pl_module, trainer, safe_point
     if runtime.state.read().exception is None:
         raise ValueError("release_exception: no exception hold is active")
-    runtime._exception_hold = None
+    runtime.exception_hold = None
     return {"released": command.id}

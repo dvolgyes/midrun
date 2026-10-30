@@ -148,6 +148,11 @@ class MidrunMixin(_MixinBase):
         self._midrun_service_guard: Any | None = None
         super().__init__(*args, **kwargs)
 
+    @property
+    def midrun(self) -> MidrunRuntime:
+        """The `MidrunRuntime` that this model owns."""
+        return self._midrun
+
     def setup(self, stage: str) -> None:
         """Lightning's `setup` hook; starts Midrun's services for this stage."""
         super().setup(stage)

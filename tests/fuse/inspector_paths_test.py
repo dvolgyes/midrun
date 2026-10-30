@@ -12,6 +12,7 @@ from midrun.load_backend import load_backend
 from midrun.runtime.cuda_memory.cuda_memory_history_state import (
     CudaMemoryHistoryState,
 )
+from midrun.runtime.model_info import ModelInfo
 from midrun.runtime.profiler import ProfilerRun
 from midrun.runtime.runtime import MidrunRuntime
 from midrun.runtime.virtual_fs.is_virtual_dir import is_virtual_dir
@@ -28,12 +29,14 @@ def _make_fs(**overrides: object) -> MidrunFS:
 
 def test_model_summary_json_reports_param_counts() -> None:
     fs = _make_fs()
-    fs._runtime._model_summary_json = {
-        "total_params": 10,
-        "trainable_params": 10,
-        "non_trainable_params": 0,
-        "torchinfo_used": False,
-    }
+    fs._runtime.model_info = ModelInfo(
+        summary_json={
+            "total_params": 10,
+            "trainable_params": 10,
+            "non_trainable_params": 0,
+            "torchinfo_used": False,
+        }
+    )
     payload = json.loads(virtual_file_content(fs._runtime, "/model/summary.json"))
     assert payload["total_params"] == 10
 

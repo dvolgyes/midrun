@@ -33,7 +33,7 @@ def handle_torchviz_capture(
     del safe_point
     # Both options read saved tensors, which the failed backward of an exception hold
     # has already freed, so they default to on only in a live capture.
-    live = runtime._exception_hold is None
+    live = runtime.exception_hold is None
     show_attrs = command.args["show_attrs"]
     show_attrs = live if show_attrs is None else show_attrs
     show_saved = command.args["show_saved"]

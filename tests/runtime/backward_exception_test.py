@@ -70,7 +70,7 @@ def test_handle_backward_exception_noop_when_disabled(tmp_path: Path) -> None:
 
     runtime.handle_backward_exception(pl_module, "loss", ValueError("boom"))
 
-    assert runtime._exception_hold is None
+    assert runtime.exception_hold is None
     assert runtime.state.read().status != "exception_held"
 
 
@@ -90,7 +90,7 @@ def test_handle_backward_exception_holds_until_released(tmp_path: Path) -> None:
     thread.start()
     try:
         _wait_until(lambda: runtime.state.read().status == "exception_held")
-        info = runtime._exception_hold
+        info = runtime.exception_hold
         assert info is not None
         assert info.exception_type == "ValueError"
         assert info.exception_message == "boom"
@@ -102,11 +102,11 @@ def test_handle_backward_exception_holds_until_released(tmp_path: Path) -> None:
         assert not thread.is_alive()
     finally:
         if thread.is_alive():
-            runtime._exception_hold = None
+            runtime.exception_hold = None
             runtime.gate.notify()
             thread.join(timeout=5)
 
-    assert runtime._exception_hold is None
+    assert runtime.exception_hold is None
     assert runtime.state.read().status == "running"
 
 
@@ -358,6 +358,6 @@ def test_an_interrupted_exception_hold_ends_the_hold(
     with pytest.raises(KeyboardInterrupt):
         runtime.handle_backward_exception(pl_module, "loss", ValueError("boom"))
 
-    assert runtime._exception_hold is None
+    assert runtime.exception_hold is None
     assert runtime.state.read().exception is None
     assert runtime.current_step.exception is None

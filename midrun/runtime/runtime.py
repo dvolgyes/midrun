@@ -55,6 +55,7 @@ from midrun.runtime.hparam_registry.resolve_hparam_path import resolve_hparam_pa
 from midrun.runtime.hparam_registry.tunable_hparam_spec import TunableHparamSpec
 from midrun.runtime.is_rank_zero import is_rank_zero
 from midrun.runtime.live_capture import LiveCaptureBroker
+from midrun.runtime.model_info import ModelInfo
 from midrun.runtime.phase_of_stage import phase_of_stage
 from midrun.runtime.pipeline_pressure import PipelinePressureTracker
 from midrun.runtime.profiler import ProfilerRun
@@ -117,6 +118,11 @@ class MidrunRuntime:
             run.
         services: The REST, FUSE and torch debug servers and their handles.
         sessions: The logging session and hooks session of the current stage.
+        model_info: The model's class, hparams and summary, as of the last fit start.
+        exception_hold: The active exception hold on rank 0, or None. The
+            `release_exception` command sets it to None to end the hold.
+        tunable_hparam_specs: The declared tunable hparams of the model class, as of
+            the last fit start.
     """
 
     _unreadable_hparams_reported: set[str]
@@ -145,7 +151,7 @@ class MidrunRuntime:
         self._started = False
         self._is_rank_zero = True
 
-        self.services = RuntimeServices(
+        self.services: RuntimeServices = RuntimeServices(
             config,
             self.state,
             self.torch_debug,
@@ -155,9 +161,7 @@ class MidrunRuntime:
         )
         self.sessions = StageSessions(config, self.run_id)
 
-        self._model_class_name: str | None = None
-        self._model_hparams: dict[str, Any] = {}
-        self._model_summary: str = ""
+        self.model_info: ModelInfo = ModelInfo()
 
         self._local_rank_info: RankInfo | None = None
         self.rank_sync = RankSync()
@@ -169,8 +173,7 @@ class MidrunRuntime:
         self.finite_guard: DataloaderFiniteGuard = DataloaderFiniteGuard(
             enabled=config.dataloader_finite_check_enabled
         )
-        self._exception_hold: ExceptionBreakpointInfo | None = None
-        self._model_summary_json: dict[str, Any] = {}
+        self.exception_hold: ExceptionBreakpointInfo | None = None
         self.cuda_memory_history: CudaMemoryHistoryState = CudaMemoryHistoryState(
             enabled=False, max_entries=None, started_at=None
         )
@@ -179,7 +182,7 @@ class MidrunRuntime:
         self.lightning_profiler_level: str = "off"
         self.live_captures: LiveCaptureBroker = LiveCaptureBroker()
         self._tunable_hparams: dict[str, tuple[HparamValue, torch.Tensor | None]] = {}
-        self._tunable_hparam_specs: dict[str, TunableHparamSpec] = {}
+        self.tunable_hparam_specs: dict[str, TunableHparamSpec] = {}
         self._unreadable_hparams_reported = set()
 
     def __reduce_ex__(self, protocol: SupportsIndex) -> NoReturn:
@@ -195,10 +198,6 @@ class MidrunRuntime:
     def rest_url(self) -> str | None:
         """The reachable REST base URL, once started."""
         return self.services.rest_url
-
-    @property
-    def _rest_port(self) -> int | None:
-        return self.services.rest_port
 
     @property
     def fuse_mountpoint(self) -> Path | None:
@@ -306,11 +305,13 @@ class MidrunRuntime:
 
     def on_fit_start(self, pl_module: Any) -> None:
         """Publishes the first full-fidelity snapshot once the Trainer is attached."""
-        self._model_class_name = type(pl_module).__name__
-        self._model_hparams = dict(getattr(pl_module, "hparams", {}))
-        self._model_summary = basic_summary_text(pl_module)
-        self._model_summary_json = basic_summary_json(pl_module)
-        self._tunable_hparam_specs = collect_tunable_hparams(type(pl_module))
+        self.model_info = ModelInfo(
+            class_name=type(pl_module).__name__,
+            hparams=dict(getattr(pl_module, "hparams", {})),
+            summary=basic_summary_text(pl_module),
+            summary_json=basic_summary_json(pl_module),
+        )
+        self.tunable_hparam_specs = collect_tunable_hparams(type(pl_module))
         self._publish(pl_module, status="held" if self.gate.is_held() else "running")
 
     def teardown(self, pl_module: Any, stage: str) -> None:
@@ -422,7 +423,7 @@ class MidrunRuntime:
         unreadable knob is logged once and skipped rather than blanking the rest.
         """
         fresh: dict[str, tuple[HparamValue, torch.Tensor | None]] = {}
-        for name, spec in self._tunable_hparam_specs.items():
+        for name, spec in self.tunable_hparam_specs.items():
             try:
                 parent, leaf = resolve_hparam_path(pl_module, trainer, spec.path)
                 value = get_field(parent, leaf)
@@ -649,7 +650,7 @@ class MidrunRuntime:
         self.current_step.loss = loss
         self.current_step.exception = exc
         rank = self._local_rank_info.global_rank if self._local_rank_info else 0
-        self._exception_hold = ExceptionBreakpointInfo(
+        self.exception_hold = ExceptionBreakpointInfo(
             exception_type=type(exc).__name__,
             exception_message=str(exc),
             epoch=trainer.current_epoch,
@@ -664,14 +665,14 @@ class MidrunRuntime:
         finally:
             # An interrupt also ends the hold. The caller re-raises: drop the live
             # references, the traceback frames among them.
-            self._exception_hold = None
+            self.exception_hold = None
             self.state.update(exception=None)
             self.current_step.clear()
         self._publish(pl_module, status="running")
 
     def _exception_hold_loop(self, pl_module: Any, trainer: Any) -> None:
         # Only rank 0 holds here, so this loop runs its commands without a collective.
-        while self._exception_hold is not None:
+        while self.exception_hold is not None:
             for command in self._due_commands(
                 None,
                 trainer.current_epoch,
@@ -680,7 +681,7 @@ class MidrunRuntime:
             ):
                 self._execute(pl_module, trainer, command, safe_point=None)
             self._publish(pl_module, status="exception_held")
-            if self._exception_hold is None:
+            if self.exception_hold is None:
                 break
             self.gate.wait_for_control_event(timeout=0.1)
 
@@ -755,7 +756,7 @@ class MidrunRuntime:
             learning_rates=learning_rates,
             pending_commands=pending,
             hold_state="held" if self.gate.is_held() else "none",
-            exception=self._exception_hold,
+            exception=self.exception_hold,
         )
 
     def _current_rank_info(self) -> RankInfo:

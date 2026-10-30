@@ -31,6 +31,16 @@ class TorchDebugManager:
         self._selected_port: int | None = None
 
     @property
+    def started(self) -> bool:
+        """Whether the debug server stack runs in this process."""
+        return self._started
+
+    @property
+    def selected_port(self) -> int | None:
+        """The frontend port, once started on rank 0; None on other ranks."""
+        return self._selected_port
+
+    @property
     def frontend_url(self) -> str | None:
         """The reachable frontend URL, once started on rank 0; None on other ranks."""
         if self._selected_port is None:

@@ -199,7 +199,7 @@ def test_torchviz_capture_uses_current_step_loss_during_exception_hold(
     model = _Model()
     x = torch.randn(3, 4, requires_grad=True)
     runtime.current_step.loss = model(x).sum()
-    runtime._exception_hold = ExceptionBreakpointInfo(
+    runtime.exception_hold = ExceptionBreakpointInfo(
         exception_type="ValueError",
         exception_message="boom",
         epoch=0,
@@ -244,7 +244,7 @@ def test_torchviz_capture_with_default_args_renders_a_loss_whose_backward_raised
     with pytest.raises(RuntimeError, match="explode"):
         loss.backward()
     runtime.current_step.loss = loss
-    runtime._exception_hold = ExceptionBreakpointInfo(
+    runtime.exception_hold = ExceptionBreakpointInfo(
         exception_type="RuntimeError",
         exception_message="explode",
         epoch=0,
@@ -271,7 +271,7 @@ def test_torchviz_capture_fails_without_in_flight_loss_during_exception_hold(
     runtime = _make_runtime(tmp_path)
     trainer = _FakeTrainer()
     model = _Model()
-    runtime._exception_hold = ExceptionBreakpointInfo(
+    runtime.exception_hold = ExceptionBreakpointInfo(
         exception_type="ValueError",
         exception_message="boom",
         epoch=0,

@@ -122,7 +122,7 @@ def test_a_released_exception_hold_drops_the_exception_and_its_batch() -> None:
         assert not thread.is_alive()
     finally:
         if thread.is_alive():
-            runtime._exception_hold = None
+            runtime.exception_hold = None
             runtime.gate.notify()
             thread.join(timeout=5)
 

@@ -16,5 +16,5 @@ attribute chains. Declarations are merged across `type(pl_module).__mro__` via
 own fields without one silently shadowing the other's whole declaration; a
 more-derived class re-declaring the same path replaces that path's spec
 wholesale. Everything not listed stays exactly as read-only as
-`MidrunRuntime._model_hparams` already makes it.
+`MidrunRuntime.model_info.hparams` already makes it.
 """

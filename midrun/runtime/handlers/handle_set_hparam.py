@@ -26,7 +26,7 @@ def handle_set_hparam(
     """
     del safe_point
     name = command.args["name"]
-    spec = runtime._tunable_hparam_specs.get(name)
+    spec = runtime.tunable_hparam_specs.get(name)
     if spec is None:
         raise ValueError(f"unknown or non-tunable hparam: {name!r}")
     parent, leaf = resolve_hparam_path(pl_module, trainer, spec.path)

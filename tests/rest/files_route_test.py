@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
 from midrun.rest.app import build_app
+from midrun.runtime.model_info import ModelInfo
 from midrun.runtime.runtime import MidrunRuntime
 from midrun.runtime.virtual_fs.live_files import LIVE_FILES
 from midrun.runtime.virtual_fs.virtual_file_content import virtual_file_content
@@ -27,7 +28,7 @@ def _client() -> tuple[TestClient, MidrunRuntime]:
 
 def test_get_file_matches_virtual_file_content() -> None:
     client, runtime = _client()
-    runtime._model_class_name = "DemoModule"
+    runtime.model_info = ModelInfo(class_name="DemoModule")
 
     response = client.get("/files/model/class")
 
