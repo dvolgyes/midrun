@@ -1,4 +1,4 @@
-"""Behavioral tests: a fit that raises stops Trainctl's services and unmounts FUSE.
+"""Behavioral tests: a fit that raises stops Midrun's services and unmounts FUSE.
 
 Lightning skips `LightningModule.teardown` after an uncaught exception and calls
 only the callbacks' `on_exception`, so these tests run a real `Trainer.fit` that
@@ -17,12 +17,12 @@ import pytest
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from trainctl.mixin import TrainctlMixin
+from midrun.mixin import MidrunMixin
 
 _REST_PORT = 18530
 
 
-class _FailingModel(TrainctlMixin, PL.LightningModule):
+class _FailingModel(MidrunMixin, PL.LightningModule):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.layer = torch.nn.Linear(4, 1)
@@ -80,7 +80,7 @@ def test_failed_fit_stops_services(
 
     def _record_services(batch, batch_idx):
         if batch_idx == 1:
-            seen["rest_url"] = model._trainctl.rest_url
+            seen["rest_url"] = model._midrun.rest_url
             seen["mounted"] = _mounted(mountpoint)
         return original(batch, batch_idx)
 
@@ -90,31 +90,31 @@ def test_failed_fit_stops_services(
         _fit(model, tmp_path)
 
     assert seen["rest_url"] is not None and seen["mounted"] is True
-    assert model._trainctl.rest_url is None
+    assert model._midrun.rest_url is None
     with pytest.raises(httpx2.ConnectError):
         httpx2.get(f"{seen['rest_url']}/health", timeout=2)
     assert not _mounted(mountpoint)
-    assert model._trainctl.state.read().status == "failed"
+    assert model._midrun.state.read().status == "failed"
 
 
 _MOUNT_AND_WAIT = """
 import sys, time
 from pathlib import Path
-from trainctl.config import TrainctlConfig
-from trainctl.load_backend import load_backend
-from trainctl.runtime.runtime import TrainctlRuntime
+from midrun.config import MidrunConfig
+from midrun.load_backend import load_backend
+from midrun.runtime.runtime import MidrunRuntime
 
 class _Module:
     device = "cpu"
 
 base = Path(sys.argv[1])
-config = TrainctlConfig(
+config = MidrunConfig(
     rest_enabled=False,
     torch_debug_enabled=False,
     artifact_dir=base / "artifacts",
     fuse_mountpoint=base / "procfs",
 )
-runtime = TrainctlRuntime(config, load_backend("lightning.pytorch"))
+runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
 runtime.setup_environment(_Module(), "fit")
 print("ready", flush=True)
 time.sleep(60)

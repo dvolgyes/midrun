@@ -14,13 +14,13 @@ import mfusepy
 import pytest
 import torch
 
-from trainctl.config import TrainctlConfig
-from trainctl.fuse.filesystem import TrainctlFS
-from trainctl.load_backend import load_backend
-from trainctl.runtime.events import SafePoint
-from trainctl.runtime.runtime import TrainctlRuntime
-from trainctl.runtime.virtual_fs.live_files import LIVE_FILES
-from trainctl.runtime.virtual_fs.virtual_file_content import virtual_file_content
+from midrun.config import MidrunConfig
+from midrun.fuse.filesystem import MidrunFS
+from midrun.load_backend import load_backend
+from midrun.runtime.events import SafePoint
+from midrun.runtime.runtime import MidrunRuntime
+from midrun.runtime.virtual_fs.live_files import LIVE_FILES
+from midrun.runtime.virtual_fs.virtual_file_content import virtual_file_content
 
 
 class _Model(torch.nn.Module):
@@ -45,12 +45,12 @@ class _FakeTrainer:
         self.state = _FakeState()
 
 
-def _make_fs() -> tuple[TrainctlFS, TrainctlRuntime]:
-    config = TrainctlConfig(
+def _make_fs() -> tuple[MidrunFS, MidrunRuntime]:
+    config = MidrunConfig(
         rest_enabled=False, fuse_enabled=False, torch_debug_enabled=False
     )
-    runtime = TrainctlRuntime(config, load_backend("lightning.pytorch"))
-    return TrainctlFS(runtime), runtime
+    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
+    return MidrunFS(runtime), runtime
 
 
 def _wait_until(predicate, timeout: float = 5.0) -> None:
@@ -60,7 +60,7 @@ def _wait_until(predicate, timeout: float = 5.0) -> None:
     assert predicate(), "condition not met before timeout"
 
 
-def _drive_next_safe_point(runtime: TrainctlRuntime, model: _Model) -> None:
+def _drive_next_safe_point(runtime: MidrunRuntime, model: _Model) -> None:
     _wait_until(lambda: len(runtime.live_captures._pending) >= 1)
     runtime.process_safe_point(model, SafePoint.BEFORE_OPTIMIZER_STEP)
 

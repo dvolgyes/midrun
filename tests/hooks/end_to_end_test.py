@@ -17,11 +17,11 @@ import torch
 from lightning.pytorch.callbacks import ModelCheckpoint
 from torch.utils.data import DataLoader, TensorDataset
 
-from trainctl.hooks.manager.hooks_bootstrap_error import HooksBootstrapError
-from trainctl.mixin import TrainctlMixin
+from midrun.hooks.manager.hooks_bootstrap_error import HooksBootstrapError
+from midrun.mixin import MidrunMixin
 
 _SHELL = shutil.which("bash")
-_MARKER_NAME = "trainctl-hooks-state.json"
+_MARKER_NAME = "midrun-hooks-state.json"
 
 
 def _make_script(path: Path, body: str, *, executable: bool = True) -> None:
@@ -40,7 +40,7 @@ def _read_marker(base_dir: Path) -> dict:
     return json.loads((base_dir / _MARKER_NAME).read_text())
 
 
-class _TinyModelLP(TrainctlMixin, PL.LightningModule):
+class _TinyModelLP(MidrunMixin, PL.LightningModule):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.layer = torch.nn.Linear(4, 1)
@@ -65,7 +65,7 @@ class _TinyModelLP(TrainctlMixin, PL.LightningModule):
         return torch.optim.SGD(self.parameters(), lr=0.01)
 
 
-class _TinyModelPL(TrainctlMixin, PL2.LightningModule):
+class _TinyModelPL(MidrunMixin, PL2.LightningModule):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.layer = torch.nn.Linear(4, 1)
@@ -90,7 +90,7 @@ class _TinyModelPL(TrainctlMixin, PL2.LightningModule):
         return torch.optim.SGD(self.parameters(), lr=0.01)
 
 
-class _FailingModel(TrainctlMixin, PL.LightningModule):
+class _FailingModel(MidrunMixin, PL.LightningModule):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.layer = torch.nn.Linear(4, 1)
@@ -296,8 +296,8 @@ def test_exception_triggers_on_exception_once_and_finalizes(tmp_path) -> None:
     assert exception_marker.exists()
     assert not fit_end_marker.exists()
     assert list((tmp_path / ".hooks-tmp").iterdir()) == []
-    assert model._trainctl._hook_session is None
-    assert model._trainctl._logging_session is None
+    assert model._midrun._hook_session is None
+    assert model._midrun._logging_session is None
 
 
 def test_sequential_fit_then_test_reuses_hooks_tree_and_adapter_instance(
@@ -310,7 +310,7 @@ def test_sequential_fit_then_test_reuses_hooks_tree_and_adapter_instance(
     base_dir = tmp_path
     hooks_dir = base_dir / "hooks"
     marker_before = _read_marker(base_dir)
-    first_adapter = model._trainctl_hooks_adapter
+    first_adapter = model._midrun_hooks_adapter
     assert first_adapter is not None
 
     custom_light = hooks_dir / "light" / "on_test_batch_start.sh"
@@ -322,7 +322,7 @@ def test_sequential_fit_then_test_reuses_hooks_tree_and_adapter_instance(
 
     marker_after = _read_marker(base_dir)
     assert marker_after == marker_before
-    assert model._trainctl_hooks_adapter is first_adapter
+    assert model._midrun_hooks_adapter is first_adapter
     assert custom_light.read_text().startswith("#!/usr/bin/env bash")
     assert fired_log.exists()
     assert len(fired_log.read_text().splitlines()) >= 1
@@ -345,7 +345,7 @@ def test_a_resumed_run_dispatches_with_the_marker_session_id(tmp_path) -> None:
     assert session_ids.read_text().splitlines() == [marker_id, marker_id]
 
 
-def test_user_callback_preserved_alongside_trainctl_adapter(tmp_path) -> None:
+def test_user_callback_preserved_alongside_midrun_adapter(tmp_path) -> None:
     started: list[bool] = []
 
     class _UserCallback(PL.Callback):
@@ -358,7 +358,7 @@ def test_user_callback_preserved_alongside_trainctl_adapter(tmp_path) -> None:
 
     assert started == [True]
     assert any(isinstance(cb, _UserCallback) for cb in trainer.callbacks)
-    assert any(type(cb).__name__ == "TrainctlHooksCallback" for cb in trainer.callbacks)
+    assert any(type(cb).__name__ == "MidrunHooksCallback" for cb in trainer.callbacks)
 
 
 def test_subclass_configure_callbacks_override_preserves_both(tmp_path) -> None:
@@ -378,7 +378,7 @@ def test_subclass_configure_callbacks_override_preserves_both(tmp_path) -> None:
 
     assert marker == [True]
     assert any(isinstance(cb, _OwnCallback) for cb in trainer.callbacks)
-    assert any(type(cb).__name__ == "TrainctlHooksCallback" for cb in trainer.callbacks)
+    assert any(type(cb).__name__ == "MidrunHooksCallback" for cb in trainer.callbacks)
 
 
 def test_failed_hooks_bootstrap_lets_a_later_fit_run(tmp_path) -> None:
@@ -389,7 +389,7 @@ def test_failed_hooks_bootstrap_lets_a_later_fit_run(tmp_path) -> None:
     for _ in range(2):
         with pytest.raises(HooksBootstrapError, match="delete it and the hooks"):
             _make_trainer(tmp_path).fit(model, _make_loader())
-    assert model._trainctl._logging_session is None
+    assert model._midrun._logging_session is None
 
     marker.unlink()
     _make_trainer(tmp_path).fit(model, _make_loader())

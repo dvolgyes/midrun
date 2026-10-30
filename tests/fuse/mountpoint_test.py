@@ -1,6 +1,6 @@
-"""Behavioral tests: Trainctl checks its FUSE mountpoint before it mounts.
+"""Behavioral tests: Midrun checks its FUSE mountpoint before it mounts.
 
-A stale Trainctl mount from a killed run is replaced. A live mount, a mount of
+A stale Midrun mount from a killed run is replaced. A live mount, a mount of
 another filesystem, or a non-empty directory is refused with a clear error, and a
 failed mount is reported at once, not after the readiness timeout.
 """
@@ -14,9 +14,9 @@ from pathlib import Path
 
 import pytest
 
-from trainctl.config import TrainctlConfig
-from trainctl.load_backend import load_backend
-from trainctl.runtime.runtime import TrainctlRuntime
+from midrun.config import MidrunConfig
+from midrun.load_backend import load_backend
+from midrun.runtime.runtime import MidrunRuntime
 
 # Mounts an empty filesystem with the given fsname and serves it until killed.
 _FOREIGN_MOUNT = """
@@ -61,19 +61,19 @@ def _mount_in_child(path: Path, fsname: str) -> subprocess.Popen[str]:
     return proc
 
 
-def _runtime(path: Path, tmp_path: Path) -> TrainctlRuntime:
-    config = TrainctlConfig(
+def _runtime(path: Path, tmp_path: Path) -> MidrunRuntime:
+    config = MidrunConfig(
         rest_enabled=False,
         torch_debug_enabled=False,
         inspection_strict=True,
         artifact_dir=tmp_path / "artifacts",
         fuse_mountpoint=path,
     )
-    return TrainctlRuntime(config, load_backend("lightning.pytorch"))
+    return MidrunRuntime(config, load_backend("lightning.pytorch"))
 
 
-def test_stale_trainctl_mount_is_replaced(mountpoint: Path, tmp_path: Path) -> None:
-    child = _mount_in_child(mountpoint, "trainctl")
+def test_stale_midrun_mount_is_replaced(mountpoint: Path, tmp_path: Path) -> None:
+    child = _mount_in_child(mountpoint, "midrun")
     child.send_signal(signal.SIGKILL)
     child.wait(timeout=10)
     assert _mounted(mountpoint)
@@ -89,7 +89,7 @@ def test_stale_trainctl_mount_is_replaced(mountpoint: Path, tmp_path: Path) -> N
 
 @pytest.mark.parametrize(
     ("fsname", "message"),
-    [("trainctl", "another trainctl run"), ("other", "not a trainctl mount")],
+    [("midrun", "another midrun run"), ("other", "not a midrun mount")],
 )
 def test_live_mount_is_refused(
     mountpoint: Path, tmp_path: Path, fsname: str, message: str

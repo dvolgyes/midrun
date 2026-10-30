@@ -1,18 +1,18 @@
-"""Behavioral tests: each Trainctl runtime gets a run id that no other process shares."""
+"""Behavioral tests: each Midrun runtime gets a run id that no other process shares."""
 
 import re
 import subprocess
 import sys
 
-from trainctl.config import TrainctlConfig
-from trainctl.load_backend import load_backend
-from trainctl.runtime.runtime import TrainctlRuntime
+from midrun.config import MidrunConfig
+from midrun.load_backend import load_backend
+from midrun.runtime.runtime import MidrunRuntime
 
 _PRINT_RUN_ID = """
-from trainctl.config import TrainctlConfig
-from trainctl.load_backend import load_backend
-from trainctl.runtime.runtime import TrainctlRuntime
-print(TrainctlRuntime(TrainctlConfig(), load_backend("lightning.pytorch")).run_id)
+from midrun.config import MidrunConfig
+from midrun.load_backend import load_backend
+from midrun.runtime.runtime import MidrunRuntime
+print(MidrunRuntime(MidrunConfig(), load_backend("lightning.pytorch")).run_id)
 """
 
 
@@ -28,7 +28,7 @@ def _run_id_in_new_process() -> str:
 
 
 def test_run_ids_differ_across_processes() -> None:
-    local = TrainctlRuntime(TrainctlConfig(), load_backend("lightning.pytorch")).run_id
+    local = MidrunRuntime(MidrunConfig(), load_backend("lightning.pytorch")).run_id
 
     run_ids = {local, _run_id_in_new_process(), _run_id_in_new_process()}
 

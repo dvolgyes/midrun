@@ -1,4 +1,4 @@
-"""CIFAR-10 LightningDataModule used by the trainctl integration harness."""
+"""CIFAR-10 LightningDataModule used by the midrun integration harness."""
 
 from pathlib import Path
 
@@ -46,7 +46,7 @@ def _eval_transform() -> transforms.Compose:
 
 
 class CifarDataModule(LightningDataModule):
-    """CIFAR-10 datamodule for the trainctl integration harness.
+    """CIFAR-10 datamodule for the midrun integration harness.
 
     The torchvision test split is used as the validation split; this harness verifies
     training-loop wiring rather than producing a rigorous benchmark result.

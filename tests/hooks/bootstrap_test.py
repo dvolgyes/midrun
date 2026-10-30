@@ -1,4 +1,4 @@
-"""Behavioral tests for trainctl.hooks.manager's baseline bootstrap (T1)."""
+"""Behavioral tests for midrun.hooks.manager's baseline bootstrap (T1)."""
 
 import json
 import os
@@ -9,11 +9,11 @@ import threading
 import pytest
 from loguru import logger
 
-from trainctl.hooks.catalog import CALLBACKS, MODALITIES
-from trainctl.hooks.manager.bootstrap_hooks_tree import bootstrap_hooks_tree
-from trainctl.hooks.manager.hooks_bootstrap_error import HooksBootstrapError
-import trainctl.hooks.manager.publish_fresh_tree as publish_fresh_tree_module
-from trainctl.hooks.manager.publish_fresh_tree import publish_fresh_tree
+from midrun.hooks.catalog import CALLBACKS, MODALITIES
+from midrun.hooks.manager.bootstrap_hooks_tree import bootstrap_hooks_tree
+from midrun.hooks.manager.hooks_bootstrap_error import HooksBootstrapError
+import midrun.hooks.manager.publish_fresh_tree as publish_fresh_tree_module
+from midrun.hooks.manager.publish_fresh_tree import publish_fresh_tree
 
 _SLOT_COUNT = len(CALLBACKS) * len(MODALITIES)
 
@@ -45,10 +45,10 @@ def test_no_source_creates_74_disabled_scripts_and_readme(tmp_path, log) -> None
         )
         assert script.read_text().startswith("#!/usr/bin/env bash\n")
     assert (live_dir / "README.md").is_file()
-    marker = json.loads((base_dir / "trainctl-hooks-state.json").read_text())
+    marker = json.loads((base_dir / "midrun-hooks-state.json").read_text())
     assert marker["session_id"] == "s-1"
     assert marker["source_dir"] is None
-    provenance = json.loads((live_dir / ".trainctl-provenance.json").read_text())
+    provenance = json.loads((live_dir / ".midrun-provenance.json").read_text())
     assert provenance["session_id"] == "s-1"
 
 
@@ -115,7 +115,7 @@ def test_symlink_in_source_is_rejected_and_nothing_is_published(tmp_path, log) -
         bootstrap_hooks_tree(base_dir, source, session_id="s-4", log=log)
 
     assert not (base_dir / "hooks").exists()
-    assert not (base_dir / "trainctl-hooks-state.json").exists()
+    assert not (base_dir / "midrun-hooks-state.json").exists()
     assert list(base_dir.glob(".hooks-staging-*")) == []
 
 
@@ -195,7 +195,7 @@ def test_repeat_setup_reuses_live_tree_and_never_restores_deleted_scripts(
     assert not deleted.exists()
     assert edited.read_text() == "#!/usr/bin/env bash\necho edited\n"
     assert stat.S_IMODE(edited.stat().st_mode) & 0o111 != 0
-    marker = json.loads((base_dir / "trainctl-hooks-state.json").read_text())
+    marker = json.loads((base_dir / "midrun-hooks-state.json").read_text())
     assert marker["session_id"] == "s-10"  # first session's marker, not overwritten
 
 
@@ -245,11 +245,11 @@ def test_unknown_existing_live_tree_is_a_conflict_and_is_left_untouched(
     live_dir.mkdir(parents=True)
     (live_dir / "mystery.txt").write_text("not ours\n")
 
-    with pytest.raises(HooksBootstrapError, match="not a Trainctl-owned hooks tree"):
+    with pytest.raises(HooksBootstrapError, match="not a Midrun-owned hooks tree"):
         bootstrap_hooks_tree(base_dir, None, session_id="s-12", log=log)
 
     assert (live_dir / "mystery.txt").read_text() == "not ours\n"
-    assert not (base_dir / "trainctl-hooks-state.json").exists()
+    assert not (base_dir / "midrun-hooks-state.json").exists()
 
 
 def test_interrupted_publish_recovers_from_provenance_without_recopying(
@@ -258,7 +258,7 @@ def test_interrupted_publish_recovers_from_provenance_without_recopying(
     base_dir = tmp_path / "run"
     live_dir = bootstrap_hooks_tree(base_dir, None, session_id="s-13", log=log).live_dir
     # Simulate a crash between the atomic rename and the external marker write.
-    (base_dir / "trainctl-hooks-state.json").unlink()
+    (base_dir / "midrun-hooks-state.json").unlink()
     sentinel = live_dir / "light" / "on_fit_start.sh"
     sentinel.write_text("#!/usr/bin/env bash\necho untouched-by-recovery\n")
 
@@ -267,7 +267,7 @@ def test_interrupted_publish_recovers_from_provenance_without_recopying(
     ).live_dir
 
     assert live_dir_again == live_dir
-    marker = json.loads((base_dir / "trainctl-hooks-state.json").read_text())
+    marker = json.loads((base_dir / "midrun-hooks-state.json").read_text())
     assert (
         marker["session_id"] == "s-13"
     )  # recovered from the live tree's own provenance
@@ -286,7 +286,7 @@ def test_lost_publish_race_reports_unpublished_and_cleans_up_staging(
     assert publish_fresh_tree(base_dir, live_dir, None, "s-14", log) is False
 
     assert list(base_dir.glob(".hooks-staging-*")) == []
-    assert not (base_dir / "trainctl-hooks-state.json").exists()
+    assert not (base_dir / "midrun-hooks-state.json").exists()
     assert (live_dir / "already-here.txt").read_text() == "winner\n"
 
 
@@ -312,7 +312,7 @@ def test_losing_the_publish_race_resumes_the_winners_tree(
     assert loser.session_id == "s-winner"
     assert loser.live_dir == base_dir / "hooks"
     assert list(base_dir.glob(".hooks-staging-*")) == []
-    marker = json.loads((base_dir / "trainctl-hooks-state.json").read_text())
+    marker = json.loads((base_dir / "midrun-hooks-state.json").read_text())
     assert marker["session_id"] == "s-winner"
 
 
@@ -361,7 +361,7 @@ def test_source_file_changing_during_copy_is_rejected(
                 fh.write("echo v2\n")
 
     monkeypatch.setattr(
-        "trainctl.hooks.manager.copy_source_tree.shutil.copyfile", flaky_copyfile
+        "midrun.hooks.manager.copy_source_tree.shutil.copyfile", flaky_copyfile
     )
 
     base_dir = tmp_path / "run"
@@ -374,7 +374,7 @@ def test_source_file_changing_during_copy_is_rejected(
 def test_ownership_change_failure_is_reported_with_path_and_target_ids(
     tmp_path, monkeypatch, log
 ) -> None:
-    from trainctl.hooks.manager.apply_ownership_and_mode import (
+    from midrun.hooks.manager.apply_ownership_and_mode import (
         apply_ownership_and_mode,
     )
 

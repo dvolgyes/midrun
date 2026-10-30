@@ -1,6 +1,6 @@
 """ShellCheck coverage for the rendered disabled-example hook scripts.
 
-The templates themselves (`trainctl/hooks/templates/*.sh.tmpl`) are never
+The templates themselves (`midrun/hooks/templates/*.sh.tmpl`) are never
 committed with a `.sh` suffix or an execute bit -- pre-commit's
 `check-shebang-scripts-are-executable` would otherwise refuse them. This test
 renders a full disabled tree the same way `bootstrap_hooks_tree` does for a
@@ -14,8 +14,8 @@ from pathlib import Path
 import pytest
 from loguru import logger
 
-from trainctl.hooks.catalog import MODALITIES
-from trainctl.hooks.manager.bootstrap_hooks_tree import bootstrap_hooks_tree
+from midrun.hooks.catalog import MODALITIES
+from midrun.hooks.manager.bootstrap_hooks_tree import bootstrap_hooks_tree
 
 _SHELLCHECK = shutil.which("shellcheck")
 

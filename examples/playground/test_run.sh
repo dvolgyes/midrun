@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the trainctl playground in the foreground: Lightning/PyTorch logs print to
+# Runs the midrun playground in the foreground: Lightning/PyTorch logs print to
 # this terminal, and Ctrl+C stops training gracefully. Inspect the live run from a
 # second terminal using the REST/FUSE commands printed at startup.
 set -euo pipefail

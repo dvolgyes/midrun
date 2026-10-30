@@ -31,9 +31,9 @@ completion requires the implementation and tests below; a reviewed plan does not
 | R5 | Discover filenames initially and once per epoch; recheck known files and permission bits before execution. | I2, T2 |
 | R6 | Block until the subprocess finishes; pass heavy data through temporary files and then clean them up. | I2, I3, T3, T5 |
 | R7 | Log unsuccessful executions with reason, exit status, output, and context through Loguru. | I0, I2, T5, T6 |
-| R8 | Route Lightning's standard logging into Loguru; migrate remaining Trainctl diagnostic logging where necessary. | I0, I5, T6 |
+| R8 | Route Lightning's standard logging into Loguru; migrate remaining Midrun diagnostic logging where necessary. | I0, I5, T6 |
 | R9 | Defer native HTTP hooks; a shell script may use `curl`. | I5 documentation review |
-| R10 | Preserve existing Trainctl controls, inspection behavior, user callbacks, and training semantics. | P0, I4, I5, T4, T7 |
+| R10 | Preserve existing Midrun controls, inspection behavior, user callbacks, and training semantics. | P0, I4, I5, T4, T7 |
 
 “Missing hooks” means missing **per modality and callback**: supplying `light/on_fit_start.sh` does not suppress the
 disabled example at `heavy/on_fit_start.sh`. This is the proposed interpretation of incomplete baseline coverage.
@@ -51,14 +51,14 @@ disabled example at `heavy/on_fit_start.sh`. This is the proposed interpretation
 
 | Existing owner | Relevant observed behavior | Consequence |
 | -- | -- | -- |
-| [trainctl/mixin.py](trainctl/mixin.py) | Owns the model integration and forwards a subset of model hooks to the runtime. | Preserve these methods and their return values; do not expand the existing safe-point enum into a callback catalogue. |
-| [trainctl/lightning_backend.py](trainctl/lightning_backend.py) | Resolves either Lightning namespace and rejects mixed backends. | A callback adapter must inherit from the selected backend's `Callback`. |
-| [trainctl/config.py](trainctl/config.py) | Frozen configuration with explicit mixin constructor forwarding. | Add validated hook settings in both places without swallowing user model arguments. |
-| [trainctl/runtime/runtime.py](trainctl/runtime/runtime.py) | Starts services in model `setup`, owns safe points, and tears down services. | Callback `setup` runs earlier than model `setup`; hook bootstrap must not depend on services already running. |
-| [trainctl/runtime/events.py](trainctl/runtime/events.py) | Five safe points govern existing control operations. | Lifecycle notification is a separate responsibility from command scheduling. |
-| [trainctl/runtime/current_step.py](trainctl/runtime/current_step.py) | Retains live batch/loss state only on the training thread. | Export callback data on that thread; never publish live tensor references to a subprocess or REST worker. |
-| [trainctl/runtime/live_capture.py](trainctl/runtime/live_capture.py) | Some requests wait for a later training-thread safe point. | A blocking hook must not wait for such a request: that would deadlock its own training thread. |
-| [trainctl/runtime/artifacts.py](trainctl/runtime/artifacts.py) | Owns persisted inspection artifacts. | Temporary hook tensors are a separate private resource, not automatically REST-served artifacts. |
+| [midrun/mixin.py](midrun/mixin.py) | Owns the model integration and forwards a subset of model hooks to the runtime. | Preserve these methods and their return values; do not expand the existing safe-point enum into a callback catalogue. |
+| [midrun/lightning_backend.py](midrun/lightning_backend.py) | Resolves either Lightning namespace and rejects mixed backends. | A callback adapter must inherit from the selected backend's `Callback`. |
+| [midrun/config.py](midrun/config.py) | Frozen configuration with explicit mixin constructor forwarding. | Add validated hook settings in both places without swallowing user model arguments. |
+| [midrun/runtime/runtime.py](midrun/runtime/runtime.py) | Starts services in model `setup`, owns safe points, and tears down services. | Callback `setup` runs earlier than model `setup`; hook bootstrap must not depend on services already running. |
+| [midrun/runtime/events.py](midrun/runtime/events.py) | Five safe points govern existing control operations. | Lifecycle notification is a separate responsibility from command scheduling. |
+| [midrun/runtime/current_step.py](midrun/runtime/current_step.py) | Retains live batch/loss state only on the training thread. | Export callback data on that thread; never publish live tensor references to a subprocess or REST worker. |
+| [midrun/runtime/live_capture.py](midrun/runtime/live_capture.py) | Some requests wait for a later training-thread safe point. | A blocking hook must not wait for such a request: that would deadlock its own training thread. |
+| [midrun/runtime/artifacts.py](midrun/runtime/artifacts.py) | Owns persisted inspection artifacts. | Temporary hook tensors are a separate private resource, not automatically REST-served artifacts. |
 | [examples/cifar/train.py](examples/cifar/train.py) | Already configures Loguru, currently using broad sink removal. | Reconcile ownership; examples must not remove a newly installed run sink. |
 | [examples/playground/run.py](examples/playground/run.py) | Contains diagnostic `print` calls for startup/shutdown. | Move diagnostic messages to Loguru; preserve any intentionally pipeable stdout. |
 
@@ -77,7 +77,7 @@ explicit dependency/configuration style; do not introduce a second global config
 
 | Setting | Proposed contract |
 | -- | -- |
-| `hooks_enabled` | Default `True` while Trainctl itself is enabled: create the directory and disabled examples. `False` skips all hook filesystem and dispatch work. |
+| `hooks_enabled` | Default `True` while Midrun itself is enabled: create the directory and disabled examples. `False` skips all hook filesystem and dispatch work. |
 | `hooks_source_dir: Path \| str \| None` | Optional baseline root containing `light/`, `heavy/`, and supporting files. Never a live directory override. |
 | `hooks_timeout_s: float \| None` | Positive timeout, or `None` for deliberately unbounded interactive debugging. Proposed default `None`; document distributed timeout implications prominently. |
 | `hooks_rank_policy` | Default `rank_zero`; optional `all` for rank-local debugging. No collectives inside the dispatcher. |
@@ -101,8 +101,8 @@ Expose the baseline argument through the mixin and relevant example CLIs. Use an
   helpers/notify.sh
 
 <resolved-run-log-dir>/
-  trainctl.log                          # diagnostic text, single-process/rank zero
-  trainctl-hooks-state.json              # initialization identity and schema, outside copied tree
+  midrun.log                          # diagnostic text, single-process/rank zero
+  midrun-hooks-state.json              # initialization identity and schema, outside copied tree
   hooks/                                # authoritative editable run-local copy
     README.md                           # generated only if absent from baseline
     light/
@@ -116,15 +116,15 @@ Expose the baseline argument through the mixin and relevant example CLIs. Use an
 ```
 
 Resolve the directory from `trainer.log_dir`, not from a checkpoint or inspection-artifact override. If no log directory
-is available, follow Trainctl's existing XDG/runtime temporary-directory policy, but create a collision-resistant hook
+is available, follow Midrun's existing XDG/runtime temporary-directory policy, but create a collision-resistant hook
 session subdirectory. Current numeric `run_id` values can collide across processes; do not use them alone as filesystem
 identity. Log the resolved directory once, including the fallback case. Never replace an intended remote logger URI with
 an accidental local path; require a local filesystem destination or use the documented fallback.
 
 In distributed runs, rank zero initializes a shared live directory for the default rank policy. An `all` policy needs
-per-process diagnostic files, for example `trainctl-rank-1.log`, and unique event/temp identities. P0 must resolve
-shared versus node-local log-directory behavior before promising all-rank support. Independent concurrent Trainers must
-use different live run directories; initialization ownership must detect a conflicting independent session.
+per-process diagnostic files, for example `midrun-rank-1.log`, and unique event/temp identities. P0 must resolve shared
+versus node-local log-directory behavior before promising all-rank support. Independent concurrent Trainers must use
+different live run directories; initialization ownership must detect a conflicting independent session.
 
 ### Ownership and execution-right preservation
 
@@ -142,8 +142,8 @@ an explicit supported ownership operation such as `os.chown`; do not rely on the
 For a same-user/same-group baseline this normally needs no ownership change. If the training identity cannot retain a
 different UID/GID, fail initialization with the path, required ownership, and permission error. Do not elevate
 privileges or silently substitute the current owner. The operator can supply a baseline owned by the training identity
-or arrange permitted ownership outside Trainctl. Newly generated examples belong to the training identity, have
-documented normal read/write permissions, and have all execution bits cleared.
+or arrange permitted ownership outside Midrun. Newly generated examples belong to the training identity, have documented
+normal read/write permissions, and have all execution bits cleared.
 
 Additional proposed v1 boundary: ordinary files and directories only. Reject symlinks, devices, sockets, FIFOs, and
 privilege-bearing metadata before publication, with the offending path and reason. Rejecting links is simpler and safer
@@ -202,7 +202,7 @@ endpoint credentials and remain disabled; it does not introduce a Python HTTP de
 
 Use one backend-compatible Lightning `Callback` adapter, attached through the mixin's `configure_callbacks()`
 composition. Preserve the parent's supported single-callback/list/empty return forms and all user callbacks; install the
-Trainctl adapter exactly once. A subclass overriding `configure_callbacks()` must compose with `super()`, and the
+Midrun adapter exactly once. A subclass overriding `configure_callbacks()` must compose with `super()`, and the
 documentation must state that requirement. Do not monkey-patch Lightning's private dispatch loop.
 
 The adapter supplies explicit, correctly typed lifecycle signatures for the supported version. A tested immutable
@@ -242,7 +242,7 @@ identities and capture timestamps.
 
 Keep logging alive through the `teardown` script and existing runtime teardown messages. On failure, run `on_exception`
 at most once for Lightning's actual notification, clean up the hook session independently of normal teardown, and
-preserve the original exception. If Trainctl's existing backward-exception hold delays re-raising, Lightning's
+preserve the original exception. If Midrun's existing backward-exception hold delays re-raising, Lightning's
 `on_exception` hook is correspondingly delayed; this plan does not change the hold policy.
 
 ## 5. Discovery and enablement state
@@ -390,7 +390,7 @@ message, level, original source metadata, and `exc_info` into a bound Loguru log
 pattern.
 [Loguru standard logging interoperability](https://loguru.readthedocs.io/en/stable/overview.html#entirely-compatible-with-standard-logging)
 
-The following ownership design is Trainctl policy, not a claim that copying the documentation's root configuration is
+The following ownership design is Midrun policy, not a claim that copying the documentation's root configuration is
 sufficient:
 
 1. Introduce an explicit logging-session owner. It holds handler references, original logger settings, run context, and
@@ -409,10 +409,9 @@ sufficient:
 5. Preserve original record name, pathname, line/function, time, level number/name, and exception information, even if
    some need structured Loguru extras rather than reconstructed call depth. Respect the chosen level policy and test
    custom numeric levels without exception-based lookup logic. Format source attribution using those original fields.
-6. Bind hook errors and Trainctl diagnostics to the same session/rank context. Add an owned text sink in the resolved
-   run directory, with an explicit filter preventing unrelated sessions from leaking into the file. Keep console
-   diagnostics on stderr and never redirect metrics, progress-bar rendering, or arbitrary stdout by pretending they are
-   log records.
+6. Bind hook errors and Midrun diagnostics to the same session/rank context. Add an owned text sink in the resolved run
+   directory, with an explicit filter preventing unrelated sessions from leaking into the file. Keep console diagnostics
+   on stderr and never redirect metrics, progress-bar rendering, or arbitrary stdout by pretending they are log records.
 7. Make the bridge one-way. A Loguru sink that sends records back into intercepted standard loggers creates recursion;
    reject/document that incompatible setup and test a reentrancy guard. Disable diagnostic local-variable dumping for
    exception formatting so tracebacks do not unexpectedly expose tensors or secrets.
@@ -429,9 +428,9 @@ Detect and reject overlapping installations through the existing owned-handler i
 registry. Supporting independent concurrent Trainers in one process requires explicit context propagation and a separate
 design; do not promise reliable attribution merely by adding a run ID to whichever handler was installed last.
 
-Migrate remaining Trainctl/example diagnostic `print` or standard logger calls only where present; preserve pipeable
-data. The existing CIFAR example's logging setup must cooperate with the session owner. Do not patch Lightning sources
-and do not replace TensorBoard/CSV/W&B metric loggers with Loguru.
+Migrate remaining Midrun/example diagnostic `print` or standard logger calls only where present; preserve pipeable data.
+The existing CIFAR example's logging setup must cooperate with the session owner. Do not patch Lightning sources and do
+not replace TensorBoard/CSV/W&B metric loggers with Loguru.
 
 ## 9. Responsibility boundaries
 
@@ -439,11 +438,11 @@ Suggested files are implementation candidates, not instructions to create one mo
 
 | Owner | Responsibility and stable boundary |
 | -- | -- |
-| Hook session (`trainctl/hooks/manager.py`) | Own bootstrap, live catalogue, discovery cadence, rank policy, and dispatch orchestration. Private copy/discovery helpers stay here unless they acquire independent ownership. |
-| Payload exporter (`trainctl/hooks/payload.py`) | Own bounded event schema, tensor selection, serialization, manifest, and invocation-scoped file lifetime. No Lightning scheduling or process launch. |
-| Shell runner (`trainctl/hooks/runner.py`) | Own argv-based launch, pipe draining, timeout/process-group supervision, and structured execution result. Receives logger/context explicitly. |
-| Lightning adapter (`trainctl/hooks/lightning.py`) | Own backend-compatible callback signatures, catalogue binding, and lifecycle ordering. Delegates policy to the session. |
-| Logging session (`trainctl/logging.py`) | Own standard-record bridge, explicit handler/sink ownership, run-file routing, and restoration. Does not depend on hook internals. |
+| Hook session (`midrun/hooks/manager.py`) | Own bootstrap, live catalogue, discovery cadence, rank policy, and dispatch orchestration. Private copy/discovery helpers stay here unless they acquire independent ownership. |
+| Payload exporter (`midrun/hooks/payload.py`) | Own bounded event schema, tensor selection, serialization, manifest, and invocation-scoped file lifetime. No Lightning scheduling or process launch. |
+| Shell runner (`midrun/hooks/runner.py`) | Own argv-based launch, pipe draining, timeout/process-group supervision, and structured execution result. Receives logger/context explicitly. |
+| Lightning adapter (`midrun/hooks/lightning.py`) | Own backend-compatible callback signatures, catalogue binding, and lifecycle ordering. Delegates policy to the session. |
+| Logging session (`midrun/logging.py`) | Own standard-record bridge, explicit handler/sink ownership, run-file routing, and restoration. Does not depend on hook internals. |
 | Template resources | Own disabled example content and callback help, packaged and tested as rendered output. |
 
 Dependencies point from adapter/runtime composition to hook session, then to exporter and runner. Logging is shared
@@ -495,7 +494,7 @@ Conceptual algorithm to validate before fixing public interfaces:
 
 ```text
 on_actual_callback(name, trainer, module, arguments):
-    if Trainctl or hooks disabled: return
+    if Midrun or hooks disabled: return
     ensure_owned_logging_and_initialized_run_copy()
     scan_if_initial_or_new_epoch()
     if rank_not_selected: return
@@ -523,7 +522,7 @@ existing work.
 ### I0 — Owned logging and configuration foundation
 
 - Entry: P0b/P0d support the selected ownership boundary.
-- Outcome: a standard Lightning message and a Trainctl diagnostic appear in the same run text log, with no duplicate or
+- Outcome: a standard Lightning message and a Midrun diagnostic appear in the same run text log, with no duplicate or
   lost exception, and logging state is restored afterward.
 - Build: explicit logging-session owner, namespace bridge, optional application-root installer, validated proposed
   settings, source-path normalization, and safe run sink setup. Keep hook installation independent of unrelated
@@ -606,7 +605,7 @@ inspection is a compatibility check, not a substitute for integration tests.
 | T1 — Bootstrap | No source creates 74 disabled scripts for this catalogue. Partial source fills only missing slots; original bytes, UID/GID, execution bits, and helper files survive. Ownership-changing failure is explicit; verify modes after ownership operations. Source is unchanged. Live edits/deletions survive repeated setup/resume. Baseline edits do not propagate. Reject wrong path type, unsafe links, recursive source/destination, conflicting session ownership; recover interrupted initialization without overwrite. |
 | T2 — Light/discovery | Known chmod/edit/delete/recreate changes take effect as specified. New filenames wait for epoch scan; initial and standalone-stage discovery work. Disabled files never launch. Light events expose no tensor values or host-copy side effects, including scalar tensors and nested checkpoint arguments. Metadata is valid, bounded, and unambiguous. |
 | T3 — Heavy/data lifetime | Child observes valid arrays while parent waits; exact values/shapes/dtypes or documented conversions; empty manifest on no-tensor callbacks. Snapshot remains independent of later training mutation. Files persist through execution then disappear after success/error/timeout/launch or serialization failure. Reject pickle/object arrays, unsafe path keys, limits, and unsupported tensor representations. |
-| T4 — Lightning contract | Both namespaces: fit with sanity check, validate, test, predict, checkpoint save/load, exception, setup failure, teardown, and sequential reuse. Preserve user callbacks, return values, ordering, native metrics, and existing Trainctl safe points. Catalogue covers all 37 current lifecycle signatures; configuration-dependent absent hooks are not fabricated. |
+| T4 — Lightning contract | Both namespaces: fit with sanity check, validate, test, predict, checkpoint save/load, exception, setup failure, teardown, and sequential reuse. Preserve user callbacks, return values, ordering, native metrics, and existing Midrun safe points. Catalogue covers all 37 current lifecycle signatures; configuration-dependent absent hooks are not fabricated. |
 | T5 — Runner/failure | Success, nonzero exit with both streams, signal, timeout, launch race, unreadable enabled script, disk-full logging, child ignoring termination, large/binary output, interruption, and cleanup failure. Assert ERROR context/tails, no pipe deadlock, bounded buffers, contained child group, and original training error preserved. |
 | T6 — Logging | Root configured and unconfigured; Lightning-installed and custom namespace handlers; custom numeric levels; original source/exception data; no duplicate routing; one-way/reentrancy protection; stderr vs stdout; owned cleanup; startup failure; repeated sessions; separate rank files; overlapping-session rejection. Metrics remain on native loggers. |
 | T7 — End-to-end/regression | Master-off produces no hook work. Default examples never execute. Default rank-zero does not duplicate notifications; optional all-rank mode is tested only if P0 unlocks it. Two independent processes cannot collide by numeric run ID. Existing REST/FUSE, inspection artifacts, live-capture scheduling, and backward-exception hold retain behavior. Installed-wheel walkthrough and repository gates pass. |

@@ -15,10 +15,10 @@ from typing import BinaryIO
 
 import pytest
 
-from trainctl.config import TrainctlConfig
-from trainctl.fuse import filesystem
-from trainctl.load_backend import load_backend
-from trainctl.runtime.runtime import TrainctlRuntime
+from midrun.config import MidrunConfig
+from midrun.fuse import filesystem
+from midrun.load_backend import load_backend
+from midrun.runtime.runtime import MidrunRuntime
 
 
 class _Module:
@@ -27,8 +27,8 @@ class _Module:
 
 @pytest.fixture
 def mountpoint(tmp_path: Path) -> Iterator[Path]:
-    runtime = TrainctlRuntime(
-        TrainctlConfig(
+    runtime = MidrunRuntime(
+        MidrunConfig(
             rest_enabled=False,
             torch_debug_enabled=False,
             artifact_dir=tmp_path / "artifacts",
@@ -50,7 +50,7 @@ def growing_file(
     lengths = itertools.count(1)
     content_of = filesystem.virtual_file_content
 
-    def _growing(runtime: TrainctlRuntime, path: str) -> bytes | None:
+    def _growing(runtime: MidrunRuntime, path: str) -> bytes | None:
         if path == request.param:
             return b"x" * next(lengths) + b"\n"
         return content_of(runtime, path)

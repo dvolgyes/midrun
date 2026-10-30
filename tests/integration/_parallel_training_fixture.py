@@ -1,29 +1,29 @@
 """Standalone, fast Lightning training run launched as a subprocess by
-`tests/integration/parallel_runs_test.py` to exercise Trainctl's REST and
+`tests/integration/parallel_runs_test.py` to exercise Midrun's REST and
 torch_debug port-collision avoidance, and MASTER_PORT isolation for
 `torch.distributed`, across two simultaneous runs.
 
 Not a pytest test module -- deliberately does not match pytest's collection
 glob (`test_*.py` / `*_test.py`). Run directly:
 
-    TRAINCTL_TEST_MASTER_PORT=... TRAINCTL_TEST_LOG_DIR=... \\
-        TRAINCTL_TEST_STATUS_FILE=... python _parallel_training_fixture.py
+    MIDRUN_TEST_MASTER_PORT=... MIDRUN_TEST_LOG_DIR=... \\
+        MIDRUN_TEST_STATUS_FILE=... python _parallel_training_fixture.py
 
 Trains with `max_epochs=-1` on a tiny synthetic dataset and relies entirely on
 an external `POST /control/stop` (or the `max_time` safety net below) to end
 the run -- so a caller has a real, indefinitely-running instance to poll.
 
 Environment variables:
-    TRAINCTL_TEST_MASTER_PORT: Required. Distinct `torch.distributed`
-        rendezvous port for this instance -- trainctl has no collision
+    MIDRUN_TEST_MASTER_PORT: Required. Distinct `torch.distributed`
+        rendezvous port for this instance -- midrun has no collision
         avoidance for this port, so each parallel instance must supply its own.
-    TRAINCTL_TEST_LOG_DIR: Required. This instance's artifact directory.
-    TRAINCTL_TEST_STATUS_FILE: Required. Path this instance writes its
+    MIDRUN_TEST_LOG_DIR: Required. This instance's artifact directory.
+    MIDRUN_TEST_STATUS_FILE: Required. Path this instance writes its
         resolved run_id/rest_port/torch_debug_url to, once its services start.
-    TRAINCTL_TEST_REST_PORT: Optional, default 8090 (trainctl's own default)
+    MIDRUN_TEST_REST_PORT: Optional, default 8090 (midrun's own default)
         -- deliberately left shared across instances, so the test exercises
-        trainctl's preflight REST port search under real contention.
-    TRAINCTL_TEST_TORCH_DEBUG_PORT: Optional, default 25999, same rationale.
+        midrun's preflight REST port search under real contention.
+    MIDRUN_TEST_TORCH_DEBUG_PORT: Optional, default 25999, same rationale.
 """
 
 import json
@@ -35,11 +35,11 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from trainctl import TrainctlMixin
+from midrun import MidrunMixin
 
 
-class _FastModel(TrainctlMixin, pl.LightningModule):
-    """Tiny classifier used only to exercise Trainctl's service startup.
+class _FastModel(MidrunMixin, pl.LightningModule):
+    """Tiny classifier used only to exercise Midrun's service startup.
 
     Attributes:
         net: Small linear classifier over flattened 8x8 RGB inputs.
@@ -81,7 +81,7 @@ class _FastModel(TrainctlMixin, pl.LightningModule):
 
     def setup(self, stage: str) -> None:
         super().setup(stage)
-        snapshot = self._trainctl.state.read()
+        snapshot = self._midrun.state.read()
         if snapshot.rest_port is not None:
             self._status_file.write_text(
                 json.dumps(
@@ -114,11 +114,11 @@ def _build_loader() -> DataLoader:
 def main() -> None:
     import torch.distributed as dist
 
-    master_port = os.environ["TRAINCTL_TEST_MASTER_PORT"]
-    log_dir = Path(os.environ["TRAINCTL_TEST_LOG_DIR"])
-    status_file = Path(os.environ["TRAINCTL_TEST_STATUS_FILE"])
-    rest_port = int(os.environ.get("TRAINCTL_TEST_REST_PORT", "8090"))
-    torch_debug_port = int(os.environ.get("TRAINCTL_TEST_TORCH_DEBUG_PORT", "25999"))
+    master_port = os.environ["MIDRUN_TEST_MASTER_PORT"]
+    log_dir = Path(os.environ["MIDRUN_TEST_LOG_DIR"])
+    status_file = Path(os.environ["MIDRUN_TEST_STATUS_FILE"])
+    rest_port = int(os.environ.get("MIDRUN_TEST_REST_PORT", "8090"))
+    torch_debug_port = int(os.environ.get("MIDRUN_TEST_TORCH_DEBUG_PORT", "25999"))
 
     _init_distributed(master_port)
     try:

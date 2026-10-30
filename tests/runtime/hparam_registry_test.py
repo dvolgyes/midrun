@@ -1,27 +1,27 @@
 """Behavioral tests for the generic tunable-hyperparameter registry.
 
 `resolve_hparam_path`/`describe_hparam`/`check_and_assign` are plain functions over arbitrary
-parent/leaf attribute pairs, independent of `TrainctlRuntime` --
+parent/leaf attribute pairs, independent of `MidrunRuntime` --
 `tests/runtime/set_hparam_command_test.py` covers the end-to-end command path.
 """
 
 import pytest
 import torch
 
-from trainctl.runtime.hparam_registry.check_and_assign import check_and_assign
-from trainctl.runtime.hparam_registry.collect_tunable_hparams import (
+from midrun.runtime.hparam_registry.check_and_assign import check_and_assign
+from midrun.runtime.hparam_registry.collect_tunable_hparams import (
     collect_tunable_hparams,
 )
-from trainctl.runtime.hparam_registry.describe_hparam import (
+from midrun.runtime.hparam_registry.describe_hparam import (
     MAX_INLINE_TENSOR_ELEMENTS,
     describe_hparam,
 )
-from trainctl.runtime.hparam_registry.get_field import get_field
-from trainctl.runtime.hparam_registry.hparam_value import HparamValue
-from trainctl.runtime.hparam_registry.resolve_hparam_path import resolve_hparam_path
-from trainctl.runtime.hparam_registry.set_field import set_field
-from trainctl.runtime.hparam_registry.tunable_hparam_spec import TunableHparamSpec
-from trainctl.runtime.hparam_registry.validate_bounds import validate_bounds
+from midrun.runtime.hparam_registry.get_field import get_field
+from midrun.runtime.hparam_registry.hparam_value import HparamValue
+from midrun.runtime.hparam_registry.resolve_hparam_path import resolve_hparam_path
+from midrun.runtime.hparam_registry.set_field import set_field
+from midrun.runtime.hparam_registry.tunable_hparam_spec import TunableHparamSpec
+from midrun.runtime.hparam_registry.validate_bounds import validate_bounds
 
 
 class _Hparams:
@@ -259,11 +259,11 @@ def test_check_and_assign_unsupported_current_type_raises() -> None:
 
 
 class _MixinA:
-    trainctl_tunable_hparams = ["a_field"]
+    midrun_tunable_hparams = ["a_field"]
 
 
 class _MixinB:
-    trainctl_tunable_hparams = ["b_field"]
+    midrun_tunable_hparams = ["b_field"]
 
 
 class _CombinedListForm(_MixinA, _MixinB):
@@ -279,7 +279,7 @@ def test_collect_tunable_hparams_merges_bare_list_across_mro() -> None:
 
 
 class _DictForm:
-    trainctl_tunable_hparams = {
+    midrun_tunable_hparams = {
         "hparams.lr": {"min": 0.0, "max": 1.0, "label": "Learning rate"},
     }
 
@@ -293,11 +293,11 @@ def test_collect_tunable_hparams_dict_form_carries_min_max_label() -> None:
 
 
 class _AncestorBounded:
-    trainctl_tunable_hparams = {"shared": {"min": 0, "max": 10, "label": "ancestor"}}
+    midrun_tunable_hparams = {"shared": {"min": 0, "max": 10, "label": "ancestor"}}
 
 
 class _LeafReplaces(_AncestorBounded):
-    trainctl_tunable_hparams = {"shared": {"label": "leaf"}}
+    midrun_tunable_hparams = {"shared": {"label": "leaf"}}
 
 
 def test_collect_tunable_hparams_leaf_replaces_ancestor_spec_wholesale() -> None:
@@ -307,11 +307,11 @@ def test_collect_tunable_hparams_leaf_replaces_ancestor_spec_wholesale() -> None
 
 
 class _MixinListForm:
-    trainctl_tunable_hparams = ["mixin_field"]
+    midrun_tunable_hparams = ["mixin_field"]
 
 
 class _SubclassDictForm(_MixinListForm):
-    trainctl_tunable_hparams = {"dict_field": {"label": "Dict field"}}
+    midrun_tunable_hparams = {"dict_field": {"label": "Dict field"}}
 
 
 def test_collect_tunable_hparams_mixes_list_and_dict_forms_across_mro() -> None:
@@ -324,7 +324,7 @@ def test_collect_tunable_hparams_mixes_list_and_dict_forms_across_mro() -> None:
 
 
 class _BareStrForm:
-    trainctl_tunable_hparams = "oops"
+    midrun_tunable_hparams = "oops"
 
 
 def test_collect_tunable_hparams_bare_str_raises_type_error() -> None:
@@ -333,7 +333,7 @@ def test_collect_tunable_hparams_bare_str_raises_type_error() -> None:
 
 
 class _NonDictMetadataForm:
-    trainctl_tunable_hparams = {"field": "not-a-dict"}
+    midrun_tunable_hparams = {"field": "not-a-dict"}
 
 
 def test_collect_tunable_hparams_non_dict_metadata_raises_type_error() -> None:

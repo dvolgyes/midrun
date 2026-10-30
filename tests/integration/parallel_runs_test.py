@@ -1,6 +1,6 @@
 """Behavioral test: two real Lightning trainings running as separate OS
-subprocesses at the same time, each starting its own Trainctl REST server and
-`torch.distributed` debug server while requesting trainctl's *default* ports.
+subprocesses at the same time, each starting its own Midrun REST server and
+`torch.distributed` debug server while requesting midrun's *default* ports.
 
 Exercises the concern raised for concurrent runs sharing a host: REST port
 collision avoidance (`runtime.bind_free_socket`), torch_debug port
@@ -32,9 +32,9 @@ def _launch(tmp_path: Path, index: int) -> tuple[subprocess.Popen, Path]:
     log_file = (tmp_path / f"run{index}.log").open("w")
     env = {
         **os.environ,
-        "TRAINCTL_TEST_MASTER_PORT": str(29601 + index),
-        "TRAINCTL_TEST_LOG_DIR": str(log_dir),
-        "TRAINCTL_TEST_STATUS_FILE": str(status_file),
+        "MIDRUN_TEST_MASTER_PORT": str(29601 + index),
+        "MIDRUN_TEST_LOG_DIR": str(log_dir),
+        "MIDRUN_TEST_STATUS_FILE": str(status_file),
     }
     proc = subprocess.Popen(
         [sys.executable, str(_FIXTURE)],

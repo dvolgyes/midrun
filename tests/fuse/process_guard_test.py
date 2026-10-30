@@ -12,7 +12,7 @@ from pathlib import Path
 import mfusepy
 import pytest
 
-from trainctl.fuse import process_guard
+from midrun.fuse import process_guard
 
 
 def _mounted(path: Path) -> bool:
@@ -41,7 +41,7 @@ def test_ready_timeout_unmounts_and_stops_the_fuse_thread(
     monkeypatch.setattr(process_guard, "_READY_TIMEOUT_S", 0.5)
     thread = threading.Thread(
         target=lambda: mfusepy.FUSE(
-            mfusepy.Operations(), str(mountpoint), foreground=True, fsname="trainctl"
+            mfusepy.Operations(), str(mountpoint), foreground=True, fsname="midrun"
         ),
         daemon=True,
     )

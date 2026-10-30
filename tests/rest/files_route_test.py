@@ -1,7 +1,7 @@
 """Behavioral tests for GET /files/{path} -- the REST mirror of the FUSE virtual tree.
 
 `get_file` reuses `virtual_file_content`/`is_virtual_dir`/`list_virtual_dir`, the same functions
-`TrainctlFS` calls -- these tests check the REST-specific wiring (status codes, JSON
+`MidrunFS` calls -- these tests check the REST-specific wiring (status codes, JSON
 listing shape, error-boundary translation), not the virtual tree's content, which
 `tests/fuse/*` already covers.
 """
@@ -9,19 +9,19 @@ listing shape, error-boundary translation), not the virtual tree's content, whic
 import pytest
 from fastapi.testclient import TestClient
 
-from trainctl.config import TrainctlConfig
-from trainctl.load_backend import load_backend
-from trainctl.rest.app import build_app
-from trainctl.runtime.runtime import TrainctlRuntime
-from trainctl.runtime.virtual_fs.live_files import LIVE_FILES
-from trainctl.runtime.virtual_fs.virtual_file_content import virtual_file_content
+from midrun.config import MidrunConfig
+from midrun.load_backend import load_backend
+from midrun.rest.app import build_app
+from midrun.runtime.runtime import MidrunRuntime
+from midrun.runtime.virtual_fs.live_files import LIVE_FILES
+from midrun.runtime.virtual_fs.virtual_file_content import virtual_file_content
 
 
-def _client() -> tuple[TestClient, TrainctlRuntime]:
-    config = TrainctlConfig(
+def _client() -> tuple[TestClient, MidrunRuntime]:
+    config = MidrunConfig(
         rest_enabled=False, fuse_enabled=False, torch_debug_enabled=False
     )
-    runtime = TrainctlRuntime(config, load_backend("lightning.pytorch"))
+    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
     return TestClient(build_app(runtime)), runtime
 
 

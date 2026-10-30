@@ -10,7 +10,7 @@ import sys
 import pytest
 import torch
 
-from trainctl.runtime.graph_inspectors.torchview_dot import torchview_dot
+from midrun.runtime.graph_inspectors.torchview_dot import torchview_dot
 
 
 class _Model(torch.nn.Module):

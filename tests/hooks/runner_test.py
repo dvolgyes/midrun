@@ -1,4 +1,4 @@
-"""Behavioral tests for trainctl.hooks.runner (T5)."""
+"""Behavioral tests for midrun.hooks.runner (T5)."""
 
 import contextlib
 import os
@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from loguru import logger
 
-from trainctl.hooks.runner import run_script
+from midrun.hooks.runner import run_script
 
 _SHELL = Path(shutil.which("bash"))
 

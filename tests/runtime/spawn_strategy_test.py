@@ -1,7 +1,7 @@
 """Behavioral test: a spawn-based strategy fails with a message that names the fix.
 
 Lightning's `ddp_spawn` pickles the model to start the worker processes, and the
-Trainctl runtime owns threads, locks and servers that cannot be pickled.
+Midrun runtime owns threads, locks and servers that cannot be pickled.
 """
 
 from pathlib import Path
@@ -11,10 +11,10 @@ import pytest
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from trainctl.mixin import TrainctlMixin
+from midrun.mixin import MidrunMixin
 
 
-class _Model(TrainctlMixin, PL.LightningModule):
+class _Model(MidrunMixin, PL.LightningModule):
     def __init__(self) -> None:
         super().__init__(
             rest_port=18540,

@@ -1,4 +1,4 @@
-"""Behavioral tests for trainctl.hooks.discovery (T2)."""
+"""Behavioral tests for midrun.hooks.discovery (T2)."""
 
 import os
 import stat
@@ -6,8 +6,8 @@ import stat
 import pytest
 from loguru import logger
 
-from trainctl.hooks.discovery import EpochScanState
-from trainctl.hooks.resolve_enabled_script import resolve_enabled_script
+from midrun.hooks.discovery import EpochScanState
+from midrun.hooks.resolve_enabled_script import resolve_enabled_script
 
 
 @pytest.fixture()

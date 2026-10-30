@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from trainctl.debugger import pyspy_capture
+from midrun.debugger import pyspy_capture
 
 pytestmark = pytest.mark.skipif(
     shutil.which("py-spy") is None, reason="py-spy not installed"

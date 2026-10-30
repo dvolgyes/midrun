@@ -2,8 +2,8 @@
 
 from dataclasses import fields
 
-from trainctl.runtime.state.runtime_snapshot import RuntimeSnapshot
-from trainctl.runtime.state.runtime_snapshot_changes import RuntimeSnapshotChanges
+from midrun.runtime.state.runtime_snapshot import RuntimeSnapshot
+from midrun.runtime.state.runtime_snapshot_changes import RuntimeSnapshotChanges
 
 
 def test_changes_cover_every_snapshot_field_that_update_does_not_set() -> None:

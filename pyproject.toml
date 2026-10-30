@@ -1,5 +1,5 @@
 [project]
-name = "trainctl"
+name = "midrun"
 version = "0.1.0"
 description = "Look inside a running PyTorch Lightning job and steer it: a REST API, a dashboard and a FUSE view"
 readme = "README.md"
@@ -27,9 +27,9 @@ graphs = [
   "torchviz>=0.0.3",
 ]
 inspectors = [
-  "trainctl[torchinfo]",
-  "trainctl[graphs]",
-  "trainctl[torchlens]",
+  "midrun[torchinfo]",
+  "midrun[graphs]",
+  "midrun[torchlens]",
 ]
 torchinfo = [
   "torchinfo>=1.8.0",
@@ -59,5 +59,5 @@ requires = ["uv_build>=0.12.9,<0.13.0"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = "trainctl"
+module-name = "midrun"
 module-root = ""

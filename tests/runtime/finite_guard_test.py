@@ -7,21 +7,21 @@ from pathlib import Path
 
 import torch
 
-from trainctl.config import TrainctlConfig
-from trainctl.load_backend import load_backend
-from trainctl.runtime.artifacts import ArtifactStore
-from trainctl.runtime.finite_guard import DataloaderFiniteGuard
-from trainctl.runtime.iter_batch_tensors import iter_batch_tensors
-from trainctl.runtime.runtime import TrainctlRuntime
+from midrun.config import MidrunConfig
+from midrun.load_backend import load_backend
+from midrun.runtime.artifacts import ArtifactStore
+from midrun.runtime.finite_guard import DataloaderFiniteGuard
+from midrun.runtime.iter_batch_tensors import iter_batch_tensors
+from midrun.runtime.runtime import MidrunRuntime
 
 _Pair = namedtuple("_Pair", ["inputs", "targets"])
 
 
-def _make_runtime(tmp_path: Path, **overrides: object) -> TrainctlRuntime:
-    config = TrainctlConfig(
+def _make_runtime(tmp_path: Path, **overrides: object) -> MidrunRuntime:
+    config = MidrunConfig(
         rest_enabled=False, fuse_enabled=False, torch_debug_enabled=False, **overrides
     )
-    runtime = TrainctlRuntime(config, load_backend("lightning.pytorch"))
+    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
     runtime.artifacts = ArtifactStore(tmp_path)
     return runtime
 

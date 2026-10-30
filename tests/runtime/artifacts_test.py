@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from trainctl.runtime.artifacts import ArtifactStore
+from midrun.runtime.artifacts import ArtifactStore
 
 
 def test_write_debug_capture_writes_files_and_manifest(tmp_path: Path) -> None:
@@ -87,7 +87,7 @@ _WRITE_IN_A_NEW_PROCESS = """
 import json
 import sys
 from pathlib import Path
-from trainctl.runtime.artifacts import ArtifactStore
+from midrun.runtime.artifacts import ArtifactStore
 
 store = ArtifactStore(Path(sys.argv[1]))
 if sys.argv[2] == "snapshot":

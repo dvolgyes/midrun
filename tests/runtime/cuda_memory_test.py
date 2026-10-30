@@ -14,13 +14,13 @@ import sys
 import pytest
 import torch
 
-from trainctl.runtime.cuda_memory.cheap_cuda_memory_stats import (
+from midrun.runtime.cuda_memory.cheap_cuda_memory_stats import (
     cheap_cuda_memory_stats,
 )
-from trainctl.runtime.cuda_memory.dump_cuda_memory_snapshot import (
+from midrun.runtime.cuda_memory.dump_cuda_memory_snapshot import (
     dump_cuda_memory_snapshot,
 )
-from trainctl.runtime.cuda_memory.set_cuda_memory_history import (
+from midrun.runtime.cuda_memory.set_cuda_memory_history import (
     set_cuda_memory_history,
 )
 
@@ -40,13 +40,13 @@ def test_cheap_stats_reports_real_allocator_counters() -> None:
 _READ_CUDA_MEMORY_FILE = """
 import json
 import torch
-from trainctl.config import TrainctlConfig
-from trainctl.load_backend import load_backend
-from trainctl.runtime.runtime import TrainctlRuntime
-from trainctl.runtime.virtual_fs.virtual_file_content import virtual_file_content
+from midrun.config import MidrunConfig
+from midrun.load_backend import load_backend
+from midrun.runtime.runtime import MidrunRuntime
+from midrun.runtime.virtual_fs.virtual_file_content import virtual_file_content
 
-runtime = TrainctlRuntime(
-    TrainctlConfig(rest_enabled=False, torch_debug_enabled=False, fuse_enabled=False),
+runtime = MidrunRuntime(
+    MidrunConfig(rest_enabled=False, torch_debug_enabled=False, fuse_enabled=False),
     load_backend("lightning.pytorch"),
 )
 content = virtual_file_content(runtime, "/state/cuda-memory.json")

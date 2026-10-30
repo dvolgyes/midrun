@@ -10,10 +10,10 @@ from pathlib import Path
 
 import pytest
 
-from trainctl.config import TrainctlConfig
-from trainctl.fuse import filesystem
-from trainctl.load_backend import load_backend
-from trainctl.runtime.runtime import TrainctlRuntime
+from midrun.config import MidrunConfig
+from midrun.fuse import filesystem
+from midrun.load_backend import load_backend
+from midrun.runtime.runtime import MidrunRuntime
 
 
 class _Module:
@@ -22,8 +22,8 @@ class _Module:
 
 @pytest.fixture
 def mountpoint(tmp_path: Path) -> Iterator[Path]:
-    runtime = TrainctlRuntime(
-        TrainctlConfig(
+    runtime = MidrunRuntime(
+        MidrunConfig(
             rest_enabled=False,
             torch_debug_enabled=False,
             artifact_dir=tmp_path / "artifacts",
@@ -49,7 +49,7 @@ def test_stat_of_a_failing_generated_file_reports_its_errno(
 ) -> None:
     content_of = filesystem.virtual_file_content
 
-    def _failing(runtime: TrainctlRuntime, path: str) -> bytes | None:
+    def _failing(runtime: MidrunRuntime, path: str) -> bytes | None:
         if path == "/state/status":
             raise failure
         return content_of(runtime, path)

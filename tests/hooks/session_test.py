@@ -1,4 +1,4 @@
-"""Behavioral tests for trainctl.hooks.session's HookSession."""
+"""Behavioral tests for midrun.hooks.session's HookSession."""
 
 import json
 import shutil
@@ -10,8 +10,8 @@ import pytest
 import torch
 from loguru import logger
 
-from trainctl.hooks.manager.bootstrap_hooks_tree import bootstrap_hooks_tree
-from trainctl.hooks.session import HookSession
+from midrun.hooks.manager.bootstrap_hooks_tree import bootstrap_hooks_tree
+from midrun.hooks.session import HookSession
 
 _SHELL = Path(shutil.which("bash"))
 

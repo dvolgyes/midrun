@@ -1,25 +1,25 @@
 # CIFAR-10 integration harness
 
-A small, real training workload for exercising trainctl's LightningModule-compatible base class against an actual
+A small, real training workload for exercising midrun's LightningModule-compatible base class against an actual
 Lightning `Trainer`, callbacks, and TensorBoard logging — not a benchmark.
 
-## Trainctl integration
+## Midrun integration
 
-`CifarClassifier` composes `TrainctlMixin` before `lightning.pytorch.LightningModule`:
+`CifarClassifier` composes `MidrunMixin` before `lightning.pytorch.LightningModule`:
 
 ```python
 import lightning.pytorch as pl
-from trainctl import TrainctlMixin
+from midrun import MidrunMixin
 
 
-class CifarClassifier(TrainctlMixin, pl.LightningModule): ...
+class CifarClassifier(MidrunMixin, pl.LightningModule): ...
 ```
 
 This starts a read-only inspection filesystem (mfusepy, default under `<TensorBoard log_dir>/procfs`, alongside this
 run's checkpoints and TensorBoard logs) and a REST control API (default `http://127.0.0.1:8090`) around the run, with no
-other changes to `data.py` or `train.py`. See `trainctl/mixin.py` for the full set of `trainctl_*` constructor options
+other changes to `data.py` or `train.py`. See `midrun/mixin.py` for the full set of `midrun_*` constructor options
 (ports, mountpoint, enabling/disabling each service); the mounted filesystem's own `/README.md` documents its tree, and
-`trainctl/rest/app.py` documents the REST routes.
+`midrun/rest/app.py` documents the REST routes.
 
 While a run is active:
 

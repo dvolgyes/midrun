@@ -1,16 +1,16 @@
-"""Behavioral tests for CurrentStep retention and TrainctlRuntime's per-batch wiring."""
+"""Behavioral tests for CurrentStep retention and MidrunRuntime's per-batch wiring."""
 
-from trainctl.config import TrainctlConfig
-from trainctl.load_backend import load_backend
-from trainctl.runtime.current_step import CurrentStep
-from trainctl.runtime.runtime import TrainctlRuntime
+from midrun.config import MidrunConfig
+from midrun.load_backend import load_backend
+from midrun.runtime.current_step import CurrentStep
+from midrun.runtime.runtime import MidrunRuntime
 
 
-def _make_runtime() -> TrainctlRuntime:
-    config = TrainctlConfig(
+def _make_runtime() -> MidrunRuntime:
+    config = MidrunConfig(
         rest_enabled=False, fuse_enabled=False, torch_debug_enabled=False
     )
-    return TrainctlRuntime(config, load_backend("lightning.pytorch"))
+    return MidrunRuntime(config, load_backend("lightning.pytorch"))
 
 
 class _FakeState:

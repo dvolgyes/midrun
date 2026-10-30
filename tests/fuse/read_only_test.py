@@ -12,24 +12,24 @@ from pathlib import Path
 import mfusepy
 import pytest
 
-from trainctl.config import TrainctlConfig
-from trainctl.fuse.filesystem import TrainctlFS
-from trainctl.load_backend import load_backend
-from trainctl.runtime.runtime import TrainctlRuntime
+from midrun.config import MidrunConfig
+from midrun.fuse.filesystem import MidrunFS
+from midrun.load_backend import load_backend
+from midrun.runtime.runtime import MidrunRuntime
 
 
 class _Module:
     device = "cpu"
 
 
-def _runtime(tmp_path: Path, **overrides: object) -> TrainctlRuntime:
-    config = TrainctlConfig(
+def _runtime(tmp_path: Path, **overrides: object) -> MidrunRuntime:
+    config = MidrunConfig(
         rest_enabled=False,
         torch_debug_enabled=False,
         artifact_dir=tmp_path / "artifacts",
         **overrides,
     )
-    return TrainctlRuntime(config, load_backend("lightning.pytorch"))
+    return MidrunRuntime(config, load_backend("lightning.pytorch"))
 
 
 @pytest.fixture
@@ -62,7 +62,7 @@ def test_changes_to_the_mount_fail_with_erofs(
 
 @pytest.mark.parametrize("flags", [os.O_WRONLY, os.O_RDWR])
 def test_open_for_writing_is_refused(tmp_path: Path, flags: int) -> None:
-    fs = TrainctlFS(_runtime(tmp_path, fuse_enabled=False))
+    fs = MidrunFS(_runtime(tmp_path, fuse_enabled=False))
 
     with pytest.raises(mfusepy.FuseOSError) as raised:
         fs.open("/state/status", flags)

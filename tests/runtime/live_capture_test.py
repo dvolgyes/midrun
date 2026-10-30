@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from trainctl.runtime.live_capture import LiveCaptureBroker
+from midrun.runtime.live_capture import LiveCaptureBroker
 
 
 def _wait_until(predicate, timeout: float = 5.0) -> None:

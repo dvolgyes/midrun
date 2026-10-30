@@ -10,9 +10,9 @@ import time
 import warnings
 from pathlib import Path
 
-from trainctl.config import TrainctlConfig
-from trainctl.load_backend import load_backend
-from trainctl.runtime.runtime import TrainctlRuntime
+from midrun.config import MidrunConfig
+from midrun.load_backend import load_backend
+from midrun.runtime.runtime import MidrunRuntime
 
 
 class _Module:
@@ -35,8 +35,8 @@ def _fork_holding_child() -> tuple[int, int]:
 
 
 def test_teardown_with_a_forked_child_alive_is_prompt(tmp_path: Path) -> None:
-    runtime = TrainctlRuntime(
-        TrainctlConfig(
+    runtime = MidrunRuntime(
+        MidrunConfig(
             rest_enabled=False,
             torch_debug_enabled=False,
             inspection_strict=True,

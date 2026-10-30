@@ -12,17 +12,17 @@ from pathlib import Path
 import pytest
 import torch
 
-from trainctl.config import TrainctlConfig
-from trainctl.load_backend import load_backend
-from trainctl.runtime.artifacts import ArtifactStore
-from trainctl.runtime.commands.parse_when import parse_when
-from trainctl.runtime.graph_inspectors.torchview_available import (
+from midrun.config import MidrunConfig
+from midrun.load_backend import load_backend
+from midrun.runtime.artifacts import ArtifactStore
+from midrun.runtime.commands.parse_when import parse_when
+from midrun.runtime.graph_inspectors.torchview_available import (
     torchview_available,
 )
-from trainctl.runtime.graph_inspectors.torchview_capture import torchview_capture
-from trainctl.runtime.graph_inspectors.torchviz_available import torchviz_available
-from trainctl.runtime.graph_inspectors.torchviz_capture import torchviz_capture
-from trainctl.runtime.runtime import TrainctlRuntime
+from midrun.runtime.graph_inspectors.torchview_capture import torchview_capture
+from midrun.runtime.graph_inspectors.torchviz_available import torchviz_available
+from midrun.runtime.graph_inspectors.torchviz_capture import torchviz_capture
+from midrun.runtime.runtime import MidrunRuntime
 
 pytestmark = pytest.mark.skipif(
     shutil.which("dot") is None, reason="Graphviz 'dot' binary not installed"
@@ -38,11 +38,11 @@ class _Model(torch.nn.Module):
         return self.fc(x)
 
 
-def _make_runtime(tmp_path: Path, **overrides: object) -> TrainctlRuntime:
-    config = TrainctlConfig(
+def _make_runtime(tmp_path: Path, **overrides: object) -> MidrunRuntime:
+    config = MidrunConfig(
         rest_enabled=False, fuse_enabled=False, torch_debug_enabled=False, **overrides
     )
-    runtime = TrainctlRuntime(config, load_backend("lightning.pytorch"))
+    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
     runtime.artifacts = ArtifactStore(tmp_path)
     return runtime
 
@@ -156,7 +156,7 @@ def test_torchviz_capture_uses_current_step_loss_during_exception_hold(
 ) -> None:
     """During an active exception hold, the actual failed loss's graph is what's
     worth inspecting -- not a fresh, unrelated forward pass."""
-    from trainctl.runtime.state.exception_breakpoint_info import (
+    from midrun.runtime.state.exception_breakpoint_info import (
         ExceptionBreakpointInfo,
     )
 
@@ -199,7 +199,7 @@ class _FailingBackward(torch.autograd.Function):
 def test_torchviz_capture_with_default_args_renders_a_loss_whose_backward_raised(
     tmp_path: Path,
 ) -> None:
-    from trainctl.runtime.state.exception_breakpoint_info import (
+    from midrun.runtime.state.exception_breakpoint_info import (
         ExceptionBreakpointInfo,
     )
 
@@ -230,7 +230,7 @@ def test_torchviz_capture_with_default_args_renders_a_loss_whose_backward_raised
 def test_torchviz_capture_fails_without_in_flight_loss_during_exception_hold(
     tmp_path: Path,
 ) -> None:
-    from trainctl.runtime.state.exception_breakpoint_info import (
+    from midrun.runtime.state.exception_breakpoint_info import (
         ExceptionBreakpointInfo,
     )
 

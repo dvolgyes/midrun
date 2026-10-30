@@ -1,4 +1,4 @@
-"""Deliberately slow live-training run for exercising TrainctlMixin's REST API and FUSE
+"""Deliberately slow live-training run for exercising MidrunMixin's REST API and FUSE
 mountpoint by hand from a second terminal, while training runs in the foreground here.
 
 Run this in one terminal:
@@ -11,7 +11,7 @@ Ctrl+C in this terminal stops training gracefully (Lightning's own signal
 handling); a second Ctrl+C forces an immediate exit.
 
 Pass `--hooks-source-dir` to seed the run's live `hooks/` tree from a baseline
-directory of light/heavy scripts instead of the disabled examples trainctl
+directory of light/heavy scripts instead of the disabled examples midrun
 generates on its own; see the README's "Lifecycle shell hooks" section.
 """
 
@@ -29,7 +29,7 @@ from torch.utils.data import DataLoader
 from torchvision.datasets import FakeData
 from torchvision.transforms import v2 as T
 
-from trainctl import TrainctlMixin
+from midrun import MidrunMixin
 
 REST_PORT = 8090
 REST_BASE = f"http://127.0.0.1:{REST_PORT}"
@@ -39,15 +39,15 @@ LOG_DIR = Path(__file__).resolve().parent / "logs"
 def _banner(log_dir: Path) -> str:
     """Builds the usage banner, given this run's resolved TensorBoard log directory.
 
-    Trainctl's FUSE mount and artifact store colocate directly under `log_dir`
+    Midrun's FUSE mount and artifact store colocate directly under `log_dir`
     (alongside TensorBoard's own event files) by default -- see
-    `trainctl.runtime.default_base_dir`.
+    `midrun.runtime.default_base_dir`.
     """
     mnt = log_dir / "procfs"
     artifacts = log_dir / "artifacts"
     return f"""
 =================================================================
- trainctl playground -- dashboard: {REST_BASE}/
+ midrun playground -- dashboard: {REST_BASE}/
                          API docs:   {REST_BASE}/docs
                          log dir:    {log_dir}
                          FUSE mount: {mnt}
@@ -59,15 +59,15 @@ def _banner(log_dir: Path) -> str:
 """
 
 
-class PlaygroundModel(TrainctlMixin, pl.LightningModule):
+class PlaygroundModel(MidrunMixin, pl.LightningModule):
     """Tiny classifier whose training step sleeps, so a human has time to interact with
-    the live run through trainctl's REST API and FUSE mount.
+    the live run through midrun's REST API and FUSE mount.
 
     Attributes:
         net: Small linear classifier over flattened 16x16 RGB inputs.
     """
 
-    trainctl_tunable_hparams = {
+    midrun_tunable_hparams = {
         "hparams.step_delay": {"min": 0.0, "max": 5.0, "label": "Step delay (s)"},
     }
 
@@ -127,7 +127,7 @@ def _init_single_process_distributed() -> None:
     """Starts a real, single-rank `torch.distributed` process group.
 
     `torch.distributed.debug`'s server only activates once a process group is
-    initialized (see `trainctl.torch_debug.manager.TorchDebugManager`), which
+    initialized (see `midrun.torch_debug.manager.TorchDebugManager`), which
     normally means a torchrun/DDP launch. A world size of one is enough to
     demonstrate it without a multi-process launch.
     """

@@ -1,6 +1,6 @@
-# trainctl
+# midrun
 
-trainctl lets you look inside a running PyTorch Lightning training job and steer it without a restart. You add one mixin
+midrun lets you look inside a running PyTorch Lightning training job and steer it without a restart. You add one mixin
 class to your `LightningModule`. While the job runs, you get:
 
 - a web dashboard and a REST API (pause, resume, stop, checkpoint, change the learning rate or a hyperparameter, capture
@@ -14,24 +14,24 @@ server listens on all network interfaces (see [Limits](#limits)).
 
 ## Install
 
-trainctl needs Python 3.12 or later and Linux. The filesystem view needs FUSE (`/dev/fuse` and `fusermount3`).
+midrun needs Python 3.12 or later and Linux. The filesystem view needs FUSE (`/dev/fuse` and `fusermount3`).
 
 ```sh
-uv add "trainctl @ git+https://github.com/dvolgyes/trainctl"
+uv add "midrun @ git+https://github.com/dvolgyes/midrun"
 # optional model inspectors (torchview, torchviz, torchinfo, torchlens):
-uv add "trainctl[inspectors] @ git+https://github.com/dvolgyes/trainctl"
+uv add "midrun[inspectors] @ git+https://github.com/dvolgyes/midrun"
 ```
 
-For work on trainctl itself:
+For work on midrun itself:
 
 ```sh
-git clone https://github.com/dvolgyes/trainctl && cd trainctl
+git clone https://github.com/dvolgyes/midrun && cd midrun
 uv sync
 ```
 
 ## Quickstart: add the mixin to your model
 
-Put `TrainctlMixin` before `LightningModule` in the base classes. Give trainctl options as keyword arguments to
+Put `MidrunMixin` before `LightningModule` in the base classes. Give midrun options as keyword arguments to
 `super().__init__()`.
 
 ```python
@@ -40,15 +40,15 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from trainctl import TrainctlMixin
+from midrun import MidrunMixin
 
 
-class TinyRegressor(TrainctlMixin, L.LightningModule):
+class TinyRegressor(MidrunMixin, L.LightningModule):
     # Optional: attributes that you can change while the run is live.
-    trainctl_tunable_hparams = {"hparams.l2": {"min": 0.0, "max": 1.0}}
+    midrun_tunable_hparams = {"hparams.l2": {"min": 0.0, "max": 1.0}}
 
     def __init__(self, lr: float = 1e-2, l2: float = 0.0) -> None:
-        super().__init__()  # trainctl options go here as keyword arguments
+        super().__init__()  # midrun options go here as keyword arguments
         self.save_hyperparameters()
         self.net = nn.Sequential(nn.Linear(8, 32), nn.ReLU(), nn.Linear(32, 1))
 
@@ -71,14 +71,14 @@ if __name__ == "__main__":
 
 Run it with `uv run python train.py`. Nothing else changes in your training code.
 
-If your model overrides one of these Lightning hooks, call `super()` in your override, because trainctl uses them:
+If your model overrides one of these Lightning hooks, call `super()` in your override, because midrun uses them:
 `setup`, `teardown`, `configure_callbacks`, `on_fit_start`, `on_fit_end`, `on_train_batch_start`, `on_train_batch_end`,
 `on_train_epoch_end`, `on_validation_epoch_end`, `on_before_backward`, `backward`, `on_after_backward`,
 `on_before_optimizer_step`.
 
 ## Where to find the run
 
-trainctl puts its files in the Trainer's log directory (for example `lightning_logs/version_0/`), next to the files of
+midrun puts its files in the Trainer's log directory (for example `lightning_logs/version_0/`), next to the files of
 your logger:
 
 ```text
@@ -86,11 +86,11 @@ lightning_logs/version_0/
 ├── procfs/                      read-only live view of the run (FUSE mount, exists while the run is live)
 ├── artifacts/                   checkpoints/, snapshots/, debug/
 ├── hooks/                       light/ and heavy/ shell hooks, all disabled at start
-├── trainctl-hooks-state.json
-└── trainctl.log                 trainctl log, including hook output
+├── midrun-hooks-state.json
+└── midrun.log                 midrun log, including hook output
 ```
 
-The REST port is 8090. If 8090 is in use, trainctl tries the next ports. The address that the run actually uses is in
+The REST port is 8090. If 8090 is in use, midrun tries the next ports. The address that the run actually uses is in
 `procfs/meta/rest/url`:
 
 ```sh
@@ -105,16 +105,16 @@ Open the REST address (`$URL/`) in a browser. The dashboard shows the run state,
 CUDA memory, the profiler, artifacts and model inspectors. The page refreshes every 15 seconds; the refresh button
 updates it immediately.
 
-![trainctl dashboard](docs/images/dashboard.png)
+![midrun dashboard](docs/images/dashboard.png)
 
 **Pause** holds the training at the next safe point, before the optimizer step. While the run is held, you can make a
 checkpoint, change the learning rate or a tunable hyperparameter, and then click **Resume**.
 
 ![Run panel while the training is held](docs/images/paused.png)
 
-The inspectors panel shows model views that trainctl captures at the next optimizer step, for example the live model
-graph (needs `trainctl[graphs]`). Capture these views while the run is not held: they wait for the next optimizer step
-and fail after 30 seconds.
+The inspectors panel shows model views that midrun captures at the next optimizer step, for example the live model graph
+(needs `midrun[graphs]`). Capture these views while the run is not held: they wait for the next optimizer step and fail
+after 30 seconds.
 
 ![Live model graph](docs/images/live-graph.png)
 
@@ -174,7 +174,7 @@ any other `when` value with status 400.
 | `set_hparam` | Change a tunable hyperparameter (see below). |
 | `set_dataloader_finite_check` | Turn the NaN/Inf check of each batch on or off. |
 | `save_current_batch`, `save_current_loss`, `save_partial_gradients`, `save_optimizer_summary` | Save training data for offline debugging. |
-| `release_exception` | End the hold after a backward exception that trainctl caught; the exception is then raised again. |
+| `release_exception` | End the hold after a backward exception that midrun caught; the exception is then raised again. |
 | `torchinfo_capture`, `torchview_capture`, `torchviz_capture`, `torchlens_capture` | Capture a model summary or graph (optional extras). |
 | `profile`, `set_lightning_profiler` | Profile some training steps. |
 
@@ -193,11 +193,11 @@ Other routes: `/run`, `/metrics`, `/optimizers`, `/artifacts`, `/telemetry/pipel
 
 ### Tunable hyperparameters
 
-`set_hparam` changes only the attributes that the model declares in `trainctl_tunable_hparams`:
+`set_hparam` changes only the attributes that the model declares in `midrun_tunable_hparams`:
 
 ```python
-trainctl_tunable_hparams = ["hparams.dropout"]  # a list of paths
-trainctl_tunable_hparams = {
+midrun_tunable_hparams = ["hparams.dropout"]  # a list of paths
+midrun_tunable_hparams = {
     "hparams.l2": {"min": 0.0, "max": 1.0, "label": "L2"}
 }  # or paths with limits
 ```
@@ -227,20 +227,20 @@ watch -n1 cat $RUN/procfs/state/pipeline/summary.json
 `model/summary-live.txt` and `model/graph.dot` are made on demand at the next optimizer step. A read of these files
 waits for that step and fails after 30 seconds if the training is held.
 
-When the run ends or fails, trainctl unmounts `procfs/`. If the training process is killed (for example with `kill -9`),
-a small watcher process unmounts `procfs/` when the training process exits. If the mount still stays and shows
+When the run ends or fails, midrun unmounts `procfs/`. If the training process is killed (for example with `kill -9`), a
+small watcher process unmounts `procfs/` when the training process exits. If the mount still stays and shows
 `Transport endpoint is not connected`, remove it with:
 
 ```sh
 fusermount3 -uz $RUN/procfs
 ```
 
-A new run also removes a stale trainctl mount at its mountpoint. trainctl does not mount on a directory that contains
-files or another mount.
+A new run also removes a stale midrun mount at its mountpoint. midrun does not mount on a directory that contains files
+or another mount.
 
 ## Shell hooks
 
-trainctl makes a script for each Lightning callback in `hooks/light/` and `hooks/heavy/`. All scripts are disabled at
+midrun makes a script for each Lightning callback in `hooks/light/` and `hooks/heavy/`. All scripts are disabled at
 start. To enable a script, edit it and set its execute bit; to disable it, remove the execute bit. The change applies at
 the next callback, without a restart.
 
@@ -249,7 +249,7 @@ cat > $RUN/hooks/light/on_train_batch_end.sh <<'EOF'
 jq -c '{step: .global_step, batch: .batch_idx}' "$1"
 EOF
 chmod +x $RUN/hooks/light/on_train_batch_end.sh
-tail -f $RUN/trainctl.log
+tail -f $RUN/midrun.log
 ```
 
 A light hook gets a JSON description of the callback arguments. A heavy hook also gets the tensors as `.npy` files. The
@@ -258,12 +258,12 @@ hook runs on the training thread, so the training waits for it. For the payload 
 
 ## Options
 
-Give these as keyword arguments to `super().__init__()`. The [TrainctlConfig docstring](trainctl/config.py) has the full
+Give these as keyword arguments to `super().__init__()`. The [MidrunConfig docstring](midrun/config.py) has the full
 description of each option.
 
 | Option | Default | Purpose |
 | -- | -- | -- |
-| `trainctl_enabled` | `True` | Master switch for all services. |
+| `midrun_enabled` | `True` | Master switch for all services. |
 | `rest_enabled`, `rest_host`, `rest_port`, `rest_port_search` | `True`, `127.0.0.1`, `8090`, `100` | REST API and dashboard. |
 | `fuse_enabled`, `fuse_mountpoint` | `True`, `<log_dir>/procfs` | Read-only filesystem view. |
 | `artifact_dir` | `<log_dir>/artifacts` | Checkpoints, snapshots, debug captures. |
@@ -284,15 +284,15 @@ description of each option.
   two local ranks. If a command on rank zero takes longer than 30 minutes, the other ranks time out.
 - After a backward exception in a distributed run, only rank zero holds. The other ranks raise the exception at once, so
   Lightning soon stops the job.
-- trainctl does not support `strategy="ddp_spawn"` or the other spawn-based strategies, because they pickle the model.
-  Use `strategy="ddp"`.
+- midrun does not support `strategy="ddp_spawn"` or the other spawn-based strategies, because they pickle the model. Use
+  `strategy="ddp"`.
 - In a distributed run, the `torch.distributed.debug` server listens on all network interfaces and has no
   authentication. It shows stack traces and process dumps of all ranks. On a shared network, set
   `torch_debug_enabled=False`.
 - The REST API has no authentication and listens on `127.0.0.1`. Anybody with a shell on the training machine can
   control the run. Do not bind it to a public interface.
-- trainctl starts its services in `setup` and stops them in `teardown`, so they exist only while `fit`, `validate`,
-  `test` or `predict` runs.
+- midrun starts its services in `setup` and stops them in `teardown`, so they exist only while `fit`, `validate`, `test`
+  or `predict` runs.
 
 ## Example
 

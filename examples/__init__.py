@@ -1,1 +1,1 @@
-"""Standalone example projects used to exercise trainctl against real training workloads."""
+"""Standalone example projects used to exercise midrun against real training workloads."""

@@ -7,19 +7,19 @@ from pathlib import Path
 import pytest
 import torch
 
-from trainctl.config import TrainctlConfig
-from trainctl.load_backend import load_backend
-from trainctl.runtime.artifacts import ArtifactStore
-from trainctl.runtime.commands.parse_when import parse_when
-from trainctl.runtime.profiler import ProfilerRun
-from trainctl.runtime.runtime import TrainctlRuntime
+from midrun.config import MidrunConfig
+from midrun.load_backend import load_backend
+from midrun.runtime.artifacts import ArtifactStore
+from midrun.runtime.commands.parse_when import parse_when
+from midrun.runtime.profiler import ProfilerRun
+from midrun.runtime.runtime import MidrunRuntime
 
 
-def _make_runtime(tmp_path: Path, **overrides: object) -> TrainctlRuntime:
-    config = TrainctlConfig(
+def _make_runtime(tmp_path: Path, **overrides: object) -> MidrunRuntime:
+    config = MidrunConfig(
         rest_enabled=False, fuse_enabled=False, torch_debug_enabled=False, **overrides
     )
-    runtime = TrainctlRuntime(config, load_backend("lightning.pytorch"))
+    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
     runtime.artifacts = ArtifactStore(tmp_path)
     return runtime
 

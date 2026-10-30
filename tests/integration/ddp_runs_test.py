@@ -1,27 +1,27 @@
-"""Behavioral tests: Trainctl in a real two-rank Lightning DDP run on CPU (gloo).
+"""Behavioral tests: Midrun in a real two-rank Lightning DDP run on CPU (gloo).
 
 Each test runs this file as a script in its own process group, so a deadlocked
 run is killed with all its ranks. Lightning's DDP launcher starts rank 1 as a
 child process that runs this same file.
 
-Each rank writes `status-rank<N>.json` once its Trainctl services start, and
+Each rank writes `status-rank<N>.json` once its Midrun services start, and
 appends one JSON line per training step to `steps-rank<N>.jsonl`, so a test can
 see what each rank observed.
 
 Environment variables of the script:
-    TRAINCTL_TEST_DIR: Required. Root directory of this run's files.
+    MIDRUN_TEST_DIR: Required. Root directory of this run's files.
     MASTER_PORT: Required. The `torch.distributed` rendezvous port.
-    TRAINCTL_TEST_FUSE: Optional, "1" mounts the FUSE tree. Default "0".
-    TRAINCTL_TEST_TORCH_DEBUG: Optional, "1" starts the torch debug server. Default "0".
-    TRAINCTL_TEST_MAX_STEPS: Optional, default -1 (until stopped or `max_time`).
-    TRAINCTL_TEST_PG_TIMEOUT_S: Optional, the process-group timeout. Default 60.
-    TRAINCTL_TEST_STEP_SLEEP_S: Optional, a sleep in each training step. Default 0.
-    TRAINCTL_TEST_FAIL_BACKWARD_AT_STEP: Optional, the global step whose backward
+    MIDRUN_TEST_FUSE: Optional, "1" mounts the FUSE tree. Default "0".
+    MIDRUN_TEST_TORCH_DEBUG: Optional, "1" starts the torch debug server. Default "0".
+    MIDRUN_TEST_MAX_STEPS: Optional, default -1 (until stopped or `max_time`).
+    MIDRUN_TEST_PG_TIMEOUT_S: Optional, the process-group timeout. Default 60.
+    MIDRUN_TEST_STEP_SLEEP_S: Optional, a sleep in each training step. Default 0.
+    MIDRUN_TEST_FAIL_BACKWARD_AT_STEP: Optional, the global step whose backward
         raises on every rank. Default -1 (never).
-    TRAINCTL_TEST_NAN_ON_RANK1_AT_STEP: Optional, the global step whose batch has a
+    MIDRUN_TEST_NAN_ON_RANK1_AT_STEP: Optional, the global step whose batch has a
         NaN on rank 1 only. It also turns on the dataloader finite check. Default -1.
-    TRAINCTL_TEST_REST_PORT: Optional, default 18500.
-    TRAINCTL_TEST_TORCH_DEBUG_PORT: Optional, default 18600.
+    MIDRUN_TEST_REST_PORT: Optional, default 18500.
+    MIDRUN_TEST_TORCH_DEBUG_PORT: Optional, default 18600.
 """
 
 import json
@@ -43,7 +43,7 @@ from lightning.pytorch.strategies import DDPStrategy
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from trainctl import TrainctlMixin
+from midrun import MidrunMixin
 
 _ENV = os.environ
 _FUSE_AVAILABLE = Path("/dev/fuse").exists() and shutil.which("fusermount3")
@@ -64,10 +64,10 @@ class _FailingBackward(torch.autograd.Function):
         ctx: torch.autograd.function.FunctionCtx, grad: torch.Tensor
     ) -> torch.Tensor:
         del ctx, grad
-        raise RuntimeError("trainctl test: backward failed")
+        raise RuntimeError("midrun test: backward failed")
 
 
-class _DdpModel(TrainctlMixin, pl.LightningModule):
+class _DdpModel(MidrunMixin, pl.LightningModule):
     """Tiny classifier that records, for each step, what its rank observes.
 
     Attributes:
@@ -75,24 +75,24 @@ class _DdpModel(TrainctlMixin, pl.LightningModule):
         net: Small linear classifier.
     """
 
-    trainctl_tunable_hparams = {"loss_scale": {"min": 0.0, "max": 10.0}}
+    midrun_tunable_hparams = {"loss_scale": {"min": 0.0, "max": 10.0}}
 
     def __init__(self, test_dir: Path) -> None:
-        nan_at = int(_ENV.get("TRAINCTL_TEST_NAN_ON_RANK1_AT_STEP", "-1"))
+        nan_at = int(_ENV.get("MIDRUN_TEST_NAN_ON_RANK1_AT_STEP", "-1"))
         super().__init__(
-            rest_port=int(_ENV.get("TRAINCTL_TEST_REST_PORT", "18500")),
-            torch_debug_port=int(_ENV.get("TRAINCTL_TEST_TORCH_DEBUG_PORT", "18600")),
-            fuse_enabled=_ENV.get("TRAINCTL_TEST_FUSE", "0") == "1",
-            torch_debug_enabled=_ENV.get("TRAINCTL_TEST_TORCH_DEBUG", "0") == "1",
+            rest_port=int(_ENV.get("MIDRUN_TEST_REST_PORT", "18500")),
+            torch_debug_port=int(_ENV.get("MIDRUN_TEST_TORCH_DEBUG_PORT", "18600")),
+            fuse_enabled=_ENV.get("MIDRUN_TEST_FUSE", "0") == "1",
+            torch_debug_enabled=_ENV.get("MIDRUN_TEST_TORCH_DEBUG", "0") == "1",
             hooks_enabled=False,
             inspection_strict=True,
             dataloader_finite_check_enabled=nan_at >= 0,
         )
         self._nan_at = nan_at
         self._test_dir = test_dir
-        self._step_sleep = float(_ENV.get("TRAINCTL_TEST_STEP_SLEEP_S", "0"))
+        self._step_sleep = float(_ENV.get("MIDRUN_TEST_STEP_SLEEP_S", "0"))
         self._fail_backward_at = int(
-            _ENV.get("TRAINCTL_TEST_FAIL_BACKWARD_AT_STEP", "-1")
+            _ENV.get("MIDRUN_TEST_FAIL_BACKWARD_AT_STEP", "-1")
         )
         self.loss_scale = 1.0
         self.net = nn.Sequential(nn.Linear(8, 16), nn.ReLU(), nn.Linear(16, 2))
@@ -132,8 +132,8 @@ class _DdpModel(TrainctlMixin, pl.LightningModule):
 
     def setup(self, stage: str) -> None:
         super().setup(stage)
-        snapshot = self._trainctl.state.read()
-        mountpoint = self._trainctl.fuse_mountpoint
+        snapshot = self._midrun.state.read()
+        mountpoint = self._midrun.fuse_mountpoint
         status = {
             "pid": os.getpid(),
             "run_id": snapshot.run_id,
@@ -148,20 +148,20 @@ class _DdpModel(TrainctlMixin, pl.LightningModule):
 
 def main() -> None:
     """Runs the two-rank fit; Lightning starts rank 1 by running this file again."""
-    test_dir = Path(_ENV["TRAINCTL_TEST_DIR"])
+    test_dir = Path(_ENV["MIDRUN_TEST_DIR"])
     generator = torch.Generator().manual_seed(0)
     dataset = TensorDataset(
         torch.randn(256, 8, generator=generator),
         torch.randint(0, 2, (256,), generator=generator),
     )
-    timeout = timedelta(seconds=float(_ENV.get("TRAINCTL_TEST_PG_TIMEOUT_S", "60")))
+    timeout = timedelta(seconds=float(_ENV.get("MIDRUN_TEST_PG_TIMEOUT_S", "60")))
     trainer = pl.Trainer(
         default_root_dir=str(test_dir / "lightning"),
         accelerator="cpu",
         devices=2,
         strategy=DDPStrategy(timeout=timeout),
         max_epochs=-1,
-        max_steps=int(_ENV.get("TRAINCTL_TEST_MAX_STEPS", "-1")),
+        max_steps=int(_ENV.get("MIDRUN_TEST_MAX_STEPS", "-1")),
         max_time="00:00:02:00",
         logger=False,
         enable_checkpointing=False,
@@ -186,7 +186,7 @@ class _DdpRun:
             [sys.executable, __file__],
             env={
                 **os.environ,
-                "TRAINCTL_TEST_DIR": str(test_dir),
+                "MIDRUN_TEST_DIR": str(test_dir),
                 "MASTER_ADDR": "127.0.0.1",
                 "MASTER_PORT": str(master_port),
                 **env,
@@ -280,9 +280,9 @@ def launch(tmp_path: Path) -> Iterator:
 @pytest.mark.skipif(not _FUSE_AVAILABLE, reason="FUSE is not available")
 def test_the_fuse_mount_starts_without_a_rank_zero_only_collective(launch) -> None:
     run = launch(
-        TRAINCTL_TEST_FUSE="1",
-        TRAINCTL_TEST_MAX_STEPS="20",
-        TRAINCTL_TEST_PG_TIMEOUT_S="20",
+        MIDRUN_TEST_FUSE="1",
+        MIDRUN_TEST_MAX_STEPS="20",
+        MIDRUN_TEST_PG_TIMEOUT_S="20",
     )
     assert run.status(0)["fuse_mountpoint"] is not None
     assert run.status(1)["fuse_mountpoint"] is None
@@ -291,9 +291,9 @@ def test_the_fuse_mount_starts_without_a_rank_zero_only_collective(launch) -> No
 
 def test_the_torch_debug_server_runs_on_every_rank_with_one_frontend(launch) -> None:
     run = launch(
-        TRAINCTL_TEST_TORCH_DEBUG="1",
-        TRAINCTL_TEST_MAX_STEPS="30",
-        TRAINCTL_TEST_STEP_SLEEP_S="0.2",
+        MIDRUN_TEST_TORCH_DEBUG="1",
+        MIDRUN_TEST_MAX_STEPS="30",
+        MIDRUN_TEST_STEP_SLEEP_S="0.2",
     )
     rank0, rank1 = run.status(0), run.status(1)
     assert rank0["rest_port"] is not None
@@ -306,15 +306,13 @@ def test_the_torch_debug_server_runs_on_every_rank_with_one_frontend(launch) -> 
 
 def test_a_backward_exception_on_every_rank_ends_the_run(launch) -> None:
     # Only rank 0 has REST, so an exception hold on another rank could never end.
-    run = launch(
-        TRAINCTL_TEST_FAIL_BACKWARD_AT_STEP="3", TRAINCTL_TEST_PG_TIMEOUT_S="20"
-    )
+    run = launch(MIDRUN_TEST_FAIL_BACKWARD_AT_STEP="3", MIDRUN_TEST_PG_TIMEOUT_S="20")
     assert run.wait(timeout=60) != 0
-    assert "trainctl test: backward failed" in run.log_text()
+    assert "midrun test: backward failed" in run.log_text()
 
 
 def test_the_run_state_lists_every_rank(launch) -> None:
-    run = launch(TRAINCTL_TEST_MAX_STEPS="40", TRAINCTL_TEST_STEP_SLEEP_S="0.1")
+    run = launch(MIDRUN_TEST_MAX_STEPS="40", MIDRUN_TEST_STEP_SLEEP_S="0.1")
     rank0, rank1 = run.status(0), run.status(1)
     url = f"http://127.0.0.1:{rank0['rest_port']}/run"
     snapshot = httpx2.get(url, timeout=10).json()
@@ -327,7 +325,7 @@ def test_the_run_state_lists_every_rank(launch) -> None:
 
 
 def test_a_learning_rate_and_hparam_change_reach_every_rank(launch) -> None:
-    run = launch(TRAINCTL_TEST_MAX_STEPS="60", TRAINCTL_TEST_STEP_SLEEP_S="0.05")
+    run = launch(MIDRUN_TEST_MAX_STEPS="60", MIDRUN_TEST_STEP_SLEEP_S="0.05")
     run.status(1)
     run.post("/commands", {"kind": "set_learning_rate", "args": {"value": 0.05}})
     run.post(
@@ -342,9 +340,9 @@ def test_a_learning_rate_and_hparam_change_reach_every_rank(launch) -> None:
 
 def test_a_checkpoint_completes_on_every_rank(launch) -> None:
     run = launch(
-        TRAINCTL_TEST_MAX_STEPS="60",
-        TRAINCTL_TEST_STEP_SLEEP_S="0.05",
-        TRAINCTL_TEST_PG_TIMEOUT_S="20",
+        MIDRUN_TEST_MAX_STEPS="60",
+        MIDRUN_TEST_STEP_SLEEP_S="0.05",
+        MIDRUN_TEST_PG_TIMEOUT_S="20",
     )
     run.status(1)
     command_id = run.post("/checkpoints", {"label": "manual"})["id"]
@@ -356,14 +354,14 @@ def test_a_checkpoint_completes_on_every_rank(launch) -> None:
 
 
 def test_stop_ends_every_rank(launch) -> None:
-    run = launch(TRAINCTL_TEST_STEP_SLEEP_S="0.05", TRAINCTL_TEST_PG_TIMEOUT_S="20")
+    run = launch(MIDRUN_TEST_STEP_SLEEP_S="0.05", MIDRUN_TEST_PG_TIMEOUT_S="20")
     run.status(1)
     run.post("/control/stop", {})
     assert run.wait(timeout=30) == 0
 
 
 def test_stop_while_held_ends_every_rank(launch) -> None:
-    run = launch(TRAINCTL_TEST_STEP_SLEEP_S="0.05", TRAINCTL_TEST_PG_TIMEOUT_S="20")
+    run = launch(MIDRUN_TEST_STEP_SLEEP_S="0.05", MIDRUN_TEST_PG_TIMEOUT_S="20")
     run.status(1)
     run.post("/control/pause", {})
     run.wait_until(lambda: run.get("/run")["status"] == "held")
@@ -372,7 +370,7 @@ def test_stop_while_held_ends_every_rank(launch) -> None:
 
 
 def test_a_hold_outlasts_the_process_group_timeout(launch) -> None:
-    run = launch(TRAINCTL_TEST_STEP_SLEEP_S="0.05", TRAINCTL_TEST_PG_TIMEOUT_S="10")
+    run = launch(MIDRUN_TEST_STEP_SLEEP_S="0.05", MIDRUN_TEST_PG_TIMEOUT_S="10")
     run.status(1)
     run.post("/control/pause", {})
     run.wait_until(lambda: run.get("/run")["status"] == "held")
@@ -387,9 +385,9 @@ def test_a_hold_outlasts_the_process_group_timeout(launch) -> None:
 
 def test_a_bad_batch_on_one_rank_holds_every_rank(launch) -> None:
     run = launch(
-        TRAINCTL_TEST_NAN_ON_RANK1_AT_STEP="5",
-        TRAINCTL_TEST_STEP_SLEEP_S="0.05",
-        TRAINCTL_TEST_PG_TIMEOUT_S="20",
+        MIDRUN_TEST_NAN_ON_RANK1_AT_STEP="5",
+        MIDRUN_TEST_STEP_SLEEP_S="0.05",
+        MIDRUN_TEST_PG_TIMEOUT_S="20",
     )
     run.status(1)
     run.wait_until(lambda: run.get("/run")["status"] == "held")

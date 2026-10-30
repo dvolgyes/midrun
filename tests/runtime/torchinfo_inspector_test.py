@@ -6,18 +6,18 @@ from pathlib import Path
 import pytest
 import torch
 
-from trainctl.config import TrainctlConfig
-from trainctl.load_backend import load_backend
-from trainctl.runtime.artifacts import ArtifactStore
-from trainctl.runtime.commands.parse_when import parse_when
-from trainctl.runtime.runtime import TrainctlRuntime
-from trainctl.runtime.torchinfo_inspector.basic_summary_json import (
+from midrun.config import MidrunConfig
+from midrun.load_backend import load_backend
+from midrun.runtime.artifacts import ArtifactStore
+from midrun.runtime.commands.parse_when import parse_when
+from midrun.runtime.runtime import MidrunRuntime
+from midrun.runtime.torchinfo_inspector.basic_summary_json import (
     basic_summary_json,
 )
-from trainctl.runtime.torchinfo_inspector.basic_summary_text import (
+from midrun.runtime.torchinfo_inspector.basic_summary_text import (
     basic_summary_text,
 )
-from trainctl.runtime.torchinfo_inspector.torchinfo_rich_summary import (
+from midrun.runtime.torchinfo_inspector.torchinfo_rich_summary import (
     torchinfo_rich_summary,
 )
 
@@ -31,11 +31,11 @@ class _Model(torch.nn.Module):
         return self.fc(x)
 
 
-def _make_runtime(tmp_path: Path, **overrides: object) -> TrainctlRuntime:
-    config = TrainctlConfig(
+def _make_runtime(tmp_path: Path, **overrides: object) -> MidrunRuntime:
+    config = MidrunConfig(
         rest_enabled=False, fuse_enabled=False, torch_debug_enabled=False, **overrides
     )
-    runtime = TrainctlRuntime(config, load_backend("lightning.pytorch"))
+    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
     runtime.artifacts = ArtifactStore(tmp_path)
     return runtime
 

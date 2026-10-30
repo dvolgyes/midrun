@@ -13,19 +13,19 @@ import pytest
 import torch
 from loguru import logger
 
-from trainctl.config import TrainctlConfig
-from trainctl.load_backend import load_backend
-from trainctl.runtime.artifacts import ArtifactStore
-from trainctl.runtime.commands.parse_when import parse_when
-from trainctl.runtime.events import SafePoint
-from trainctl.runtime.runtime import TrainctlRuntime
+from midrun.config import MidrunConfig
+from midrun.load_backend import load_backend
+from midrun.runtime.artifacts import ArtifactStore
+from midrun.runtime.commands.parse_when import parse_when
+from midrun.runtime.events import SafePoint
+from midrun.runtime.runtime import MidrunRuntime
 
 
-def _make_runtime(tmp_path: Path) -> TrainctlRuntime:
-    config = TrainctlConfig(
+def _make_runtime(tmp_path: Path) -> MidrunRuntime:
+    config = MidrunConfig(
         rest_enabled=False, fuse_enabled=False, torch_debug_enabled=False
     )
-    runtime = TrainctlRuntime(config, load_backend("lightning.pytorch"))
+    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
     runtime.artifacts = ArtifactStore(tmp_path)
     return runtime
 
@@ -44,7 +44,7 @@ class _FakeTrainer:
 
 
 class _Model(torch.nn.Module):
-    trainctl_tunable_hparams = ["augmentation_strength"]
+    midrun_tunable_hparams = ["augmentation_strength"]
 
     def __init__(self) -> None:
         super().__init__()
@@ -52,7 +52,7 @@ class _Model(torch.nn.Module):
         self.augmentation_strength = 0.5
 
 
-def _ready_model(runtime: TrainctlRuntime) -> _Model:
+def _ready_model(runtime: MidrunRuntime) -> _Model:
     model = _Model()
     model.trainer = _FakeTrainer()
     runtime._gather_ranks(model)
@@ -105,7 +105,7 @@ def test_tunable_hparams_reflects_direct_attribute_changes_after_safe_point(
 
 
 class _UnreadableHparamModel(_Model):
-    trainctl_tunable_hparams = ["missing_attribute"]
+    midrun_tunable_hparams = ["missing_attribute"]
 
 
 def test_an_unreadable_hparam_is_reported_once(tmp_path: Path) -> None:
@@ -139,7 +139,7 @@ def test_unregistered_model_has_no_tunable_hparams(tmp_path: Path) -> None:
 
 
 class _BoundedSubModel(_Model):
-    trainctl_tunable_hparams = {
+    midrun_tunable_hparams = {
         "learning_rate": {"min": 0.0, "max": 1.0, "label": "Learning rate"},
     }
 
@@ -148,7 +148,7 @@ class _BoundedSubModel(_Model):
         self.learning_rate = 0.1
 
 
-def _ready_bounded_model(runtime: TrainctlRuntime) -> _BoundedSubModel:
+def _ready_bounded_model(runtime: MidrunRuntime) -> _BoundedSubModel:
     model = _BoundedSubModel()
     model.trainer = _FakeTrainer()
     runtime._gather_ranks(model)

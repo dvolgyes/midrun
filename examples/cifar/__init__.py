@@ -1,1 +1,1 @@
-"""CIFAR-10 integration harness for trainctl's LightningModule-compatible base class."""
+"""CIFAR-10 integration harness for midrun's LightningModule-compatible base class."""

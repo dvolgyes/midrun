@@ -1,4 +1,4 @@
-"""Behavioral tests for trainctl.hooks.payload's light-hook path (T2) and heavy-hook
+"""Behavioral tests for midrun.hooks.payload's light-hook path (T2) and heavy-hook
 export path (T3)."""
 
 import json
@@ -8,16 +8,16 @@ import numpy
 import pytest
 import torch
 
-from trainctl.hooks.payload.build_heavy_manifest import build_heavy_manifest
-from trainctl.hooks.payload.build_light_params import build_light_params
-from trainctl.hooks.payload.collect_tensor_leaves import collect_tensor_leaves
-from trainctl.hooks.payload.describe_arguments import describe_arguments
-from trainctl.hooks.payload.export_tensors import export_tensors
-from trainctl.hooks.payload.heavy_capture_failure import HeavyCaptureFailure
-from trainctl.hooks.payload.new_hook_id import new_hook_id
-from trainctl.hooks.payload.occurrence_context import OccurrenceContext
-from trainctl.hooks.payload.prepare_heavy_export import prepare_heavy_export
-from trainctl.hooks.write_json_file import write_json_file
+from midrun.hooks.payload.build_heavy_manifest import build_heavy_manifest
+from midrun.hooks.payload.build_light_params import build_light_params
+from midrun.hooks.payload.collect_tensor_leaves import collect_tensor_leaves
+from midrun.hooks.payload.describe_arguments import describe_arguments
+from midrun.hooks.payload.export_tensors import export_tensors
+from midrun.hooks.payload.heavy_capture_failure import HeavyCaptureFailure
+from midrun.hooks.payload.new_hook_id import new_hook_id
+from midrun.hooks.payload.occurrence_context import OccurrenceContext
+from midrun.hooks.payload.prepare_heavy_export import prepare_heavy_export
+from midrun.hooks.write_json_file import write_json_file
 
 
 def _context(**overrides) -> OccurrenceContext:
@@ -237,7 +237,7 @@ def test_write_json_file_refuses_non_finite_floats_and_writes_nothing(tmp_path) 
 
 
 def test_write_json_file_never_exposes_a_partial_document(tmp_path) -> None:
-    target = tmp_path / "trainctl-hooks-state.json"
+    target = tmp_path / "midrun-hooks-state.json"
     document = {f"key-{i}": "x" * 100 for i in range(20_000)}
     write_json_file(target, document)
     done = threading.Event()

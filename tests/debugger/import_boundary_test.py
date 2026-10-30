@@ -1,6 +1,6 @@
-"""Keeps trainctl.debugger out-of-process.
+"""Keeps midrun.debugger out-of-process.
 
-It must never import trainctl.runtime, trainctl.mixin, or trainctl.fuse -- it may
+It must never import midrun.runtime, midrun.mixin, or midrun.fuse -- it may
 only talk to a target process over REST (`hold_client`) and OS-level attach
 (py-spy/gdb against a PID). AST-based, not text grep, so prose mentions of these
 module names in docstrings (there are several, describing why the boundary
@@ -10,9 +10,9 @@ exists) don't produce false positives.
 import ast
 from pathlib import Path
 
-import trainctl.debugger
+import midrun.debugger
 
-_FORBIDDEN_PREFIXES = ("trainctl.runtime", "trainctl.mixin", "trainctl.fuse")
+_FORBIDDEN_PREFIXES = ("midrun.runtime", "midrun.mixin", "midrun.fuse")
 
 
 def _imported_modules(path: Path) -> set[str]:
@@ -34,11 +34,11 @@ def _is_forbidden(module: str) -> bool:
 
 
 def test_debugger_package_has_no_trainer_side_imports() -> None:
-    package_dir = Path(trainctl.debugger.__file__).parent
+    package_dir = Path(midrun.debugger.__file__).parent
     violations = [
         (path, module)
         for path in sorted(package_dir.rglob("*.py"))
         for module in _imported_modules(path)
         if _is_forbidden(module)
     ]
-    assert not violations, f"trainctl.debugger must stay out-of-process: {violations}"
+    assert not violations, f"midrun.debugger must stay out-of-process: {violations}"

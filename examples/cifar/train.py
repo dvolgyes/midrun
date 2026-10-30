@@ -25,7 +25,7 @@ def _configure_logging(loglevel: str) -> None:
     """Reconfigures Loguru's default sink to the requested level.
 
     Removes only Loguru's own pre-installed default sink (id 0) rather than every
-    currently-registered sink, so this never tears down a run-file sink trainctl
+    currently-registered sink, so this never tears down a run-file sink midrun
     attaches once training starts.
 
     Args:

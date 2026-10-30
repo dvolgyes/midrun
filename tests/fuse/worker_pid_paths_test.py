@@ -1,27 +1,27 @@
 """Behavioral tests for the meta/ranks/<idx>/workers/<widx>/pid FUSE dynamic subtree.
 
-Exercises `TrainctlFS` directly against a `TrainctlRuntime` with hand-published
+Exercises `MidrunFS` directly against a `MidrunRuntime` with hand-published
 rank state, rather than mounting real FUSE -- the routing logic under test lives
-entirely in `virtual_file_content`/`is_virtual_dir`/`TrainctlFS.readdir`, not in the
+entirely in `virtual_file_content`/`is_virtual_dir`/`MidrunFS.readdir`, not in the
 kernel mount.
 """
 
 import pytest
 
-from trainctl.config import TrainctlConfig
-from trainctl.fuse.filesystem import TrainctlFS
-from trainctl.load_backend import load_backend
-from trainctl.runtime.runtime import TrainctlRuntime
-from trainctl.runtime.state.rank_info import RankInfo
-from trainctl.runtime.virtual_fs.is_virtual_dir import is_virtual_dir
-from trainctl.runtime.virtual_fs.virtual_file_content import virtual_file_content
+from midrun.config import MidrunConfig
+from midrun.fuse.filesystem import MidrunFS
+from midrun.load_backend import load_backend
+from midrun.runtime.runtime import MidrunRuntime
+from midrun.runtime.state.rank_info import RankInfo
+from midrun.runtime.virtual_fs.is_virtual_dir import is_virtual_dir
+from midrun.runtime.virtual_fs.virtual_file_content import virtual_file_content
 
 
-def _fs_with_rank(worker_pids: tuple[int, ...] = (111, 222)) -> TrainctlFS:
-    config = TrainctlConfig(
+def _fs_with_rank(worker_pids: tuple[int, ...] = (111, 222)) -> MidrunFS:
+    config = MidrunConfig(
         rest_enabled=False, fuse_enabled=False, torch_debug_enabled=False
     )
-    runtime = TrainctlRuntime(config, load_backend("lightning.pytorch"))
+    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
     rank = RankInfo(
         global_rank=0,
         local_rank=0,
@@ -31,7 +31,7 @@ def _fs_with_rank(worker_pids: tuple[int, ...] = (111, 222)) -> TrainctlFS:
         worker_pids=worker_pids,
     )
     runtime.state.update(world_size=1, ranks=(rank,))
-    return TrainctlFS(runtime)
+    return MidrunFS(runtime)
 
 
 def test_workers_dir_listed_under_rank() -> None:

@@ -20,14 +20,14 @@ from pathlib import Path
 
 import pytest
 
-from trainctl.debugger.gdb_capture.check_gdb_available import (
+from midrun.debugger.gdb_capture.check_gdb_available import (
     GdbUnavailableError,
     check_gdb_available,
 )
-from trainctl.debugger.gdb_capture.gdb_attach_error import GdbAttachError
-from trainctl.debugger.gdb_capture.gdb_capture import gdb_capture
-from trainctl.debugger.gdb_capture.schedule_pending_call import schedule_pending_call
-from trainctl.debugger.hold_client import HoldClient, HoldNotActiveError
+from midrun.debugger.gdb_capture.gdb_attach_error import GdbAttachError
+from midrun.debugger.gdb_capture.gdb_capture import gdb_capture
+from midrun.debugger.gdb_capture.schedule_pending_call import schedule_pending_call
+from midrun.debugger.hold_client import HoldClient, HoldNotActiveError
 
 pytestmark = pytest.mark.skipif(shutil.which("gdb") is None, reason="gdb not installed")
 
@@ -250,7 +250,7 @@ def test_capture_refused_attach_names_the_cause() -> None:
         proc.wait(timeout=5)
 
 
-class _FakeTrainctlHandler(http.server.BaseHTTPRequestHandler):
+class _FakeMidrunHandler(http.server.BaseHTTPRequestHandler):
     """Serves canned /commands/{id} and /holds responses for the refusal-path test."""
 
     def log_message(self, format: str, *args: object) -> None:  # noqa: A002 -- overrides BaseHTTPRequestHandler's own parameter name
@@ -272,8 +272,8 @@ class _FakeTrainctlHandler(http.server.BaseHTTPRequestHandler):
 
 
 @pytest.fixture
-def fake_trainctl_server() -> Iterator[str]:
-    server = http.server.HTTPServer(("127.0.0.1", 0), _FakeTrainctlHandler)
+def fake_midrun_server() -> Iterator[str]:
+    server = http.server.HTTPServer(("127.0.0.1", 0), _FakeMidrunHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -284,9 +284,9 @@ def fake_trainctl_server() -> Iterator[str]:
 
 
 def test_capture_refuses_without_active_hold(
-    target_process: subprocess.Popen[bytes], fake_trainctl_server: str
+    target_process: subprocess.Popen[bytes], fake_midrun_server: str
 ) -> None:
-    client = HoldClient(fake_trainctl_server)
+    client = HoldClient(fake_midrun_server)
     with pytest.raises(HoldNotActiveError):
         gdb_capture(
             target_process.pid, "pass", hold_client=client, hold_command_id="cmd_x"

@@ -1,4 +1,4 @@
-"""Behavioral tests for trainctl.hooks.dispatch_light and trainctl.hooks.dispatch_heavy."""
+"""Behavioral tests for midrun.hooks.dispatch_light and midrun.hooks.dispatch_heavy."""
 
 import errno
 import json
@@ -10,10 +10,10 @@ import pytest
 import torch
 from loguru import logger
 
-from trainctl.hooks.dispatch_heavy import dispatch_heavy
-from trainctl.hooks.dispatch_light import dispatch_light
-from trainctl.hooks.manager.bootstrap_hooks_tree import bootstrap_hooks_tree
-from trainctl.hooks.payload.occurrence_context import OccurrenceContext
+from midrun.hooks.dispatch_heavy import dispatch_heavy
+from midrun.hooks.dispatch_light import dispatch_light
+from midrun.hooks.manager.bootstrap_hooks_tree import bootstrap_hooks_tree
+from midrun.hooks.payload.occurrence_context import OccurrenceContext
 
 _SHELL = Path(shutil.which("bash"))
 
@@ -426,7 +426,7 @@ def _raise_no_space(*_args, **_kwargs):
 
 @pytest.mark.parametrize(
     "failing_write",
-    ["numpy.save", "trainctl.hooks.dispatch_heavy.write_json_file"],
+    ["numpy.save", "midrun.hooks.dispatch_heavy.write_json_file"],
 )
 def test_heavy_payload_write_error_is_a_capture_failure(
     tmp_path, monkeypatch, failing_write

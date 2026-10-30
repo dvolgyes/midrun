@@ -13,12 +13,12 @@ import torch
 from fastapi.testclient import TestClient
 from torch.utils.data import DataLoader, TensorDataset
 
-from trainctl.mixin import TrainctlMixin
-from trainctl.rest.app import build_app
-from trainctl.runtime.events import SafePoint
+from midrun.mixin import MidrunMixin
+from midrun.rest.app import build_app
+from midrun.runtime.events import SafePoint
 
 
-class _EndlessModel(TrainctlMixin, PL.LightningModule):
+class _EndlessModel(MidrunMixin, PL.LightningModule):
     def __init__(self) -> None:
         super().__init__(
             rest_enabled=False,
@@ -62,7 +62,7 @@ def _fit_while(
 
     def _drive() -> None:
         _wait_until(lambda: model._trainer is not None and trainer.global_step > 0)
-        client = TestClient(build_app(model._trainctl))
+        client = TestClient(build_app(model._midrun))
         try:
             drive(client)
         except BaseException as exc:  # noqa: BLE001 -- reported by the main thread
@@ -70,7 +70,7 @@ def _fit_while(
         finally:
             # Ends the run, so a failed check cannot leave fit() blocked.
             trainer.should_stop = True
-            runtime = model._trainctl
+            runtime = model._midrun
             while not fit_done.wait(0.05):
                 for command in runtime.command_queue.list_all():
                     runtime.command_queue.cancel(command.id)
@@ -92,7 +92,7 @@ def _fit_while(
 
 def test_one_continue_resumes_after_a_double_pause(tmp_path) -> None:
     model = _EndlessModel()
-    gate = model._trainctl.gate
+    gate = model._midrun.gate
 
     def drive(client: TestClient) -> None:
         first = client.post("/control/pause").json()
@@ -115,7 +115,7 @@ def test_one_continue_resumes_after_a_double_pause(tmp_path) -> None:
 
 def test_stop_ends_a_held_run(tmp_path) -> None:
     model = _EndlessModel()
-    gate = model._trainctl.gate
+    gate = model._midrun.gate
     stopped = threading.Event()
 
     def drive(client: TestClient) -> None:
@@ -137,7 +137,7 @@ def test_run_shows_the_batch_index_while_held_before_the_optimizer_step(
     tmp_path,
 ) -> None:
     model = _EndlessModel()
-    gate = model._trainctl.gate
+    gate = model._midrun.gate
     seen: list[object] = []
 
     def drive(client: TestClient) -> None:
@@ -161,7 +161,7 @@ class _StepTrainer:
 
 
 def test_a_pause_after_a_stop_in_the_same_step_does_not_hold(tmp_path) -> None:
-    runtime = _EndlessModel()._trainctl
+    runtime = _EndlessModel()._midrun
     trainer = _StepTrainer()
     client = TestClient(build_app(runtime))
     stop = client.post("/control/stop").json()
@@ -180,7 +180,7 @@ def test_a_pause_after_a_stop_in_the_same_step_does_not_hold(tmp_path) -> None:
 
 
 def test_a_hold_after_an_executed_stop_is_refused(tmp_path) -> None:
-    runtime = _EndlessModel()._trainctl
+    runtime = _EndlessModel()._midrun
     client = TestClient(build_app(runtime))
     client.post("/control/stop")
     runtime._run_due_commands(None, _StepTrainer(), SafePoint.TRAIN_BATCH_END, None)

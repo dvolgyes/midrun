@@ -1,26 +1,26 @@
 """Behavioral tests for the diagnostics-milestone static FUSE paths.
 
-Exercises `virtual_file_content`/`is_virtual_dir` directly against a `TrainctlRuntime`,
+Exercises `virtual_file_content`/`is_virtual_dir` directly against a `MidrunRuntime`,
 matching the existing static-path test convention -- no real FUSE mount involved.
 """
 
 import json
 
-from trainctl.config import TrainctlConfig
-from trainctl.fuse.filesystem import TrainctlFS
-from trainctl.load_backend import load_backend
-from trainctl.runtime.runtime import TrainctlRuntime
-from trainctl.runtime.state.exception_breakpoint_info import ExceptionBreakpointInfo
-from trainctl.runtime.virtual_fs.is_virtual_dir import is_virtual_dir
-from trainctl.runtime.virtual_fs.virtual_file_content import virtual_file_content
+from midrun.config import MidrunConfig
+from midrun.fuse.filesystem import MidrunFS
+from midrun.load_backend import load_backend
+from midrun.runtime.runtime import MidrunRuntime
+from midrun.runtime.state.exception_breakpoint_info import ExceptionBreakpointInfo
+from midrun.runtime.virtual_fs.is_virtual_dir import is_virtual_dir
+from midrun.runtime.virtual_fs.virtual_file_content import virtual_file_content
 
 
-def _make_fs(**overrides: object) -> TrainctlFS:
-    config = TrainctlConfig(
+def _make_fs(**overrides: object) -> MidrunFS:
+    config = MidrunConfig(
         rest_enabled=False, fuse_enabled=False, torch_debug_enabled=False, **overrides
     )
-    runtime = TrainctlRuntime(config, load_backend("lightning.pytorch"))
-    return TrainctlFS(runtime)
+    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
+    return MidrunFS(runtime)
 
 
 def test_breakpoint_json_is_null_when_no_exception_held() -> None:
@@ -92,10 +92,10 @@ def test_pipeline_latest_and_summary_json_after_a_batch() -> None:
 
 
 def test_pytorch_debug_enabled_is_false_until_the_server_runs() -> None:
-    config = TrainctlConfig(
+    config = MidrunConfig(
         rest_enabled=False, fuse_enabled=False, torch_debug_enabled=True
     )
-    runtime = TrainctlRuntime(config, load_backend("lightning.pytorch"))
+    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
 
     enabled = virtual_file_content(runtime, "/meta/pytorch-debug/enabled")
 

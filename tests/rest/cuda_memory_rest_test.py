@@ -12,25 +12,25 @@ import pytest
 import torch
 from fastapi.testclient import TestClient
 
-from trainctl.config import TrainctlConfig
-from trainctl.load_backend import load_backend
-from trainctl.rest.app import build_app
-from trainctl.runtime.artifacts import ArtifactStore
-from trainctl.runtime.cuda_memory.set_cuda_memory_history import (
+from midrun.config import MidrunConfig
+from midrun.load_backend import load_backend
+from midrun.rest.app import build_app
+from midrun.runtime.artifacts import ArtifactStore
+from midrun.runtime.cuda_memory.set_cuda_memory_history import (
     set_cuda_memory_history,
 )
-from trainctl.runtime.runtime import TrainctlRuntime
+from midrun.runtime.runtime import MidrunRuntime
 
 pytestmark = pytest.mark.skipif(
     not torch.cuda.is_available(), reason="requires a CUDA device"
 )
 
 
-def _client(tmp_path: Path) -> tuple[TestClient, TrainctlRuntime]:
-    config = TrainctlConfig(
+def _client(tmp_path: Path) -> tuple[TestClient, MidrunRuntime]:
+    config = MidrunConfig(
         rest_enabled=False, fuse_enabled=False, torch_debug_enabled=False
     )
-    runtime = TrainctlRuntime(config, load_backend("lightning.pytorch"))
+    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
     runtime.artifacts = ArtifactStore(tmp_path)
     return TestClient(build_app(runtime)), runtime
 

@@ -4,29 +4,29 @@ import pytest
 import torch
 from fastapi.testclient import TestClient
 
-from trainctl.config import TrainctlConfig
-from trainctl.load_backend import load_backend
-from trainctl.rest.app import build_app
-from trainctl.runtime.commands.command import Command
-from trainctl.runtime.commands.parse_when import parse_when
-from trainctl.runtime.optimizer_surgery.adam_surgery_adapter import (
+from midrun.config import MidrunConfig
+from midrun.load_backend import load_backend
+from midrun.rest.app import build_app
+from midrun.runtime.commands.command import Command
+from midrun.runtime.commands.parse_when import parse_when
+from midrun.runtime.optimizer_surgery.adam_surgery_adapter import (
     AdamSurgeryAdapter,
 )
-from trainctl.runtime.optimizer_surgery.find_surgery_adapter import (
+from midrun.runtime.optimizer_surgery.find_surgery_adapter import (
     find_surgery_adapter,
 )
-from trainctl.runtime.optimizer_surgery.resolve_optimizer_parameters import (
+from midrun.runtime.optimizer_surgery.resolve_optimizer_parameters import (
     resolve_optimizer_parameters,
 )
-from trainctl.runtime.optimizer_surgery.sgd_surgery_adapter import SGDSurgeryAdapter
-from trainctl.runtime.runtime import TrainctlRuntime
+from midrun.runtime.optimizer_surgery.sgd_surgery_adapter import SGDSurgeryAdapter
+from midrun.runtime.runtime import MidrunRuntime
 
 
-def _make_runtime(**overrides: object) -> TrainctlRuntime:
-    config = TrainctlConfig(
+def _make_runtime(**overrides: object) -> MidrunRuntime:
+    config = MidrunConfig(
         rest_enabled=False, fuse_enabled=False, torch_debug_enabled=False, **overrides
     )
-    return TrainctlRuntime(config, load_backend("lightning.pytorch"))
+    return MidrunRuntime(config, load_backend("lightning.pytorch"))
 
 
 class _FakeState:
@@ -69,7 +69,7 @@ def _step(model: torch.nn.Module, optimizer: torch.optim.Optimizer) -> None:
 
 
 def _submit_and_run(
-    runtime: TrainctlRuntime,
+    runtime: MidrunRuntime,
     pl_module: _FakePLModule,
     trainer: _FakeTrainer,
     kind: str,

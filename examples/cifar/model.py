@@ -1,4 +1,4 @@
-"""CIFAR-10 CNN classifier exercising TrainctlMixin against a real Lightning run."""
+"""CIFAR-10 CNN classifier exercising MidrunMixin against a real Lightning run."""
 
 from dataclasses import dataclass
 from typing import Unpack
@@ -8,7 +8,7 @@ from lightning.pytorch.utilities.types import OptimizerLRScheduler
 from torch import Tensor, nn, optim
 from torchmetrics.classification import MulticlassAccuracy
 
-from trainctl import TrainctlMixin, TrainctlOptions
+from midrun import MidrunMixin, MidrunOptions
 
 NUM_CLASSES = 10
 
@@ -62,13 +62,13 @@ def _build_backbone() -> nn.Sequential:
     )
 
 
-class CifarClassifier(TrainctlMixin, pl.LightningModule):
-    """Compact CNN classifier for CIFAR-10, composed with TrainctlMixin under test.
+class CifarClassifier(MidrunMixin, pl.LightningModule):
+    """Compact CNN classifier for CIFAR-10, composed with MidrunMixin under test.
 
     Args:
         hp: Optimizer and learning-rate-schedule hyperparameters, logged to the
             configured logger's hyperparameter tracking (e.g. TensorBoard's HPARAMS tab).
-        **trainctl_kwargs: Forwarded to `TrainctlMixin.__init__` (e.g. `rest_port`,
+        **midrun_kwargs: Forwarded to `MidrunMixin.__init__` (e.g. `rest_port`,
             `fuse_mountpoint`, `fuse_enabled`).
 
     Attributes:
@@ -90,9 +90,9 @@ class CifarClassifier(TrainctlMixin, pl.LightningModule):
     def __init__(
         self,
         hp: OptimHParams | None = None,
-        **trainctl_kwargs: Unpack[TrainctlOptions],
+        **midrun_kwargs: Unpack[MidrunOptions],
     ) -> None:
-        super().__init__(**trainctl_kwargs)
+        super().__init__(**midrun_kwargs)
         self.hp = hp or OptimHParams()
         self.save_hyperparameters(vars(self.hp))
         self.backbone = _build_backbone()

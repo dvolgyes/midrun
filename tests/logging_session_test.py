@@ -6,9 +6,9 @@ import logging
 import pytest
 from loguru import logger
 
-from trainctl.logging.install_root_bridge import install_root_bridge
-from trainctl.logging.logging_session import LoggingSession
-from trainctl.logging.loguru_bridge_handler import LoguruBridgeHandler
+from midrun.logging.install_root_bridge import install_root_bridge
+from midrun.logging.logging_session import LoggingSession
+from midrun.logging.loguru_bridge_handler import LoguruBridgeHandler
 
 _NAME = "lightning.pytorch"
 
@@ -52,7 +52,7 @@ def test_install_detaches_existing_handler_and_forwards_records() -> None:
 
         assert len(records) == 1
         assert records[0]["message"] == "hello world"
-        assert records[0]["extra"]["trainctl_session"] == "session-a"
+        assert records[0]["extra"]["midrun_session"] == "session-a"
         assert records[0]["extra"]["std_logger_name"] == _NAME
     finally:
         session.close()
@@ -251,7 +251,7 @@ def test_install_on_an_already_installed_session_is_a_noop() -> None:
 
 
 def test_attach_run_file_records_only_this_sessions_bound_messages(tmp_path) -> None:
-    log_path = tmp_path / "trainctl.log"
+    log_path = tmp_path / "midrun.log"
     session_a = LoggingSession("session-j")
     session_b = LoggingSession("session-k")
     session_a.attach_run_file(log_path)
@@ -267,7 +267,7 @@ def test_attach_run_file_records_only_this_sessions_bound_messages(tmp_path) -> 
 
 
 def test_attach_run_file_creates_parent_directories(tmp_path) -> None:
-    log_path = tmp_path / "nested" / "dir" / "trainctl.log"
+    log_path = tmp_path / "nested" / "dir" / "midrun.log"
     session = LoggingSession("session-l")
     session.attach_run_file(log_path)
     try:
@@ -283,7 +283,7 @@ def test_attach_run_file_propagates_a_real_open_failure(tmp_path) -> None:
     blocking_file.write_text("x")
     session = LoggingSession("session-m")
     with pytest.raises(OSError):
-        session.attach_run_file(blocking_file / "trainctl.log")
+        session.attach_run_file(blocking_file / "midrun.log")
 
 
 def test_install_root_bridge_also_bridges_the_actual_root_logger() -> None:
@@ -318,7 +318,7 @@ def test_repeated_sessions_do_not_interfere_when_closed_before_the_next_install(
         second.install()
         std_logger.warning("second session message")
         assert len(records) == 1
-        assert records[0]["extra"]["trainctl_session"] == "session-p"
+        assert records[0]["extra"]["midrun_session"] == "session-p"
     finally:
         second.close()
         logger.remove(sink_id)

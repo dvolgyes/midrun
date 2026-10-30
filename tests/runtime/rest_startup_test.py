@@ -9,10 +9,10 @@ import pytest
 import torch.distributed as dist
 from loguru import logger
 
-from trainctl.config import TrainctlConfig
-from trainctl.load_backend import load_backend
-from trainctl.runtime.runtime import TrainctlRuntime
-from trainctl.runtime.virtual_fs.virtual_file_content import virtual_file_content
+from midrun.config import MidrunConfig
+from midrun.load_backend import load_backend
+from midrun.runtime.runtime import MidrunRuntime
+from midrun.runtime.virtual_fs.virtual_file_content import virtual_file_content
 
 
 class _FakeModule:
@@ -21,14 +21,14 @@ class _FakeModule:
 
 def test_rest_starts_without_distributed_process_group(tmp_path: Path) -> None:
     assert not dist.is_initialized()
-    config = TrainctlConfig(
+    config = MidrunConfig(
         fuse_enabled=False,
         artifact_dir=tmp_path / "artifacts",
         rest_port=18490,
         inspection_strict=True,
     )
     assert config.rest_enabled and config.torch_debug_enabled
-    runtime = TrainctlRuntime(config, load_backend("lightning.pytorch"))
+    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
     module = _FakeModule()
 
     runtime.setup_environment(module, "fit")
@@ -45,17 +45,17 @@ def test_rest_starts_without_distributed_process_group(tmp_path: Path) -> None:
 def test_rest_starts_when_the_paired_torch_debug_server_fails(
     tmp_path: Path, monkeypatch
 ) -> None:
-    from trainctl.runtime import runtime as runtime_module
+    from midrun.runtime import runtime as runtime_module
 
     def _failing_start(port: int | None = None) -> None:
         raise RuntimeError(f"debug server cannot start on {port}")
 
     monkeypatch.setattr(runtime_module, "distributed_initialized", lambda: True)
     monkeypatch.setattr(runtime_module, "is_rank_zero", lambda: True)
-    config = TrainctlConfig(
+    config = MidrunConfig(
         fuse_enabled=False, artifact_dir=tmp_path / "artifacts", rest_port=18495
     )
-    runtime = TrainctlRuntime(config, load_backend("lightning.pytorch"))
+    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
     monkeypatch.setattr(
         runtime.torch_debug, "start_after_distributed_init", _failing_start
     )
@@ -74,17 +74,17 @@ def test_rest_starts_when_the_paired_torch_debug_server_fails(
 def test_an_unanswering_torch_debug_frontend_url_is_not_published(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rest_enabled: bool
 ) -> None:
-    from trainctl.runtime import runtime as runtime_module
+    from midrun.runtime import runtime as runtime_module
 
     monkeypatch.setattr(runtime_module, "distributed_initialized", lambda: True)
     monkeypatch.setattr(runtime_module, "is_rank_zero", lambda: True)
-    config = TrainctlConfig(
+    config = MidrunConfig(
         fuse_enabled=False,
         rest_enabled=rest_enabled,
         artifact_dir=tmp_path / "artifacts",
         rest_port=18500,
     )
-    runtime = TrainctlRuntime(config, load_backend("lightning.pytorch"))
+    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
     # Accepts connections into its backlog and never answers them.
     with socket.create_server(("127.0.0.1", 0)) as silent:
 
@@ -126,12 +126,12 @@ def test_an_unanswering_torch_debug_frontend_url_is_not_published(
 def test_a_rank_without_a_debug_frontend_warns_of_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from trainctl.runtime import runtime as runtime_module
+    from midrun.runtime import runtime as runtime_module
 
     monkeypatch.setattr(runtime_module, "distributed_initialized", lambda: True)
     monkeypatch.setattr(runtime_module, "is_rank_zero", lambda: False)
-    config = TrainctlConfig(fuse_enabled=False, artifact_dir=tmp_path / "artifacts")
-    runtime = TrainctlRuntime(config, load_backend("lightning.pytorch"))
+    config = MidrunConfig(fuse_enabled=False, artifact_dir=tmp_path / "artifacts")
+    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
     # A worker rank's start serves no frontend, so it selects no port.
     monkeypatch.setattr(
         runtime.torch_debug, "start_after_distributed_init", lambda port=None: None

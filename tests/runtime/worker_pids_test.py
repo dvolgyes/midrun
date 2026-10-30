@@ -5,9 +5,9 @@ import os
 
 import pytest
 
-from trainctl.config import TrainctlConfig
-from trainctl.load_backend import load_backend
-from trainctl.runtime.runtime import TrainctlRuntime
+from midrun.config import MidrunConfig
+from midrun.load_backend import load_backend
+from midrun.runtime.runtime import MidrunRuntime
 
 
 class _FakeModule:
@@ -19,11 +19,11 @@ def _idle(ready: object, stop: object) -> None:
     stop.wait()  # type: ignore[attr-defined]
 
 
-def _make_runtime() -> TrainctlRuntime:
-    config = TrainctlConfig(
+def _make_runtime() -> MidrunRuntime:
+    config = MidrunConfig(
         rest_enabled=False, fuse_enabled=False, torch_debug_enabled=False
     )
-    return TrainctlRuntime(config, load_backend("lightning.pytorch"))
+    return MidrunRuntime(config, load_backend("lightning.pytorch"))
 
 
 def test_gather_ranks_captures_own_pid_with_no_workers() -> None:
