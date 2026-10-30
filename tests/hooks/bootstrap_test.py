@@ -6,6 +6,7 @@ import os
 import shutil
 import stat
 import threading
+from pathlib import Path
 
 import pytest
 from loguru import logger
@@ -423,6 +424,43 @@ def test_an_ownership_outside_the_user_namespace_keeps_the_owner_and_sets_the_mo
     assert preserved is False
     assert (after.st_uid, after.st_gid) == (before.st_uid, before.st_gid)
     assert stat.S_IMODE(after.st_mode) == 0o755
+
+
+def _warnings_of_bootstrap(base_dir, source_dir, session_id) -> list[str]:
+    warnings: list[str] = []
+    sink_id = logger.add(warnings.append, level="WARNING")
+    try:
+        bootstrap_hooks_tree(base_dir, source_dir, session_id=session_id, log=logger)
+    finally:
+        logger.remove(sink_id)
+    return warnings
+
+
+@pytest.mark.parametrize("spelling", ["relative", "symlink"])
+def test_a_resume_with_the_same_baseline_spelled_differently_does_not_warn(
+    tmp_path, monkeypatch, spelling
+) -> None:
+    (tmp_path / "baseline" / "light").mkdir(parents=True)
+    (tmp_path / "link").symlink_to(tmp_path / "baseline")
+    monkeypatch.chdir(tmp_path)
+    configured = Path("baseline") if spelling == "relative" else tmp_path / "link"
+    base_dir = tmp_path / "run"
+    bootstrap_hooks_tree(base_dir, configured, session_id="s-a", log=logger)
+
+    warnings = _warnings_of_bootstrap(base_dir, configured, "s-b")
+
+    assert not [w for w in warnings if "differs" in w]
+
+
+def test_a_resume_with_another_baseline_warns_that_it_differs(tmp_path) -> None:
+    (tmp_path / "baseline" / "light").mkdir(parents=True)
+    (tmp_path / "other" / "light").mkdir(parents=True)
+    base_dir = tmp_path / "run"
+    bootstrap_hooks_tree(base_dir, tmp_path / "baseline", session_id="s-a", log=logger)
+
+    warnings = _warnings_of_bootstrap(base_dir, tmp_path / "other", "s-b")
+
+    assert len([w for w in warnings if "differs" in w]) == 1
 
 
 def test_a_baseline_of_another_group_is_copied_with_one_warning(

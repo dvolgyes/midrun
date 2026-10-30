@@ -65,7 +65,10 @@ def bootstrap_hooks_tree(
                 "refusing to reuse or overwrite it. To start the hooks tree again, delete it and "
                 f"the hooks directory {live_dir}, then restart the run."
             )
-        if source_dir is not None and record.get("source_dir") != str(source_dir):
+        # The marker records the resolved path, so compare like with like.
+        if source_dir is not None and record.get("source_dir") != str(
+            source_dir.resolve()
+        ):
             log.warning(
                 "hooks_source_dir {} differs from the baseline recorded in {} for this run ({}); "
                 "the existing live tree is reused unchanged",
