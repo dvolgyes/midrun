@@ -29,10 +29,13 @@ class CommandWhen:
         self, safe_point: SafePoint | None, epoch: int, global_step: int
     ) -> bool:
         """Decides whether this condition is satisfied at the given point in training."""
-        if self.occurrence in ("immediate", "next_any"):
+        if self.occurrence == "immediate":
             return True
+        # A hold checks due-ness without a safe point.
         if safe_point is None:
             return False
+        if self.occurrence == "next_any":
+            return True
         if self.occurrence == "next":
             return safe_point == self.safe_point
         at_safe_point = self.safe_point is None or safe_point == self.safe_point

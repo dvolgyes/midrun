@@ -86,3 +86,13 @@ def test_global_step_with_safe_point_waits_for_that_safe_point() -> None:
     assert not when.is_due(SafePoint.TRAIN_BATCH_END, epoch=0, global_step=10)
     assert when.is_due(SafePoint.TRAIN_EPOCH_END, epoch=0, global_step=10)
     assert not when.is_due(SafePoint.TRAIN_EPOCH_END, epoch=0, global_step=9)
+
+
+def test_next_safe_point_waits_outside_a_hold_but_now_runs_inside_one() -> None:
+    next_safe_point = parse_when("next_safe_point")
+    now = parse_when("now")
+
+    # The hold loops check due-ness without a safe point.
+    assert not next_safe_point.is_due(None, epoch=0, global_step=0)
+    assert next_safe_point.is_due(SafePoint.TRAIN_BATCH_END, epoch=0, global_step=0)
+    assert now.is_due(None, epoch=0, global_step=0)
