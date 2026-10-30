@@ -1,11 +1,27 @@
 """Writes a JSON document to a file."""
 
 import json
+import secrets
 from pathlib import Path
 from typing import Any
 
 
 def write_json_file(path: Path, document: dict[str, Any]) -> Path:
-    """Writes `document` as JSON to `path` and returns `path`."""
-    path.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n")
+    """Writes `document` as JSON to `path` atomically and returns `path`.
+
+    The JSON goes to a new temporary file in the same directory, which then
+    replaces `path`, so a concurrent reader (e.g. another DDP rank reading the
+    marker) sees either no file, the previous one, or the complete new one.
+    """
+    encoded = json.dumps(document, indent=2, sort_keys=True) + "\n"
+    temporary = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
+    replaced = False
+    try:
+        with temporary.open("x") as handle:
+            handle.write(encoded)
+        temporary.replace(path)
+        replaced = True
+    finally:
+        if not replaced:
+            temporary.unlink(missing_ok=True)
     return path

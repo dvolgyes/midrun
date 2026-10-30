@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import stat
+import threading
 
 import pytest
 from loguru import logger
@@ -11,6 +12,7 @@ from loguru import logger
 from trainctl.hooks.catalog import CALLBACKS, MODALITIES
 from trainctl.hooks.manager.bootstrap_hooks_tree import bootstrap_hooks_tree
 from trainctl.hooks.manager.hooks_bootstrap_error import HooksBootstrapError
+import trainctl.hooks.manager.publish_fresh_tree as publish_fresh_tree_module
 from trainctl.hooks.manager.publish_fresh_tree import publish_fresh_tree
 
 _SLOT_COUNT = len(CALLBACKS) * len(MODALITIES)
@@ -272,7 +274,7 @@ def test_interrupted_publish_recovers_from_provenance_without_recopying(
     assert sentinel.read_text() == "#!/usr/bin/env bash\necho untouched-by-recovery\n"
 
 
-def test_concurrent_publish_race_is_rejected_and_cleans_up_staging(
+def test_lost_publish_race_reports_unpublished_and_cleans_up_staging(
     tmp_path, log
 ) -> None:
     base_dir = tmp_path / "run"
@@ -281,12 +283,64 @@ def test_concurrent_publish_race_is_rejected_and_cleans_up_staging(
     live_dir.mkdir()
     (live_dir / "already-here.txt").write_text("winner\n")
 
-    with pytest.raises(HooksBootstrapError, match="concurrent initializer"):
-        publish_fresh_tree(base_dir, live_dir, None, "s-14", log)
+    assert publish_fresh_tree(base_dir, live_dir, None, "s-14", log) is False
 
     assert list(base_dir.glob(".hooks-staging-*")) == []
     assert not (base_dir / "trainctl-hooks-state.json").exists()
     assert (live_dir / "already-here.txt").read_text() == "winner\n"
+
+
+def test_losing_the_publish_race_resumes_the_winners_tree(
+    tmp_path, monkeypatch, log
+) -> None:
+    base_dir = tmp_path / "run"
+    real_write_readme = publish_fresh_tree_module.write_readme_if_absent
+
+    def winner_publishes_first(staging_dir):
+        monkeypatch.setattr(
+            publish_fresh_tree_module, "write_readme_if_absent", real_write_readme
+        )
+        bootstrap_hooks_tree(base_dir, None, session_id="s-winner", log=log)
+        real_write_readme(staging_dir)
+
+    monkeypatch.setattr(
+        publish_fresh_tree_module, "write_readme_if_absent", winner_publishes_first
+    )
+
+    loser = bootstrap_hooks_tree(base_dir, None, session_id="s-loser", log=log)
+
+    assert loser.session_id == "s-winner"
+    assert loser.live_dir == base_dir / "hooks"
+    assert list(base_dir.glob(".hooks-staging-*")) == []
+    marker = json.loads((base_dir / "trainctl-hooks-state.json").read_text())
+    assert marker["session_id"] == "s-winner"
+
+
+def test_concurrent_bootstraps_all_resolve_to_one_tree(tmp_path, log) -> None:
+    base_dir = tmp_path / "run"
+    workers = 4
+    barrier = threading.Barrier(workers)
+    results: dict[int, object] = {}
+
+    def bootstrap(rank: int) -> None:
+        barrier.wait()
+        try:
+            results[rank] = bootstrap_hooks_tree(
+                base_dir, None, session_id=f"s-rank-{rank}", log=log
+            )
+        except HooksBootstrapError as exc:
+            results[rank] = exc
+
+    threads = [threading.Thread(target=bootstrap, args=(r,)) for r in range(workers)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    errors = [r for r in results.values() if isinstance(r, Exception)]
+    assert errors == []
+    assert len({tree.session_id for tree in results.values()}) == 1
+    assert list(base_dir.glob(".hooks-staging-*")) == []
 
 
 def test_source_file_changing_during_copy_is_rejected(

@@ -2,6 +2,7 @@
 export path (T3)."""
 
 import json
+import threading
 
 import numpy
 import torch
@@ -223,6 +224,32 @@ def test_write_json_file_writes_reloadable_json_and_returns_path(tmp_path) -> No
     returned = write_json_file(target, document)
     assert returned == target
     assert json.loads(target.read_text()) == document
+
+
+def test_write_json_file_never_exposes_a_partial_document(tmp_path) -> None:
+    target = tmp_path / "trainctl-hooks-state.json"
+    document = {f"key-{i}": "x" * 100 for i in range(20_000)}
+    write_json_file(target, document)
+    done = threading.Event()
+    torn_reads = []
+
+    def rewrite() -> None:
+        for _ in range(30):
+            write_json_file(target, document)
+        done.set()
+
+    writer = threading.Thread(target=rewrite)
+    writer.start()
+    while not done.is_set():
+        text = target.read_text()
+        try:
+            json.loads(text)
+        except json.JSONDecodeError:
+            torn_reads.append(len(text))
+    writer.join()
+
+    assert torn_reads == []
+    assert list(tmp_path.iterdir()) == [target]
 
 
 # --- Heavy-hook export path (I3, T3) ---

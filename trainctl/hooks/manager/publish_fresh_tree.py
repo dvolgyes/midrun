@@ -1,5 +1,6 @@
 """Builds a new hooks tree in a staging directory and publishes it atomically."""
 
+import errno
 import os
 import shutil
 import socket
@@ -29,15 +30,20 @@ def publish_fresh_tree(
     resolved_source: Path | None,
     session_id: str,
     log: Any,
-) -> None:
+) -> bool:
     """Builds a new hooks tree in a staging directory, then renames it to `live_dir`.
 
     Copies the baseline (if any), seeds the missing slots and the README,
     writes the provenance record, and writes the marker after the rename. The
     staging directory is removed if the publish does not complete.
 
+    Returns:
+        `True` if this call published the tree; `False` if a non-empty `live_dir`
+        appeared first (e.g. a concurrent initializer won the race), in which case
+        nothing is written.
+
     Raises:
-        HooksBootstrapError: The copy failed, or `live_dir` appeared first.
+        HooksBootstrapError: The copy or the rename failed.
         PermissionError: The ownership of a copied entry cannot be preserved.
     """
     marker_path = base_dir / MARKER_NAME
@@ -97,9 +103,10 @@ def publish_fresh_tree(
             staging_dir.rename(live_dir)
             published = True
         except OSError as exc:
+            if exc.errno in {errno.ENOTEMPTY, errno.EEXIST}:
+                return False
             raise HooksBootstrapError(
-                f"cannot publish {staging_dir} to {live_dir}: a concurrent initializer likely "
-                f"already published a live hooks tree there ({exc})"
+                f"cannot publish {staging_dir} to {live_dir}: {exc}"
             ) from exc
     finally:
         if not published:
@@ -109,3 +116,4 @@ def publish_fresh_tree(
     log.info(
         "hooks: bootstrapped live tree at {} (source={})", live_dir, resolved_source
     )
+    return True

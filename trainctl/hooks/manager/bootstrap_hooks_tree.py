@@ -42,8 +42,9 @@ def bootstrap_hooks_tree(
     Raises:
         HooksBootstrapError: `source_dir` is unsafe relative to `base_dir` (equal, containing, or
             contained by it), contains a symlink/special file/privileged mode bit, changed while
-            being copied, or an existing `hooks/` tree is neither a compatible resume nor a fresh
-            publish target (unknown-origin conflict, or a concurrent initializer won the race).
+            being copied, or an existing `hooks/` tree is not a compatible resume (unknown-origin
+            conflict). A concurrent initializer that wins the publish race is resumed, not an
+            error.
         PermissionError: Preserving a copied entry's ownership failed (message includes the path
             and the ownership that was required).
     """
@@ -81,16 +82,27 @@ def bootstrap_hooks_tree(
         resolved_source = resolve_hooks_source(source_dir, base_dir)
 
     if live_dir.exists():
-        record = read_hooks_record(live_dir / PROVENANCE_NAME)
-        if record is not None:
-            write_json_file(marker_path, record)
-            return HooksTree(live_dir, record["session_id"])
-        raise HooksBootstrapError(
-            f"{live_dir} already exists but is not a Trainctl-owned hooks tree (no compatible "
-            f"{marker_path.name} or {PROVENANCE_NAME} found); refusing to reuse or overwrite it. "
-            "Use a fresh run directory, or remove the conflicting tree yourself."
-        )
+        return _adopt_live_tree(live_dir, marker_path)
 
     base_dir.mkdir(parents=True, exist_ok=True)
-    publish_fresh_tree(base_dir, live_dir, resolved_source, session_id, log)
-    return HooksTree(live_dir, session_id)
+    if publish_fresh_tree(base_dir, live_dir, resolved_source, session_id, log):
+        return HooksTree(live_dir, session_id)
+    # A concurrent initializer (e.g. another DDP rank sharing this log_dir) won the race.
+    return _adopt_live_tree(live_dir, marker_path)
+
+
+def _adopt_live_tree(live_dir: Path, marker_path: Path) -> HooksTree:
+    """Resumes an existing live tree from its provenance record, restoring the marker.
+
+    Raises:
+        HooksBootstrapError: `live_dir` has no compatible provenance record.
+    """
+    record = read_hooks_record(live_dir / PROVENANCE_NAME)
+    if record is not None:
+        write_json_file(marker_path, record)
+        return HooksTree(live_dir, record["session_id"])
+    raise HooksBootstrapError(
+        f"{live_dir} already exists but is not a Trainctl-owned hooks tree (no compatible "
+        f"{marker_path.name} or {PROVENANCE_NAME} found); refusing to reuse or overwrite it. "
+        "Use a fresh run directory, or remove the conflicting tree yourself."
+    )
