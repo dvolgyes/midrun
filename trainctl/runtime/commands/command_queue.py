@@ -8,6 +8,7 @@ from typing import Any
 from trainctl.runtime.commands.command import Command
 from trainctl.runtime.commands.command_when import CommandWhen
 from trainctl.runtime.commands.next_id import next_id
+from trainctl.runtime.commands.refused_command_error import RefusedCommandError
 from trainctl.runtime.events import SafePoint
 
 
@@ -21,6 +22,7 @@ class CommandQueue:
     _validate_args: Callable[[str, dict[str, Any]], dict[str, Any]]
     _lock: threading.Lock
     _commands: dict[str, Command]
+    _refusals: dict[str, str]
 
     def __init__(
         self, validate_args: Callable[[str, dict[str, Any]], dict[str, Any]]
@@ -28,20 +30,41 @@ class CommandQueue:
         self._validate_args = validate_args
         self._lock = threading.Lock()
         self._commands: dict[str, Command] = {}
+        self._refusals = {}
 
     def submit(self, kind: str, args: dict[str, Any], when: CommandWhen) -> Command:
         """Registers a new queued command.
 
         Raises:
             ValueError: `kind` or `args` is invalid.
+            RefusedCommandError: `kind` was refused.
         """
         args = self._validate_args(kind, args)
         command = Command(
             id=next_id("cmd"), kind=kind, args=args, when=when, created_at=time.time()
         )
         with self._lock:
+            if kind in self._refusals:
+                raise RefusedCommandError(f"{kind} refused: {self._refusals[kind]}")
             self._commands[command.id] = command
         return command
+
+    def refuse(self, kind: str, reason: str) -> list[str]:
+        """Refuses all later submissions of `kind` and cancels its queued commands.
+
+        Returns:
+            The ids of the cancelled commands.
+        """
+        with self._lock:
+            self._refusals[kind] = reason
+            cancelled = [
+                command
+                for command in self._commands.values()
+                if command.kind == kind and command.status == "queued"
+            ]
+            for command in cancelled:
+                command.status = "cancelled"
+            return [command.id for command in cancelled]
 
     def submit_once(
         self, kind: str, args: dict[str, Any], when: CommandWhen
@@ -53,9 +76,12 @@ class CommandQueue:
 
         Raises:
             ValueError: `kind` or `args` is invalid.
+            RefusedCommandError: `kind` was refused.
         """
         args = self._validate_args(kind, args)
         with self._lock:
+            if kind in self._refusals:
+                raise RefusedCommandError(f"{kind} refused: {self._refusals[kind]}")
             for command in self._commands.values():
                 if command.status in ("queued", "executing") and (
                     command.kind,

@@ -16,15 +16,10 @@ def handle_stop(
     command: Command,
     safe_point: SafePoint | None,
 ) -> dict[str, Any]:
-    """Asks the trainer to stop, cancels the queued holds and releases the active hold."""
+    """Asks the trainer to stop, refuses holds from now on and releases the active hold."""
     del pl_module, command, safe_point
     trainer.should_stop = True
     # Cancel queued holds before the release, so no later safe point holds the run again.
-    queue = runtime.command_queue
-    cancelled = [
-        held.id
-        for held in queue.list_all()
-        if held.kind == "hold" and queue.cancel(held.id)
-    ]
+    cancelled = runtime.command_queue.refuse("hold", "the run is stopping")
     runtime.gate.release()
     return {"stop": "requested", "cancelled_holds": cancelled}

@@ -20,6 +20,7 @@ from loguru import logger
 from trainctl.rest.command_dict import command_dict
 from trainctl.rest.parse_when_or_400 import parse_when_or_400
 from trainctl.rest.reject_invalid_request import reject_invalid_request
+from trainctl.rest.reject_refused_command import reject_refused_command
 from trainctl.rest.schemas.checkpoint_in import CheckpointIn
 from trainctl.rest.schemas.command_in import CommandIn
 from trainctl.rest.schemas.debug_capture_in import DebugCaptureIn
@@ -29,6 +30,7 @@ from trainctl.rest.wait_for_command import wait_for_command
 from trainctl.runtime import inspectors_registry
 from trainctl.runtime.command_args.validate_command_args import InvalidCommandError
 from trainctl.runtime.commands.parse_when import parse_when
+from trainctl.runtime.commands.refused_command_error import RefusedCommandError
 from trainctl.runtime.cuda_memory.cheap_cuda_memory_stats import (
     cheap_cuda_memory_stats,
 )
@@ -53,7 +55,10 @@ def build_app(runtime: "TrainctlRuntime") -> FastAPI:
     """Builds the REST app bound to one `TrainctlRuntime` instance."""
     app = FastAPI(
         title="trainctl",
-        exception_handlers={RequestValidationError: reject_invalid_request},
+        exception_handlers={
+            RequestValidationError: reject_invalid_request,
+            RefusedCommandError: reject_refused_command,
+        },
     )
 
     @app.exception_handler(InvalidCommandError)

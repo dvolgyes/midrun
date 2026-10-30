@@ -177,3 +177,19 @@ def test_a_pause_after_a_stop_in_the_same_step_does_not_hold(tmp_path) -> None:
     assert client.get(f"/commands/{hold_id}").json()["status"] == "cancelled"
     assert not held
     assert not runtime.gate.is_held()
+
+
+def test_a_hold_after_an_executed_stop_is_refused(tmp_path) -> None:
+    runtime = _EndlessModel()._trainctl
+    client = TestClient(build_app(runtime))
+    client.post("/control/stop")
+    runtime._run_due_commands(None, _StepTrainer(), SafePoint.TRAIN_BATCH_END, None)
+
+    responses = [
+        client.post("/control/pause"),
+        client.post("/holds", json={"timeout_s": 0}),
+        client.post("/commands", json={"kind": "hold", "args": {"reason": "x"}}),
+    ]
+
+    assert [response.status_code for response in responses] == [409] * 3
+    assert [c.kind for c in runtime.command_queue.list_all()] == ["stop"]
