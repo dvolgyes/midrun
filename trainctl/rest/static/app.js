@@ -537,7 +537,9 @@ async function refreshMetrics() {
         el("span", { className: "kv-name", textContent: name }),
         el("span", {
           className: "kv-value",
-          textContent: metric.value.toFixed(4),
+          // The JSON encoding of a NaN or infinite value is null.
+          textContent:
+            metric.value === null ? "NaN/inf" : metric.value.toFixed(4),
         }),
         renderSparkline(history),
       ]),
@@ -552,14 +554,15 @@ function renderSparkline(history) {
   svg.setAttribute("width", String(width));
   svg.setAttribute("height", String(height));
   svg.setAttribute("class", "sparkline");
-  if (history.length < 2) return svg;
-  const values = history.map((point) => point.value);
+  const finite = history.filter((point) => point.value !== null);
+  if (finite.length < 2) return svg;
+  const values = finite.map((point) => point.value);
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = max - min || 1;
-  const points = history
+  const points = finite
     .map((point, index) => {
-      const x = (index / (history.length - 1)) * width;
+      const x = (index / (finite.length - 1)) * width;
       const y = height - ((point.value - min) / range) * height;
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     })
