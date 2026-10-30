@@ -2,19 +2,17 @@
 
 import json
 import math
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import torch
 
+from midrun.runtime.command_specs.command_runtime import CommandRuntime
 from midrun.runtime.commands.command import Command
 from midrun.runtime.events import SafePoint
 
-if TYPE_CHECKING:
-    from midrun.runtime.runtime import MidrunRuntime
-
 
 def handle_save_partial_gradients(
-    runtime: "MidrunRuntime",
+    runtime: CommandRuntime,
     pl_module: Any,
     trainer: Any,
     command: Command,

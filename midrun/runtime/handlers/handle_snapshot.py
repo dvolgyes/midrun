@@ -1,8 +1,9 @@
 """Runs the `snapshot` command: writes a state snapshot artifact."""
 
 from dataclasses import asdict
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from midrun.runtime.command_specs.command_runtime import CommandRuntime
 from midrun.runtime.commands.command import Command
 from midrun.runtime.events import SafePoint
 from midrun.runtime.handlers.optimizer_summary_payload import (
@@ -10,12 +11,9 @@ from midrun.runtime.handlers.optimizer_summary_payload import (
 )
 from midrun.runtime.state.host_snapshot import host_snapshot
 
-if TYPE_CHECKING:
-    from midrun.runtime.runtime import MidrunRuntime
-
 
 def handle_snapshot(
-    runtime: "MidrunRuntime",
+    runtime: CommandRuntime,
     pl_module: Any,
     trainer: Any,
     command: Command,

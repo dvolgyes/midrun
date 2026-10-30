@@ -1,7 +1,8 @@
 """Runs the `reset_momentum` command."""
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from midrun.runtime.command_specs.command_runtime import CommandRuntime
 from midrun.runtime.commands.command import Command
 from midrun.runtime.events import SafePoint
 from midrun.runtime.handlers.optimizer_at import optimizer_at
@@ -10,12 +11,9 @@ from midrun.runtime.optimizer_surgery.resolve_optimizer_parameters import (
     resolve_optimizer_parameters,
 )
 
-if TYPE_CHECKING:
-    from midrun.runtime.runtime import MidrunRuntime
-
 
 def handle_reset_momentum(
-    runtime: "MidrunRuntime",
+    runtime: CommandRuntime,
     pl_module: Any,
     trainer: Any,
     command: Command,

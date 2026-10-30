@@ -1,19 +1,17 @@
 """Runs the `set_hparam` command."""
 
 from dataclasses import asdict
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from midrun.runtime.command_specs.command_runtime import CommandRuntime
 from midrun.runtime.commands.command import Command
 from midrun.runtime.events import SafePoint
 from midrun.runtime.hparam_registry.check_and_assign import check_and_assign
 from midrun.runtime.hparam_registry.resolve_hparam_path import resolve_hparam_path
 
-if TYPE_CHECKING:
-    from midrun.runtime.runtime import MidrunRuntime
-
 
 def handle_set_hparam(
-    runtime: "MidrunRuntime",
+    runtime: CommandRuntime,
     pl_module: Any,
     trainer: Any,
     command: Command,

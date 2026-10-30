@@ -1,19 +1,17 @@
 """Runs the `torchlens_capture` command."""
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from midrun.runtime.command_specs.command_runtime import CommandRuntime
 from midrun.runtime.commands.command import Command
 from midrun.runtime.events import SafePoint
 from midrun.runtime.run_on_in_flight_batch import run_on_in_flight_batch
 from midrun.runtime.torchlens_available import torchlens_available
 from midrun.runtime.torchlens_capture import torchlens_capture
 
-if TYPE_CHECKING:
-    from midrun.runtime.runtime import MidrunRuntime
-
 
 def handle_torchlens_capture(
-    runtime: "MidrunRuntime",
+    runtime: CommandRuntime,
     pl_module: Any,
     trainer: Any,
     command: Command,

@@ -1,7 +1,8 @@
 """Runs the `torchviz_capture` command."""
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from midrun.runtime.command_specs.command_runtime import CommandRuntime
 from midrun.runtime.commands.command import Command
 from midrun.runtime.events import SafePoint
 from midrun.runtime.graph_inspectors.torchviz_capture import torchviz_capture
@@ -10,12 +11,9 @@ from midrun.runtime.graph_inspectors.torchviz_capture_live import (
 )
 from midrun.runtime.run_on_in_flight_batch import run_on_in_flight_batch
 
-if TYPE_CHECKING:
-    from midrun.runtime.runtime import MidrunRuntime
-
 
 def handle_torchviz_capture(
-    runtime: "MidrunRuntime",
+    runtime: CommandRuntime,
     pl_module: Any,
     trainer: Any,
     command: Command,

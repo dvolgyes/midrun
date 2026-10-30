@@ -2,14 +2,12 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from midrun.runtime.command_args.command_args_model import CommandArgsModel
+from midrun.runtime.command_specs.command_runtime import CommandRuntime
 from midrun.runtime.commands.command import Command
 from midrun.runtime.events import SafePoint
-
-if TYPE_CHECKING:
-    from midrun.runtime.runtime import MidrunRuntime
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -31,7 +29,7 @@ class CommandSpec:
 
     args: type[CommandArgsModel]
     handler: Callable[
-        ["MidrunRuntime", Any, Any, Command, SafePoint | None], dict[str, Any]
+        [CommandRuntime, Any, Any, Command, SafePoint | None], dict[str, Any]
     ]
     all_ranks: bool
     during_hold: bool
