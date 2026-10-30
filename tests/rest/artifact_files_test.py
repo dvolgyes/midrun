@@ -62,3 +62,33 @@ def test_artifact_files_mount_404_for_unknown_file(tmp_path: Path) -> None:
     response = client.get("/artifact-files/debug/does-not-exist/summary.txt")
 
     assert response.status_code == 404
+
+
+def test_artifact_files_mount_never_renders_an_uploaded_page(tmp_path: Path) -> None:
+    client, _runtime = _client(tmp_path)
+    capture = client.post(
+        "/debug/captures",
+        json={"kind": "x", "files": {"evil.html": "<script>alert(1)</script>"}},
+    ).json()
+
+    response = client.get(f"/artifact-files/debug/{capture['id']}/evil.html")
+
+    assert response.status_code == 200
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["content-security-policy"] == "sandbox"
+    assert response.headers["content-disposition"].startswith("attachment")
+
+
+def test_artifact_files_mount_keeps_svg_type_for_the_dashboard_preview(
+    tmp_path: Path,
+) -> None:
+    client, runtime = _client(tmp_path)
+    manifest = runtime.artifacts.write_debug_capture(
+        "graph", {"graph.svg": "<svg xmlns='http://www.w3.org/2000/svg'/>"}
+    )
+
+    response = client.get(f"/artifact-files/debug/{manifest['id']}/graph.svg")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/svg+xml")
+    assert response.headers["content-security-policy"] == "sandbox"

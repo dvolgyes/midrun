@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
+from midrun.rest.attachment_static_files import AttachmentStaticFiles
 from midrun.rest.command_dict import command_dict
 from midrun.rest.parse_when_or_400 import parse_when_or_400
 from midrun.rest.reject_invalid_request import reject_invalid_request
@@ -77,7 +78,7 @@ def build_app(runtime: "MidrunRuntime") -> FastAPI:
     if runtime.artifacts is not None:
         app.mount(
             "/artifact-files",
-            StaticFiles(directory=str(runtime.artifact_store.root)),
+            AttachmentStaticFiles(directory=str(runtime.artifact_store.root)),
             name="artifact-files",
         )
 
