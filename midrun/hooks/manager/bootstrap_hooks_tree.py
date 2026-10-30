@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import Any
 
+from midrun.hooks.catalog import CATALOGUE_VERSION
 from midrun.hooks.manager.hooks_bootstrap_error import HooksBootstrapError
 from midrun.hooks.manager.hooks_tree import HooksTree
 from midrun.hooks.manager.hooks_tree_layout import MARKER_NAME, PROVENANCE_NAME
@@ -23,7 +24,8 @@ def bootstrap_hooks_tree(
 
     Idempotent: once `base_dir` holds a compatible marker (`midrun-hooks-state.json`), a later
     call returns the existing live tree unchanged, regardless of `source_dir` -- resuming a run
-    never re-copies, re-seeds, or restores a deleted script.
+    never re-copies, re-seeds, or restores a deleted script. A resume warns when the
+    configured `source_dir` or the catalogue version differs from the marker's.
 
     Args:
         base_dir: The run directory (typically the Trainer's log directory), made absolute
@@ -75,6 +77,16 @@ def bootstrap_hooks_tree(
                 source_dir,
                 marker_path,
                 record.get("source_dir"),
+            )
+        if record.get("catalogue_version") != CATALOGUE_VERSION:
+            log.warning(
+                "hooks: the live tree {} has catalogue version {} (recorded in {}), this "
+                "Midrun has catalogue version {}; the tree is reused unchanged, so a callback "
+                "without a script slot in it is never dispatched",
+                live_dir,
+                record.get("catalogue_version"),
+                marker_path,
+                CATALOGUE_VERSION,
             )
         return HooksTree(live_dir, record["session_id"])
 

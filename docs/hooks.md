@@ -16,7 +16,9 @@ run:
   template. Never executed in place — only the *copy* under the run directory runs.
 - The resulting tree has one script per callback per modality (currently 37 callbacks × 2 modalities = 74 files), plus a
   generated `hooks/README.md` and a `midrun-hooks-state.json` marker recording the session id, catalogue version, and
-  source path, so a resumed run can detect whether it's compatible with the existing tree.
+  source path. A resumed run reuses the existing tree unchanged; it refuses a marker of an unknown format, and it warns
+  when the catalogue version or the configured `hooks_source_dir` differs from the marker's. A callback that has no
+  script slot in a reused tree is never dispatched.
 - A slot seeded from a disabled example template always starts **disabled** (mode `0o644`, no execute bit). A slot the
   baseline *does* provide is copied with its own mode preserved byte-for-byte (uid/gid too, where permitted) — a
   baseline script that is already executable comes up enabled immediately, letting an operator ship a pre-armed

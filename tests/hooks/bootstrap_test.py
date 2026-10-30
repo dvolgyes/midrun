@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from loguru import logger
 
-from midrun.hooks.catalog import CALLBACKS, MODALITIES
+from midrun.hooks.catalog import CALLBACKS, CATALOGUE_VERSION, MODALITIES
 from midrun.hooks.manager.bootstrap_hooks_tree import bootstrap_hooks_tree
 from midrun.hooks.manager.hooks_bootstrap_error import HooksBootstrapError
 import midrun.hooks.manager.publish_fresh_tree as publish_fresh_tree_module
@@ -480,6 +480,24 @@ def test_a_resume_with_another_baseline_warns_that_it_differs(tmp_path) -> None:
     warnings = _warnings_of_bootstrap(base_dir, tmp_path / "other", "s-b")
 
     assert len([w for w in warnings if "differs" in w]) == 1
+
+
+def test_a_resume_warns_only_when_the_tree_has_another_catalogue_version(
+    tmp_path,
+) -> None:
+    base_dir = tmp_path / "run"
+    bootstrap_hooks_tree(base_dir, None, session_id="s-a", log=logger)
+    assert not [
+        w for w in _warnings_of_bootstrap(base_dir, None, "s-b") if "catalogue" in w
+    ]
+
+    marker_path = base_dir / "midrun-hooks-state.json"
+    marker = json.loads(marker_path.read_text())
+    marker["catalogue_version"] = CATALOGUE_VERSION - 1
+    marker_path.write_text(json.dumps(marker))
+    warnings = _warnings_of_bootstrap(base_dir, None, "s-c")
+
+    assert len([w for w in warnings if "catalogue version" in w]) == 1
 
 
 def test_a_baseline_of_another_group_is_copied_with_one_warning(
