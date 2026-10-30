@@ -43,8 +43,9 @@ def dispatch_heavy(
 
     Validates every tensor `context.hook` would export ("all or failed") before any
     host allocation; a callback with no tensor arguments produces a valid empty
-    manifest rather than being skipped. A failed capture is logged as one ERROR
-    record with `phase="capture_failed"` and the script is never launched.
+    manifest rather than being skipped. A failed capture (including an OS error
+    while writing the payload) is logged as one ERROR record with
+    `phase="capture_failed"` and the script is never launched.
 
     Returns:
         `None` if the heavy script is not currently enabled; otherwise the
@@ -64,48 +65,45 @@ def dispatch_heavy(
     if script is None:
         return None
     if isinstance(prepared, HeavyCaptureFailure):
-        result = ExecutionResult(
-            phase="capture_failed",
-            exit_code=None,
-            signal_number=None,
-            duration_s=0.0,
-            stdout_tail="",
-            stderr_tail="",
-            stdout_truncated=False,
-            stderr_truncated=False,
-            error=prepared.reason,
-        )
+        result = _capture_failed(prepared.reason)
         log_hook_failure(
             script, "heavy", context, occurrence_id, invocation_id, result, log
         )
         return result
     leaves, truncated, reason = prepared
     invocation_dir = tmp_root / invocation_id
-    invocation_dir.mkdir(mode=0o700, parents=True)
     try:
-        tensor_records = export_tensors(leaves, invocation_dir)
-        manifest = build_heavy_manifest(
-            context=context,
-            occurrence_id=occurrence_id,
-            invocation_id=invocation_id,
-            arguments=arguments,
-            tensor_arg_names=tensor_arg_names,
-            tensor_records=tensor_records,
-            max_metadata_items=max_metadata_items,
-            max_metadata_depth=max_metadata_depth,
-            truncated=truncated,
-            truncated_reason=reason,
-        )
-        manifest_path = write_json_file(invocation_dir / "manifest.json", manifest)
-        result = run_script(
-            script,
-            [str(manifest_path)],
-            cwd=live_dir,
-            shell=shell,
-            timeout_s=timeout_s,
-            max_output_bytes=max_output_bytes,
-            log=log,
-        )
+        try:
+            invocation_dir.mkdir(mode=0o700, parents=True)
+            tensor_records = export_tensors(leaves, invocation_dir)
+            manifest_path = write_json_file(
+                invocation_dir / "manifest.json",
+                build_heavy_manifest(
+                    context=context,
+                    occurrence_id=occurrence_id,
+                    invocation_id=invocation_id,
+                    arguments=arguments,
+                    tensor_arg_names=tensor_arg_names,
+                    tensor_records=tensor_records,
+                    max_metadata_items=max_metadata_items,
+                    max_metadata_depth=max_metadata_depth,
+                    truncated=truncated,
+                    truncated_reason=reason,
+                ),
+            )
+        except OSError as exc:
+            # E.g. a full disk: the capture failed, training must not.
+            result = _capture_failed(f"cannot write the heavy payload: {exc}")
+        else:
+            result = run_script(
+                script,
+                [str(manifest_path)],
+                cwd=live_dir,
+                shell=shell,
+                timeout_s=timeout_s,
+                max_output_bytes=max_output_bytes,
+                log=log,
+            )
     finally:
         shutil.rmtree(invocation_dir, ignore_errors=True)
     if is_hook_failure(result):
@@ -113,3 +111,18 @@ def dispatch_heavy(
             script, "heavy", context, occurrence_id, invocation_id, result, log
         )
     return result
+
+
+def _capture_failed(reason: str) -> ExecutionResult:
+    """Returns the result of a heavy hook whose payload could not be captured."""
+    return ExecutionResult(
+        phase="capture_failed",
+        exit_code=None,
+        signal_number=None,
+        duration_s=0.0,
+        stdout_tail="",
+        stderr_tail="",
+        stdout_truncated=False,
+        stderr_truncated=False,
+        error=reason,
+    )

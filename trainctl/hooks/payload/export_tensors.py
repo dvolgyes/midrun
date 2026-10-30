@@ -25,7 +25,8 @@ def export_tensors(
         export_dtype = resolve_export_dtype(leaf.tensor)
         if export_dtype is None:
             raise AssertionError(f"unvalidated tensor reached export: {leaf.path}")
-        cpu_tensor = leaf.tensor.detach().cpu()
+        # `.numpy()` refuses lazily conjugated or negated views; materialize them.
+        cpu_tensor = leaf.tensor.detach().cpu().resolve_conj().resolve_neg()
         if leaf.tensor.dtype is torch.bfloat16:
             cpu_tensor = cpu_tensor.to(torch.float32)
         array = cpu_tensor.numpy()

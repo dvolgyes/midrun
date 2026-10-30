@@ -1,10 +1,12 @@
 """Behavioral tests for trainctl.hooks.dispatch_light and trainctl.hooks.dispatch_heavy."""
 
+import errno
 import json
 import shutil
 from pathlib import Path
 
 import numpy
+import pytest
 import torch
 
 from trainctl.hooks.dispatch_heavy import dispatch_heavy
@@ -383,3 +385,70 @@ def test_heavy_metacharacter_laden_argument_is_inert(tmp_path) -> None:
     assert not canary.exists()
     manifest = json.loads(result.stdout_tail)
     assert manifest["arguments"]["batch"]["note"] == payload
+
+
+def test_heavy_exports_conjugate_and_negative_view_tensors_by_value(tmp_path) -> None:
+    live_dir = tmp_path / "hooks"
+    copies = tmp_path / "copies"
+    copies.mkdir()
+    _make_heavy_script(
+        live_dir, "on_train_batch_start", f'cp "$(dirname "$1")"/*.npy "{copies}"'
+    )
+    tmp_root = tmp_path / "tmp-root"
+    complex_values = torch.tensor([1 + 2j, 3 - 4j])
+    conjugate = complex_values.conj()
+    negative_view = complex_values.conj().imag
+
+    result = _dispatch_heavy(
+        live_dir,
+        tmp_root,
+        _context(),
+        "occ-1",
+        {"batch": {"c": conjugate, "n": negative_view}},
+        ("batch",),
+    )
+
+    assert result is not None
+    assert result.phase == "completed"
+    assert numpy.array_equal(
+        numpy.load(copies / "tensor-000001.npy"), numpy.array([1 - 2j, 3 + 4j])
+    )
+    assert numpy.array_equal(
+        numpy.load(copies / "tensor-000002.npy"), numpy.array([-2.0, 4.0])
+    )
+
+
+def _raise_no_space(*_args, **_kwargs):
+    raise OSError(errno.ENOSPC, "No space left on device")
+
+
+@pytest.mark.parametrize(
+    "failing_write",
+    ["numpy.save", "trainctl.hooks.dispatch_heavy.write_json_file"],
+)
+def test_heavy_payload_write_error_is_a_capture_failure(
+    tmp_path, monkeypatch, failing_write
+) -> None:
+    live_dir = tmp_path / "hooks"
+    canary = tmp_path / "should-not-run-4"
+    _make_heavy_script(live_dir, "on_train_batch_start", f'touch "{canary}"')
+    tmp_root = tmp_path / "tmp-root"
+    log = _FakeLog()
+    monkeypatch.setattr(failing_write, _raise_no_space)
+
+    result = _dispatch_heavy(
+        live_dir,
+        tmp_root,
+        _context(),
+        "occ-1",
+        {"batch": {"x": torch.zeros(2)}},
+        ("batch",),
+        log=log,
+    )
+
+    assert result is not None
+    assert result.phase == "capture_failed"
+    assert result.error is not None and "No space left on device" in result.error
+    assert not canary.exists()
+    assert len(log.errors) == 1
+    assert list(tmp_root.iterdir()) == []
