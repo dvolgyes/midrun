@@ -36,9 +36,12 @@ class RuntimeSnapshot:
         rest_port: REST bind port, once started.
         torch_debug_url: PyTorch distributed debug frontend URL, once started.
         artifacts_path: This run's checkpoint/snapshot/debug-capture directory, once
-            resolved -- distinct per run (colocated under Lightning's own
-            `trainer.log_dir` when available), so distinguishes concurrent runs that
-            share a host and launch directory.
+            resolved -- `config.artifact_dir`, or `artifacts/` in the run
+            directory that `default_base_dir` selects: the per-version
+            `trainer.log_dir` of a TensorBoard or CSV logger, else
+            `<save_dir or default_root_dir>/midrun/<id>`. The default is distinct
+            per run, so it distinguishes concurrent runs that share a host and
+            launch directory.
         lightning_backend: Selected Lightning backend family name.
         lightning_version: Selected Lightning backend version string.
         exception: The active backward-exception breakpoint, when `status ==

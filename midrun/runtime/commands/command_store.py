@@ -46,11 +46,21 @@ class CommandStore:
         return list(self._queued.values())
 
     def start(self, command: Command) -> None:
-        """Removes a command that started executing from the queued index."""
-        del self._queued[command.id]
+        """Removes a command that started executing from the queued index.
+
+        A command that the store does not hold, such as one that rank 0
+        broadcast to this rank, changes nothing.
+        """
+        if self._queued.get(command.id) is command:
+            del self._queued[command.id]
 
     def finish(self, command: Command) -> None:
-        """Records that a command finished, and forgets the oldest finished ones."""
+        """Records that a command finished, and forgets the oldest finished ones.
+
+        A command that the store does not hold changes nothing.
+        """
+        if self._commands.get(command.id) is not command:
+            return
         self._queued.pop(command.id, None)
         self._finished.append(command.id)
         while len(self._finished) > self.finished_limit:
