@@ -18,11 +18,15 @@ def typed_hparam_value(current: object, leaf: str, new_value: object) -> object:
     """
     kind = describe_hparam(current).type
     if isinstance(current, torch.Tensor):
-        if isinstance(new_value, str) or (
-            isinstance(new_value, bool) and current.dtype != torch.bool
-        ):
+        if isinstance(new_value, str):
             raise ValueError(f"{leaf!r} is a tensor hparam; got {new_value!r}")
-        tensor = torch.as_tensor(new_value, dtype=current.dtype, device=current.device)
+        tensor = torch.as_tensor(new_value, device=current.device)
+        if _changes_element_kind(tensor, current):
+            raise ValueError(
+                f"{leaf!r} is a {current.dtype} tensor hparam; got {tensor.dtype} "
+                f"elements {new_value!r}"
+            )
+        tensor = tensor.to(current.dtype)
         if tuple(tensor.shape) != tuple(current.shape):
             raise ValueError(
                 f"shape mismatch: {leaf!r} has shape {tuple(current.shape)}, "
@@ -47,3 +51,18 @@ def typed_hparam_value(current: object, leaf: str, new_value: object) -> object:
         if not math.isfinite(new_value):
             raise ValueError(f"{leaf!r} must be finite, got {new_value!r}")
     return new_value
+
+
+def _changes_element_kind(tensor: torch.Tensor, current: torch.Tensor) -> bool:
+    """Returns whether a cast of `tensor` to `current`'s dtype converts its elements.
+
+    A bool and a number are not convertible, and neither is a float to an integer. An
+    int is a valid element of a float tensor. An empty tensor has no element type.
+    """
+    if tensor.numel() == 0:
+        return False
+    if (tensor.dtype == torch.bool) != (current.dtype == torch.bool):
+        return True
+    return tensor.is_floating_point() and not (
+        current.is_floating_point() or current.is_complex()
+    )

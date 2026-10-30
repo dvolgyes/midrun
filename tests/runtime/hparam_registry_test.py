@@ -443,3 +443,35 @@ def test_validate_bounds_multi_element_tensor_all_in_range_passes() -> None:
     spec = TunableHparamSpec(path="x", min=0, max=10)
 
     validate_bounds(spec, torch.tensor([1.0, 5.0, 9.0]))  # must not raise
+
+
+@pytest.mark.parametrize(
+    ("current", "value"),
+    [
+        (torch.tensor([1, 2]), [7.9, 2.5]),
+        (torch.tensor([1.0, 2.0]), [True, False]),
+        (torch.tensor([1, 2]), [True, False]),
+        (torch.tensor([True, False]), [1, 0]),
+        (torch.tensor([True, False]), [1.0, 0.0]),
+    ],
+)
+def test_check_and_assign_tensor_rejects_elements_of_another_type(
+    current: torch.Tensor, value: list
+) -> None:
+    model = _Model()
+    model.weight = current
+    before = current.clone()
+
+    with pytest.raises(ValueError, match="hparam; got"):
+        _assign(model, "weight", value)
+
+    assert torch.equal(model.weight, before)
+
+
+def test_check_and_assign_float_tensor_accepts_int_elements() -> None:
+    model = _Model()
+
+    _assign(model, "weight", [4, 5, 6])
+
+    assert torch.equal(model.weight, torch.tensor([4.0, 5.0, 6.0]))
+    assert model.weight.dtype == torch.float32
