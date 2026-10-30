@@ -153,6 +153,25 @@ def test_save_current_batch_and_loss_during_exception_hold(tmp_path: Path) -> No
         thread.join(timeout=5)
 
 
+@pytest.mark.parametrize(
+    ("kind", "missing"),
+    [("save_current_batch", "batch"), ("save_current_loss", "loss")],
+)
+def test_save_current_batch_and_loss_fail_without_an_in_flight_value(
+    tmp_path: Path, kind: str, missing: str
+) -> None:
+    runtime = _make_runtime(tmp_path)
+    trainer = _FakeTrainer()
+    pl_module = _FakePLModule(trainer)
+
+    cmd = runtime.command_queue.submit(kind, {}, parse_when("now"))
+    runtime._execute(pl_module, trainer, cmd, safe_point=None)
+
+    assert cmd.status == "failed"
+    assert f"{kind} requires an in-flight {missing}" in cmd.error
+    assert list((tmp_path / "debug").iterdir()) == []
+
+
 def test_save_partial_gradients_reports_grad_presence_and_norm(tmp_path: Path) -> None:
     runtime = _make_runtime(tmp_path)
     trainer = _FakeTrainer()

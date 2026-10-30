@@ -16,8 +16,14 @@ def handle_save_current_batch(
     command: Command,
     safe_point: SafePoint | None,
 ) -> dict[str, Any]:
-    """Writes the in-flight batch with `torch.save` as a debug capture."""
+    """Writes the in-flight batch with `torch.save` as a debug capture.
+
+    Raises:
+        ValueError: No batch is in flight.
+    """
     del pl_module, trainer, command, safe_point
+    if runtime.current_step.batch is None:
+        raise ValueError("save_current_batch requires an in-flight batch")
     import io
 
     import torch

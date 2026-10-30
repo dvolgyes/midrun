@@ -16,8 +16,14 @@ def handle_save_current_loss(
     command: Command,
     safe_point: SafePoint | None,
 ) -> dict[str, Any]:
-    """Writes the in-flight loss with `torch.save` as a debug capture."""
+    """Writes the in-flight loss with `torch.save` as a debug capture.
+
+    Raises:
+        ValueError: No loss is in flight.
+    """
     del pl_module, trainer, command, safe_point
+    if runtime.current_step.loss is None:
+        raise ValueError("save_current_loss requires an in-flight loss")
     import io
 
     import torch
