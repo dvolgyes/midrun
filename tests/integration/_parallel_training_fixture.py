@@ -33,9 +33,7 @@ from pathlib import Path
 import lightning.pytorch as pl
 import torch
 from torch import nn
-from torch.utils.data import DataLoader
-from torchvision.datasets import FakeData
-from torchvision.transforms import v2 as T
+from torch.utils.data import DataLoader, TensorDataset
 
 from trainctl import TrainctlMixin
 
@@ -109,8 +107,7 @@ def _init_distributed(master_port: str) -> None:
 
 
 def _build_loader() -> DataLoader:
-    transform = T.Compose([T.ToImage(), T.ToDtype(torch.float32, scale=True)])
-    dataset = FakeData(size=8, image_size=(3, 8, 8), num_classes=4, transform=transform)
+    dataset = TensorDataset(torch.rand(8, 3, 8, 8), torch.randint(0, 4, (8,)))
     return DataLoader(dataset, batch_size=4, num_workers=0)
 
 
