@@ -254,7 +254,7 @@ def test_attach_run_file_records_only_this_sessions_bound_messages(tmp_path) -> 
     log_path = tmp_path / "midrun.log"
     session_a = LoggingSession("session-j")
     session_b = LoggingSession("session-k")
-    session_a.attach_run_file(log_path)
+    session_a.attach_run_file(log_path, rank=0)
     try:
         session_a.bind().info("from a")
         session_b.bind().info("from b")
@@ -273,7 +273,7 @@ def _named(name: str):
 def test_attach_run_file_records_unbound_midrun_records_only(tmp_path) -> None:
     log_path = tmp_path / "midrun.log"
     session = LoggingSession("session-o")
-    session.attach_run_file(log_path)
+    session.attach_run_file(log_path, rank=0)
     try:
         _named("midrun").warning("from the midrun package")
         _named("midrun.runtime.runtime").warning("from a midrun module")
@@ -293,10 +293,31 @@ def test_attach_run_file_records_unbound_midrun_records_only(tmp_path) -> None:
     assert "bound to another session" not in content
 
 
+def test_attach_run_file_names_the_rank_in_every_record_of_a_shared_file(
+    tmp_path,
+) -> None:
+    log_path = tmp_path / "midrun.log"
+    rank_zero = LoggingSession("session-q")
+    rank_one = LoggingSession("session-r")
+    rank_zero.attach_run_file(log_path, rank=0)
+    rank_one.attach_run_file(log_path, rank=1)
+    try:
+        rank_zero.bind().info("from rank zero")
+        rank_one.bind().info("from the other rank")
+    finally:
+        rank_zero.close()
+        rank_one.close()
+
+    lines = log_path.read_text().splitlines()
+    assert len(lines) == 2
+    assert " | rank 0 | " in next(line for line in lines if "from rank zero" in line)
+    assert " | rank 1 | " in next(line for line in lines if "other rank" in line)
+
+
 def test_attach_run_file_creates_parent_directories(tmp_path) -> None:
     log_path = tmp_path / "nested" / "dir" / "midrun.log"
     session = LoggingSession("session-l")
-    session.attach_run_file(log_path)
+    session.attach_run_file(log_path, rank=0)
     try:
         session.bind().info("hello")
     finally:
@@ -310,7 +331,7 @@ def test_attach_run_file_propagates_a_real_open_failure(tmp_path) -> None:
     blocking_file.write_text("x")
     session = LoggingSession("session-m")
     with pytest.raises(OSError):
-        session.attach_run_file(blocking_file / "midrun.log")
+        session.attach_run_file(blocking_file / "midrun.log", rank=0)
 
 
 def test_install_root_bridge_also_bridges_the_actual_root_logger() -> None:

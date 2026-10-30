@@ -13,6 +13,7 @@ def start_logging_session(
 
     The run-log file is `midrun-rank-<rank>.log` under the `all` hooks rank policy,
     else `midrun.log`. The rank policy selects the name also when hooks are disabled.
+    Each line of the file names `rank`, the global rank of this process.
     """
     if config.intercept_lightning_logging:
         session.install()
@@ -22,4 +23,4 @@ def start_logging_session(
             if config.hooks_rank_policy == "all"
             else "midrun.log"
         )
-        session.attach_run_file(base_dir / filename)
+        session.attach_run_file(base_dir / filename, rank=rank)

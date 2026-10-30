@@ -15,6 +15,12 @@ BRIDGED_LOGGERS: tuple[str, ...] = (
     "lightning.fabric",
 )
 
+# Loguru's default format with a rank column; `{rank}` is filled in per sink.
+_RUN_FILE_FORMAT = (
+    "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | rank {rank} | "
+    "{name}:{function}:{line} - {message}"
+)
+
 
 class LoggingSession:
     """Owns one training run's standard-logging bridge and its Loguru run-file sink.
@@ -80,12 +86,13 @@ class LoggingSession:
             std_logger.propagate = False
         self._handler = handler
 
-    def attach_run_file(self, path: Path) -> None:
+    def attach_run_file(self, path: Path, *, rank: int) -> None:
         """Adds a Loguru file sink at `path` for this session's records and Midrun's own.
 
         The sink accepts a record bound to this session, and an unbound record from
         the `midrun` package (the bare `loguru.logger` in a `midrun.*` module). It
-        rejects a record bound to a different session.
+        rejects a record bound to a different session. Each line names `rank`, the
+        global rank of this process, because all ranks can write to one file.
 
         A second call is a no-op. I/O failures (e.g. an unwritable parent directory)
         propagate as-is from `Path.mkdir`/`loguru.logger.add` -- the caller decides
@@ -102,6 +109,7 @@ class LoggingSession:
                 if "midrun_session" in record["extra"]
                 else (record["name"] or "").partition(".")[0] == "midrun"
             ),
+            format=_RUN_FILE_FORMAT.replace("{rank}", str(rank)),
             level="DEBUG",
             diagnose=False,
             backtrace=False,
