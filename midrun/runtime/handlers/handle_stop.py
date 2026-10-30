@@ -20,6 +20,7 @@ def handle_stop(
     del pl_module, command, safe_point
     trainer.should_stop = True
     # Cancel queued holds before the release, so no later safe point holds the run again.
-    cancelled = runtime.command_queue.refuse("hold", "the run is stopping")
+    runtime.command_queue.refusals.refuse("hold", "the run is stopping")
+    cancelled = runtime.command_queue.cancel_kind("hold")
     runtime.gate.release()
     return {"stop": "requested", "cancelled_holds": cancelled}

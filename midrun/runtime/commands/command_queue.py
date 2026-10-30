@@ -6,6 +6,7 @@ from collections.abc import Callable
 from typing import Any
 
 from midrun.runtime.commands.command import Command
+from midrun.runtime.commands.command_refusals import CommandRefusals
 from midrun.runtime.commands.command_when import CommandWhen
 from midrun.runtime.commands.next_id import next_id
 from midrun.runtime.commands.refused_command_error import RefusedCommandError
@@ -17,12 +18,15 @@ class CommandQueue:
 
     `validate_args` checks each submission's kind and args, and returns the args with
     defaults filled in. It raises ValueError for an invalid submission.
+
+    Attributes:
+        refusals: The command kinds that `submit` and `submit_once` refuse.
     """
 
     _validate_args: Callable[[str, dict[str, Any]], dict[str, Any]]
     _lock: threading.Lock
     _commands: dict[str, Command]
-    _refusals: dict[str, str]
+    refusals: CommandRefusals
 
     def __init__(
         self, validate_args: Callable[[str, dict[str, Any]], dict[str, Any]]
@@ -30,7 +34,7 @@ class CommandQueue:
         self._validate_args = validate_args
         self._lock = threading.Lock()
         self._commands: dict[str, Command] = {}
-        self._refusals = {}
+        self.refusals = CommandRefusals()
 
     def submit(self, kind: str, args: dict[str, Any], when: CommandWhen) -> Command:
         """Registers a new queued command.
@@ -44,21 +48,21 @@ class CommandQueue:
             id=next_id("cmd"), kind=kind, args=args, when=when, created_at=time.time()
         )
         with self._lock:
-            if kind in self._refusals:
-                raise RefusedCommandError(f"{kind} refused: {self._refusals[kind]}")
+            if (reason := self.refusals.reason(kind)) is not None:
+                raise RefusedCommandError(f"{kind} refused: {reason}")
             self._commands[command.id] = command
         return command
 
-    def refuse(self, kind: str, reason: str) -> list[str]:
-        """Refuses later submissions of `kind` and cancels its queued commands.
+    def cancel_kind(self, kind: str) -> list[str]:
+        """Cancels every still-queued command of `kind`.
 
-        The refusal lasts until `clear_refusals`.
+        To keep the kind out, refuse it in `refusals` first: a submission that
+        passed the refusal check before then is already queued, and is cancelled here.
 
         Returns:
             The ids of the cancelled commands.
         """
         with self._lock:
-            self._refusals[kind] = reason
             cancelled = [
                 command
                 for command in self._commands.values()
@@ -67,11 +71,6 @@ class CommandQueue:
             for command in cancelled:
                 command.status = "cancelled"
             return [command.id for command in cancelled]
-
-    def clear_refusals(self) -> None:
-        """Accepts again every command kind that `refuse` refused."""
-        with self._lock:
-            self._refusals.clear()
 
     def submit_once(
         self, kind: str, args: dict[str, Any], when: CommandWhen
@@ -87,8 +86,8 @@ class CommandQueue:
         """
         args = self._validate_args(kind, args)
         with self._lock:
-            if kind in self._refusals:
-                raise RefusedCommandError(f"{kind} refused: {self._refusals[kind]}")
+            if (reason := self.refusals.reason(kind)) is not None:
+                raise RefusedCommandError(f"{kind} refused: {reason}")
             for command in self._commands.values():
                 if command.status in ("queued", "executing") and (
                     command.kind,

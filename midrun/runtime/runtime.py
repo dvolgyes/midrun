@@ -261,7 +261,7 @@ class MidrunRuntime:
                 return
             self._started = True
         # A new run or stage accepts the holds that a stop of the last one refused.
-        self.command_queue.clear_refusals()
+        self.command_queue.refusals.clear()
 
         self._is_rank_zero = is_rank_zero()
         self.rank_sync = RankSync.create()
