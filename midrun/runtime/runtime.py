@@ -524,6 +524,11 @@ class MidrunRuntime:
             )
             self.command_queue.mark_result(command, succeeded=False, error=str(exc))
             return
+        except BaseException as exc:
+            # An interrupt or exit ends training, but not as a command still executing.
+            error = f"interrupted by {type(exc).__name__}"
+            self.command_queue.mark_result(command, succeeded=False, error=error)
+            raise
         self.command_queue.mark_result(command, succeeded=True, result=result)
 
     # ---- per-batch hooks ----------------------------------------------------------
