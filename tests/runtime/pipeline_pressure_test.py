@@ -1,6 +1,9 @@
 """Behavioral tests for PipelinePressureTracker's phase timing and rolling summary."""
 
+from trainctl.config import TrainctlConfig
+from trainctl.load_backend import load_backend
 from trainctl.runtime.pipeline_pressure import PipelinePressureTracker
+from trainctl.runtime.runtime import TrainctlRuntime
 
 
 def test_first_batch_has_no_input_gap() -> None:
@@ -83,3 +86,37 @@ def test_summary_identifies_largest_phase() -> None:
     assert sample.backward_ns == 990
     summary = tracker.summary()
     assert summary["largest_phase"] == "backward"
+
+
+class _FakeTrainer:
+    current_epoch = 0
+    global_step = 0
+
+
+class _FakePLModule:
+    trainer = _FakeTrainer()
+
+
+def _run_one_batch(pipeline_pressure_enabled: bool) -> PipelinePressureTracker:
+    config = TrainctlConfig(
+        rest_enabled=False,
+        fuse_enabled=False,
+        torch_debug_enabled=False,
+        pipeline_pressure_enabled=pipeline_pressure_enabled,
+    )
+    runtime = TrainctlRuntime(config, load_backend("lightning.pytorch"))
+    pl_module = _FakePLModule()
+    runtime.begin_train_batch(pl_module, batch=None, batch_idx=0)
+    runtime.before_backward(loss=None)
+    runtime.after_backward()
+    runtime.before_optimizer_step()
+    runtime.finish_train_batch(pl_module)
+    return runtime.pipeline
+
+
+def test_runtime_records_a_sample_per_batch_when_enabled() -> None:
+    assert _run_one_batch(pipeline_pressure_enabled=True).latest() is not None
+
+
+def test_runtime_records_no_sample_when_disabled() -> None:
+    assert _run_one_batch(pipeline_pressure_enabled=False).latest() is None

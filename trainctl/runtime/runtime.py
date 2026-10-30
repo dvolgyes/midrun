@@ -593,7 +593,8 @@ class TrainctlRuntime:
         Called from `on_train_batch_end`, after safe-point processing, in a `finally`
         block so the retained batch/loss/exception never survive into the next batch.
         """
-        self.pipeline.batch_end(time.perf_counter_ns())
+        if self.config.pipeline_pressure_enabled:
+            self.pipeline.batch_end(time.perf_counter_ns())
         self._advance_profiler(pl_module)
         self.current_step.clear()
 
