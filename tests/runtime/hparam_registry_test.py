@@ -488,3 +488,19 @@ def test_check_and_assign_updates_a_parameter_in_place() -> None:
     assert torch.equal(model.weight.detach(), torch.tensor([4.0, 5.0, 6.0]))
     assert model.weight.requires_grad
     assert result.value == [4.0, 5.0, 6.0]
+
+
+@pytest.mark.parametrize("key", ["values", "items", "update"])
+def test_a_mapping_key_named_like_a_dict_method_is_read_and_written(key: str) -> None:
+    model = _NestedModel()
+    model.config = {key: {"warmup_steps": 100}, "schedule": {key: 1}}
+
+    parent, leaf = resolve_hparam_path(
+        model, trainer=None, path=f"config.{key}.warmup_steps"
+    )
+    result = _assign(model.config["schedule"], key, 2)
+
+    assert parent is model.config[key]
+    assert leaf == "warmup_steps"
+    assert result.value == 2
+    assert model.config["schedule"][key] == 2

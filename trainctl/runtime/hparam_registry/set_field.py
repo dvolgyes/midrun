@@ -5,15 +5,18 @@ from typing import Any
 
 
 def set_field(obj: Any, key: str, value: Any) -> None:
-    """Writes `obj.<key> = value`, falling back to `obj[key] = value` for a
+    """Writes `obj[key] = value` when `obj` is a `MutableMapping` with that key,
+    else `obj.<key> = value`, falling back to `obj[key] = value` for a
     `MutableMapping` `obj` lacking that attribute. Mirrors `get_field`'s
-    attribute-first precedence.
+    key-first precedence.
 
     Raises:
         AttributeError: `key` is neither a settable attribute of `obj` nor, for a
             `MutableMapping` `obj`, an assignable key.
     """
-    if hasattr(obj, key):
+    if isinstance(obj, MutableMapping) and key in obj:
+        obj[key] = value
+    elif hasattr(obj, key):
         setattr(obj, key, value)
     elif isinstance(obj, MutableMapping):
         obj[key] = value
