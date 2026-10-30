@@ -78,11 +78,26 @@ If your model overrides one of these Lightning hooks, call `super()` in your ove
 
 ## Where to find the run
 
-midrun puts its files in the Trainer's log directory (for example `lightning_logs/version_0/`), next to the files of
-your logger:
+midrun puts its files in a directory that belongs to this run only. We call it the run directory, `$RUN` below:
+
+- With a `TensorBoardLogger` or a `CSVLogger` as the first logger, the run directory is the Trainer's log directory (for
+  example `lightning_logs/version_0/`), next to the files of your logger.
+- With any other first logger (for example W&B or MLflow), the run directory is `<save_dir>/midrun/<version>`. The
+  version is the logger's run id. midrun replaces each character other than letters, digits, `.`, `_` and `-` with `_`,
+  and removes leading dots. A run that resumes with the same logger version uses the same directory.
+- Without a logger, or when the logger has no version, the run directory is `<default_root_dir>/midrun/<run-id>`. The
+  run id is new for each model instance (`run-<time>-<pid>-<random>`), so sequential `fit()` calls on the same model
+  share the directory, and a new model or a new process gets a new one.
+
+In a distributed run, all ranks use the directory that rank zero selects.
+
+**Breaking change:** older versions used `trainer.log_dir` for every logger. For a W&B or MLflow logger, and without a
+logger, that directory is the same for all runs, so a new run reused the hooks, the marker and the log of an earlier
+run. Move or delete the old `hooks/`, `procfs/`, `artifacts/`, `midrun-hooks-state.json` and `midrun.log` there if you
+do not need them.
 
 ```text
-lightning_logs/version_0/
+$RUN/
 ├── procfs/                      read-only live view of the run (FUSE mount, exists while the run is live)
 ├── artifacts/                   checkpoints/, snapshots/, debug/
 ├── hooks/                       light/ and heavy/ shell hooks, all disabled at start
@@ -97,7 +112,7 @@ instead: it adds the same offset, a multiple of 100, to both base ports (8090 an
 address that the run actually uses is in `procfs/meta/rest/url`:
 
 ```sh
-RUN=lightning_logs/version_0
+RUN=lightning_logs/version_0               # the run directory
 URL=$(cat $RUN/procfs/meta/rest/url)    # for example http://127.0.0.1:8090
 curl -s $URL/health
 ```
@@ -299,8 +314,8 @@ description of each option.
 | `midrun_enabled` | `True` | Master switch for all services. |
 | `rest_enabled`, `rest_host`, `rest_port`, `rest_port_search` | `True`, `127.0.0.1`, `8090`, `100` | REST API and dashboard. |
 | `rest_allowed_hosts` | `()` | Extra `Host` header names for the REST API, for example a reverse proxy. |
-| `fuse_enabled`, `fuse_mountpoint` | `True`, `<log_dir>/procfs` | Read-only filesystem view. |
-| `artifact_dir` | `<log_dir>/artifacts` | Checkpoints, snapshots, debug captures. |
+| `fuse_enabled`, `fuse_mountpoint` | `True`, `$RUN/procfs` | Read-only filesystem view. |
+| `artifact_dir` | `$RUN/artifacts` | Checkpoints, snapshots, debug captures. |
 | `torch_debug_enabled`, `torch_debug_port` | `True`, `25999` | `torch.distributed.debug` server; starts only when torch.distributed is initialized. |
 | `hooks_enabled`, `hooks_source_dir`, `hooks_timeout_s`, `hooks_rank_policy` | `True`, `None`, `None`, `"rank_zero"` | Shell hooks; see [docs/hooks.md](docs/hooks.md). |
 | `pipeline_pressure_enabled`, `pipeline_pressure_window` | `True`, `256` | Per-batch phase timing. |

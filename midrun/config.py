@@ -33,10 +33,11 @@ class MidrunConfig:
     Attributes:
         enabled: Master switch; when False, MidrunMixin does not start any service.
         fuse_enabled: Start the read-only mfusepy inspection filesystem.
-        fuse_mountpoint: Explicit mount directory; auto-selected under
-            `<trainer.log_dir>/procfs` when a Trainer reports a log directory,
-            else `$XDG_RUNTIME_DIR/midrun/<run-id>/procfs` (or
-            `/tmp/midrun-<uid>/<run-id>/procfs`), when None.
+        fuse_mountpoint: Explicit mount directory; auto-selected as `procfs` in the
+            run directory when None. The run directory is `trainer.log_dir` for a
+            TensorBoard or CSV logger, else `<save_dir or default_root_dir>/midrun/<id>`,
+            where `<id>` is the logger version or the run id (see
+            `midrun.runtime.default_base_dir`).
         rest_enabled: Start the REST control/debug API.
         rest_host: Bind host for the REST server.
         rest_port: First REST port to try.
@@ -61,9 +62,7 @@ class MidrunConfig:
             drifting to unrelated ports under concurrent contention. This many distinct
             offsets are tried before giving up.
         artifact_dir: Directory for checkpoints/snapshots/debug captures; auto-selected
-            under `<trainer.log_dir>/artifacts` when a Trainer reports a log
-            directory, else `$XDG_RUNTIME_DIR/midrun/<run-id>/artifacts` (or
-            `/tmp/midrun-<uid>/<run-id>/artifacts`), when None.
+            as `artifacts` in the run directory (see `fuse_mountpoint`) when None.
         inspection_strict: Raise instead of logging a warning when a Midrun service
             fails to start. Intended for development/tests.
         pipeline_pressure_enabled: Record cheap per-batch phase timing (input gap,

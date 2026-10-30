@@ -32,14 +32,17 @@ class _TinyModel(MidrunMixin, PL.LightningModule):
         return torch.optim.SGD(self.parameters(), lr=0.01)
 
 
-def _fit(tmp_path: Path, **kwargs) -> PL.Trainer:
+def _model(**kwargs) -> _TinyModel:
     options = {
         "fuse_enabled": False,
         "rest_enabled": False,
         "torch_debug_enabled": False,
         "hooks_enabled": False,
     }
-    model = _TinyModel(**(options | kwargs))
+    return _TinyModel(**(options | kwargs))
+
+
+def _fit(tmp_path: Path, model: _TinyModel) -> None:
     trainer = PL.Trainer(
         default_root_dir=str(tmp_path),
         max_epochs=1,
@@ -53,7 +56,6 @@ def _fit(tmp_path: Path, **kwargs) -> PL.Trainer:
         TensorDataset(torch.randn(8, 4), torch.randn(8, 1)), batch_size=4
     )
     trainer.fit(model, loader)
-    return trainer
 
 
 def _is_bridged() -> bool:
@@ -61,61 +63,69 @@ def _is_bridged() -> bool:
     return any(isinstance(h, LoguruBridgeHandler) for h in std_logger.handlers)
 
 
-def test_a_fit_without_hooks_writes_lightning_logging_to_midrun_log(tmp_path) -> None:
-    trainer = _fit(tmp_path, run_log_enabled=True, intercept_lightning_logging=True)
+def test_a_fit_without_hooks_writes_lightning_logging_to_midrun_log(
+    tmp_path, run_base_dir
+) -> None:
+    model = _model(run_log_enabled=True, intercept_lightning_logging=True)
+    _fit(tmp_path, model)
 
-    assert _FIT_STOPPED in (Path(trainer.log_dir) / "midrun.log").read_text()
+    assert _FIT_STOPPED in (run_base_dir(model) / "midrun.log").read_text()
     assert not _is_bridged()
 
 
-def test_midrun_log_records_midrun_diagnostics_of_unbound_loggers(tmp_path) -> None:
+def test_midrun_log_records_midrun_diagnostics_of_unbound_loggers(
+    tmp_path, run_base_dir
+) -> None:
     # Without torch.distributed, setup logs the skip of the debug server unbound.
-    trainer = _fit(tmp_path, run_log_enabled=True, torch_debug_enabled=True)
+    model = _model(run_log_enabled=True, torch_debug_enabled=True)
+    _fit(tmp_path, model)
 
-    log = (Path(trainer.log_dir) / "midrun.log").read_text()
+    log = (run_base_dir(model) / "midrun.log").read_text()
     assert "pytorch distributed debug server skipped" in log
 
 
 def test_a_fit_without_hooks_bridges_lightning_logging_without_a_run_log(
-    tmp_path,
+    tmp_path, run_base_dir
 ) -> None:
     records: list[dict] = []
     sink_id = logger.add(lambda message: records.append(message.record), level=0)
+    model = _model(run_log_enabled=False, intercept_lightning_logging=True)
     try:
-        trainer = _fit(
-            tmp_path, run_log_enabled=False, intercept_lightning_logging=True
-        )
+        _fit(tmp_path, model)
     finally:
         logger.remove(sink_id)
 
     bridged = [r for r in records if "std_logger_name" in r["extra"]]
     assert any(_FIT_STOPPED in r["message"] for r in bridged)
-    assert not (Path(trainer.log_dir) / "midrun.log").exists()
+    assert not (run_base_dir(model) / "midrun.log").exists()
     assert not _is_bridged()
 
 
-def test_a_failed_fit_without_hooks_closes_the_logging_session(tmp_path) -> None:
+def test_a_failed_fit_without_hooks_closes_the_logging_session(
+    tmp_path, run_base_dir
+) -> None:
+    model = _model(
+        fail=True,
+        break_on_backward_exception=False,
+        run_log_enabled=True,
+        intercept_lightning_logging=True,
+    )
     with pytest.raises(RuntimeError, match="boom"):
-        _fit(
-            tmp_path,
-            fail=True,
-            break_on_backward_exception=False,
-            run_log_enabled=True,
-            intercept_lightning_logging=True,
-        )
+        _fit(tmp_path, model)
 
-    assert (tmp_path / "midrun.log").exists()
+    assert (run_base_dir(model) / "midrun.log").exists()
     assert not _is_bridged()
 
 
 def test_midrun_log_records_warnings_of_the_service_shutdown(
-    tmp_path, monkeypatch
+    tmp_path, run_base_dir, monkeypatch
 ) -> None:
     def fail() -> None:
         raise OSError("unmount refused")
 
     monkeypatch.setattr(MidrunRuntime, "_stop_fuse", lambda self: fail())
-    trainer = _fit(tmp_path, run_log_enabled=True)
+    model = _model(run_log_enabled=True)
+    _fit(tmp_path, model)
 
-    log = (Path(trainer.log_dir) / "midrun.log").read_text()
+    log = (run_base_dir(model) / "midrun.log").read_text()
     assert "FUSE shutdown failed: unmount refused" in log

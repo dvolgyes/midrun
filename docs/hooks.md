@@ -9,7 +9,10 @@ the real callback point.
 ## Enabling the facility
 
 `hooks_enabled=True` (the default) makes `MidrunMixin` seed a run-local `hooks/` tree the first time it bootstraps for a
-run:
+run. The tree is in the run directory: the Trainer's log directory for a TensorBoard or CSV logger, else
+`<save_dir or default_root_dir>/midrun/<logger version or run id>` (see "Where to find the run" in the
+[README](../README.md#where-to-find-the-run)). Thus runs that share a W&B or MLflow `save_dir`, or that have no logger,
+do not share a tree. The tree and its options:
 
 - `hooks_source_dir`: an optional baseline directory (`light/`, `heavy/`, and any supporting files) copied into the
   run's `hooks/` tree. Any `(modality, callback)` slot the baseline doesn't provide is seeded from a disabled example
@@ -241,7 +244,9 @@ not the composed model's — Lightning calls the adapter's `setup(trainer, pl_mo
 method for a stage's `fit`/`validate`/`test`/`predict` call, and always pairs it with a matching `teardown` afterward.
 Rank and world size come directly from `trainer.global_rank` / `trainer.world_size` at that point, not from any later
 Midrun-internal rank-gathering step. A resumed run (e.g. `fit()` followed by a separate `test()` call against the same
-model) detects the existing marker and reuses the same live tree and session id rather than reseeding.
+model) detects the existing marker and reuses the same live tree and session id rather than reseeding. A new training
+process finds the tree again only when it resolves the same run directory, for example with the same TensorBoard, CSV,
+W&B or MLflow version; without a logger, each model instance has its own run id and therefore a new tree.
 
 Because the session's lifetime is bound exactly to one stage's `setup`/`teardown` pair, a hook that fires with no stage
 active at all — for example a standalone `Trainer.save_checkpoint()` call made after `fit()` has already returned —
