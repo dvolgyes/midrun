@@ -25,6 +25,11 @@ from midrun.lightning_backend import LightningBackend
 from midrun.logging.logging_session import LoggingSession
 from midrun.runtime.artifacts import ArtifactStore
 from midrun.runtime.command_args.validate_command_args import validate_command_args
+from midrun.runtime.command_specs.allowed_during_exception import (
+    ALLOWED_DURING_EXCEPTION,
+)
+from midrun.runtime.command_specs.allowed_during_hold import ALLOWED_DURING_HOLD
+from midrun.runtime.command_specs.command_specs import COMMAND_SPECS
 from midrun.runtime.commands.command import Command
 from midrun.runtime.commands.command_queue import CommandQueue
 from midrun.runtime.commands.next_id import next_id
@@ -40,7 +45,6 @@ from midrun.runtime.distributed_initialized import distributed_initialized
 from midrun.runtime.events import SafePoint
 from midrun.runtime.finite_guard import DataloaderFiniteGuard, FiniteCheckReport
 from midrun.runtime.gate import RunGate
-from midrun.runtime.handlers.command_handlers import COMMAND_HANDLERS
 from midrun.runtime.hparam_registry.collect_tunable_hparams import (
     collect_tunable_hparams,
 )
@@ -73,45 +77,6 @@ if TYPE_CHECKING:
 
     from midrun.fuse.filesystem import MidrunFS
 
-_ALLOWED_DURING_HOLD = frozenset(
-    {
-        "checkpoint",
-        "snapshot",
-        "set_learning_rate",
-        "reset_momentum",
-        "set_dataloader_finite_check",
-        "set_hparam",
-        "stop",
-        "torchinfo_capture",
-        "profile",
-        "torchview_capture",
-        "torchviz_capture",
-        "torchlens_capture",
-        "set_lightning_profiler",
-    }
-)
-# The command kinds that every rank runs, because they change state that each rank
-# holds a copy of. The other kinds act on rank 0's services and run there only.
-_ALL_RANK_KINDS = frozenset(
-    {
-        "stop",
-        "checkpoint",
-        "set_learning_rate",
-        "reset_momentum",
-        "set_dataloader_finite_check",
-        "set_hparam",
-    }
-)
-_ALLOWED_DURING_EXCEPTION = frozenset(
-    {
-        "save_current_batch",
-        "save_current_loss",
-        "save_partial_gradients",
-        "save_optimizer_summary",
-        "release_exception",
-        "torchviz_capture",
-    }
-)
 _KNOWN_SAFE_BACKWARD_STRATEGIES = frozenset(
     {"SingleDeviceStrategy", "DDPStrategy", "FSDPStrategy"}
 )
@@ -482,7 +447,7 @@ class MidrunRuntime:
         would reach the process-group timeout.
         """
         while self._run_due_commands(
-            pl_module, trainer, safe_point=None, allowed=_ALLOWED_DURING_HOLD
+            pl_module, trainer, safe_point=None, allowed=ALLOWED_DURING_HOLD
         ):
             self._publish(pl_module, status="held")
             self._refresh_tunable_hparams(pl_module, trainer)
@@ -500,9 +465,10 @@ class MidrunRuntime:
         """Runs the due commands on every rank and returns whether rank 0 is held.
 
         Only rank 0 has the command queue and the gate, so it sends its due commands
-        and its hold state to the other ranks. They run only `_ALL_RANK_KINDS`. This
-        is a collective: every rank must call it at the same safe point. Rank 0 sends
-        its flags first and pickles its commands only when some are due.
+        and its hold state to the other ranks. They run only the kinds whose
+        `CommandSpec.all_ranks` is set. This is a collective: every rank must call
+        it at the same safe point. Rank 0 sends its flags first and pickles its
+        commands only when some are due.
         """
         due = self._due_commands(
             safe_point, trainer.current_epoch, trainer.global_step, allowed
@@ -511,7 +477,7 @@ class MidrunRuntime:
         if not has_due:
             return held
         for command in self.rank_sync.broadcast(due):
-            if self._is_rank_zero or command.kind in _ALL_RANK_KINDS:
+            if self._is_rank_zero or COMMAND_SPECS[command.kind].all_ranks:
                 self._execute(pl_module, trainer, command, safe_point)
         # A command can enter or release a hold, so rank 0 sends its state again.
         (held,) = self.rank_sync.broadcast_flags(self.gate.is_held())
@@ -538,7 +504,7 @@ class MidrunRuntime:
         if not self.command_queue.mark_executing(command):
             return
         # The queue validates the kind at submit, so every queued kind has a handler.
-        handler = COMMAND_HANDLERS[command.kind]
+        handler = COMMAND_SPECS[command.kind].handler
         try:
             result = handler(self, pl_module, trainer, command, safe_point)
         except Exception as exc:  # noqa: BLE001 -- command boundary: untrusted REST input must not crash training
@@ -710,7 +676,7 @@ class MidrunRuntime:
                 None,
                 trainer.current_epoch,
                 trainer.global_step,
-                allowed=_ALLOWED_DURING_EXCEPTION,
+                allowed=ALLOWED_DURING_EXCEPTION,
             ):
                 self._execute(pl_module, trainer, command, safe_point=None)
             self._publish(pl_module, status="exception_held")

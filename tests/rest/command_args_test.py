@@ -14,10 +14,8 @@ from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
 from midrun.rest.app import build_app
 from midrun.runtime.artifacts import ArtifactStore
-from midrun.runtime.command_args.command_args_by_kind import COMMAND_ARGS
 from midrun.runtime.commands.parse_when import parse_when
 from midrun.runtime.events import SafePoint
-from midrun.runtime.handlers.command_handlers import COMMAND_HANDLERS
 from midrun.runtime.runtime import MidrunRuntime
 
 
@@ -28,10 +26,6 @@ def _runtime_and_client(tmp_path: Path) -> tuple[MidrunRuntime, TestClient]:
     runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
     runtime.artifacts = ArtifactStore(tmp_path)
     return runtime, TestClient(build_app(runtime), base_url="http://localhost")
-
-
-def test_every_accepted_kind_has_a_handler() -> None:
-    assert set(COMMAND_ARGS) == set(COMMAND_HANDLERS)
 
 
 @pytest.mark.parametrize(

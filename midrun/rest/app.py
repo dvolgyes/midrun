@@ -36,6 +36,10 @@ from midrun.rest.trusted_hosts import trusted_hosts
 from midrun.rest.wait_for_command import wait_for_command
 from midrun.runtime import inspectors_registry
 from midrun.runtime.command_args.validate_command_args import InvalidCommandError
+from midrun.runtime.command_specs.allowed_during_exception import (
+    ALLOWED_DURING_EXCEPTION,
+)
+from midrun.runtime.command_specs.allowed_during_hold import ALLOWED_DURING_HOLD
 from midrun.runtime.commands.parse_when import parse_when
 from midrun.runtime.commands.refused_command_error import RefusedCommandError
 from midrun.runtime.cuda_memory.cheap_cuda_memory_stats import (
@@ -47,7 +51,6 @@ from midrun.runtime.cuda_memory.dump_cuda_memory_snapshot import (
 from midrun.runtime.cuda_memory.set_cuda_memory_history import (
     set_cuda_memory_history,
 )
-from midrun.runtime.runtime import _ALLOWED_DURING_EXCEPTION, _ALLOWED_DURING_HOLD
 from midrun.runtime.state.host_snapshot import host_snapshot
 from midrun.runtime.virtual_fs.is_virtual_dir import is_virtual_dir
 from midrun.runtime.virtual_fs.list_virtual_dir import list_virtual_dir
@@ -150,9 +153,9 @@ def build_app(runtime: "MidrunRuntime") -> FastAPI:
         # hold loop, so that loop's policy applies.
         allowed: frozenset[str] | None = None
         if runtime.state.read().exception is not None:
-            allowed = _ALLOWED_DURING_EXCEPTION
+            allowed = ALLOWED_DURING_EXCEPTION
         elif active is not None:
-            allowed = _ALLOWED_DURING_HOLD
+            allowed = ALLOWED_DURING_HOLD
         return {
             "holds": [command_dict(c) for c in commands if c.kind == "hold"],
             "active": asdict(active) if active else None,
