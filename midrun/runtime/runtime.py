@@ -657,9 +657,14 @@ class MidrunRuntime:
             started_at=time.time(),
         )
         self._publish(pl_module, status="exception_held")
-        self._exception_hold_loop(pl_module, trainer)
-        # The caller re-raises: drop the live references, the traceback frames among them.
-        self.current_step.clear()
+        try:
+            self._exception_hold_loop(pl_module, trainer)
+        finally:
+            # An interrupt also ends the hold. The caller re-raises: drop the live
+            # references, the traceback frames among them.
+            self._exception_hold = None
+            self.state.update(exception=None)
+            self.current_step.clear()
         self._publish(pl_module, status="running")
 
     def _exception_hold_loop(self, pl_module: Any, trainer: Any) -> None:

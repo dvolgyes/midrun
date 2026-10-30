@@ -337,3 +337,27 @@ def test_release_exception_fails_without_an_exception_hold(tmp_path: Path) -> No
 
     assert cmd.status == "failed"
     assert "no exception hold" in cmd.error
+
+
+def test_an_interrupted_exception_hold_ends_the_hold(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = _make_runtime(tmp_path)
+    trainer = _FakeTrainer()
+    pl_module = _FakePLModule(trainer)
+    runtime._gather_ranks(pl_module)
+    runtime.current_step.begin(
+        batch={"x": 1}, batch_idx=0, epoch=0, global_step=0, started_ns=0
+    )
+
+    def _interrupt(timeout: float) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(runtime.gate, "wait_for_control_event", _interrupt)
+
+    with pytest.raises(KeyboardInterrupt):
+        runtime.handle_backward_exception(pl_module, "loss", ValueError("boom"))
+
+    assert runtime._exception_hold is None
+    assert runtime.state.read().exception is None
+    assert runtime.current_step.exception is None
