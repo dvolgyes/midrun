@@ -2,6 +2,8 @@
 
 from typing import Any
 
+from midrun.runtime.graph_inspectors.torchview_device import torchview_device
+
 
 def torchview_dot(model: Any, batch: Any) -> str:
     """Returns the DOT source for the model's architecture graph traced against `batch`.
@@ -15,6 +17,6 @@ def torchview_dot(model: Any, batch: Any) -> str:
     import torchview
 
     source: str = torchview.draw_graph(
-        model, input_data=batch, device=next(model.parameters()).device
+        model, input_data=batch, device=torchview_device(model)
     ).visual_graph.source
     return source

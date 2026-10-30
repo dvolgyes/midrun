@@ -88,6 +88,12 @@ def test_torchview_capture_renders_svg_and_dot() -> None:
     assert "digraph" in files["graph.dot"]
 
 
+def test_torchview_capture_renders_a_model_without_parameters() -> None:
+    model = torch.nn.ReLU()
+    files = torchview_capture(model, torch.randn(3, 4))
+    assert "digraph" in files["graph.dot"]
+
+
 def test_torchviz_capture_renders_svg_and_dot() -> None:
     model = _Model()
     x = torch.randn(3, 4, requires_grad=True)
