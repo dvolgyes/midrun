@@ -11,6 +11,7 @@ import torch
 from loguru import logger
 from torch.utils.data import DataLoader, TensorDataset
 
+from midrun.build_runtime import build_runtime
 from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
 from midrun.mixin import MidrunMixin
@@ -25,7 +26,7 @@ def _make_runtime(tmp_path: Path, **overrides: object) -> MidrunRuntime:
     config = MidrunConfig(
         rest_enabled=False, fuse_enabled=False, torch_debug_enabled=False, **overrides
     )
-    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
+    runtime = build_runtime(config, load_backend("lightning.pytorch"))
     runtime.artifacts = ArtifactStore(tmp_path)
     return runtime
 

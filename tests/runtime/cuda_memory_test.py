@@ -40,12 +40,12 @@ def test_cheap_stats_reports_real_allocator_counters() -> None:
 _READ_CUDA_MEMORY_FILE = """
 import json
 import torch
+from midrun.build_runtime import build_runtime
 from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
-from midrun.runtime.runtime import MidrunRuntime
 from midrun.runtime.virtual_fs.virtual_file_content import virtual_file_content
 
-runtime = MidrunRuntime(
+runtime = build_runtime(
     MidrunConfig(rest_enabled=False, torch_debug_enabled=False, fuse_enabled=False),
     load_backend("lightning.pytorch"),
 )

@@ -100,9 +100,9 @@ def test_failed_fit_stops_services(
 _MOUNT_AND_WAIT = """
 import sys, time
 from pathlib import Path
+from midrun.build_runtime import build_runtime
 from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
-from midrun.runtime.runtime import MidrunRuntime
 
 class _Module:
     device = "cpu"
@@ -114,7 +114,7 @@ config = MidrunConfig(
     artifact_dir=base / "artifacts",
     fuse_mountpoint=base / "procfs",
 )
-runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
+runtime = build_runtime(config, load_backend("lightning.pytorch"))
 runtime.setup_environment(_Module(), "fit")
 print("ready", flush=True)
 time.sleep(60)

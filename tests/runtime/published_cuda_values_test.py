@@ -9,11 +9,11 @@ from pathlib import Path
 import pytest
 import torch
 
+from midrun.build_runtime import build_runtime
 from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
 from midrun.runtime.artifacts import ArtifactStore
 from midrun.runtime.events import SafePoint
-from midrun.runtime.runtime import MidrunRuntime
 from midrun.runtime.state.host_snapshot import host_snapshot
 from midrun.runtime.state.publishable_values import publishable_values
 
@@ -47,7 +47,7 @@ def _published(tmp_path: Path, metrics: dict[str, object], lrs: list[object]):
     config = MidrunConfig(
         rest_enabled=False, fuse_enabled=False, torch_debug_enabled=False
     )
-    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
+    runtime = build_runtime(config, load_backend("lightning.pytorch"))
     runtime.artifacts = ArtifactStore(tmp_path)
     model = _Model()
     model.trainer = _FakeTrainer(metrics, lrs)

@@ -6,6 +6,7 @@ matching the existing static-path test convention -- no real FUSE mount involved
 
 import json
 
+from midrun.build_runtime import build_runtime
 from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
 from midrun.runtime.runtime import MidrunRuntime
@@ -18,7 +19,7 @@ def _make_runtime(**overrides: object) -> MidrunRuntime:
     config = MidrunConfig(
         rest_enabled=False, fuse_enabled=False, torch_debug_enabled=False, **overrides
     )
-    return MidrunRuntime(config, load_backend("lightning.pytorch"))
+    return build_runtime(config, load_backend("lightning.pytorch"))
 
 
 def test_breakpoint_json_is_null_when_no_exception_held() -> None:
@@ -84,7 +85,7 @@ def test_pytorch_debug_enabled_is_false_until_the_server_runs() -> None:
     config = MidrunConfig(
         rest_enabled=False, fuse_enabled=False, torch_debug_enabled=True
     )
-    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
+    runtime = build_runtime(config, load_backend("lightning.pytorch"))
 
     enabled = virtual_file_content(runtime, "/meta/pytorch-debug/enabled")
 

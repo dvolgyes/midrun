@@ -6,6 +6,7 @@ matching the existing static-path test convention -- no real FUSE mount involved
 
 import json
 
+from midrun.build_runtime import build_runtime
 from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
 from midrun.runtime.cuda_memory.cuda_memory_history_state import (
@@ -22,7 +23,7 @@ def _make_runtime(**overrides: object) -> MidrunRuntime:
     config = MidrunConfig(
         rest_enabled=False, fuse_enabled=False, torch_debug_enabled=False, **overrides
     )
-    return MidrunRuntime(config, load_backend("lightning.pytorch"))
+    return build_runtime(config, load_backend("lightning.pytorch"))
 
 
 def test_model_summary_json_reports_param_counts() -> None:

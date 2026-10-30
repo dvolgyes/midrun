@@ -68,13 +68,13 @@ def test_a_stopped_server_exits_before_its_stop_join_timeout_with_a_hung_request
 def test_a_wildcard_bind_host_passes_the_readiness_probe_and_host_check(
     tmp_path,
 ) -> None:
+    from midrun.build_runtime import build_runtime
     from midrun.config import MidrunConfig
     from midrun.load_backend import load_backend
     from midrun.rest.app import build_app
     from midrun.runtime.artifacts import ArtifactStore
-    from midrun.runtime.runtime import MidrunRuntime
 
-    runtime = MidrunRuntime(
+    runtime = build_runtime(
         MidrunConfig(
             rest_enabled=False,
             fuse_enabled=False,

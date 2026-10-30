@@ -12,8 +12,9 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import replace
+from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NoReturn, SupportsIndex
+from typing import Any, NoReturn, SupportsIndex
 
 import torch
 from loguru import logger
@@ -74,11 +75,6 @@ from midrun.runtime.torchinfo_inspector.basic_summary_json import basic_summary_
 from midrun.runtime.torchinfo_inspector.basic_summary_text import basic_summary_text
 from midrun.torch_debug.manager import TorchDebugManager
 
-if TYPE_CHECKING:
-    from fastapi import FastAPI
-
-    from midrun.fuse.filesystem import MidrunFS
-
 _KNOWN_SAFE_BACKWARD_STRATEGIES = frozenset(
     {"SingleDeviceStrategy", "DDPStrategy", "FSDPStrategy"}
 )
@@ -86,6 +82,16 @@ _KNOWN_SAFE_BACKWARD_STRATEGIES = frozenset(
 
 class MidrunRuntime:
     """Coordinates state publication, command execution, and Midrun's services.
+
+    No service starts before `setup_environment`. The caller gives the factories
+    that build the REST app and the FUSE operations, so that this module does not
+    import the layers that read it: use `midrun.build_runtime.build_runtime`.
+
+    Args:
+        config: Effective `MidrunConfig` for this run.
+        backend: The Lightning backend the composed model uses.
+        build_rest_app: Builds the REST app of a runtime, when REST starts.
+        build_fuse_ops: Builds the FUSE operations of a runtime, when FUSE mounts.
 
     Attributes:
         config: Effective `MidrunConfig` for this run.
@@ -130,7 +136,14 @@ class MidrunRuntime:
     rank_sync: RankSync
     profiler_run: ProfilerRun | None
 
-    def __init__(self, config: MidrunConfig, backend: LightningBackend) -> None:
+    def __init__(
+        self,
+        config: MidrunConfig,
+        backend: LightningBackend,
+        *,
+        build_rest_app: Callable[["MidrunRuntime"], Any],
+        build_fuse_ops: Callable[["MidrunRuntime"], Any],
+    ) -> None:
         self.config: MidrunConfig = config
         self.backend: LightningBackend = backend
         # commands.next_id is process-local, so two processes would share a run id.
@@ -157,8 +170,8 @@ class MidrunRuntime:
             self.state,
             self.torch_debug,
             run_id=self.run_id,
-            build_app=self._build_rest_app,
-            build_fs=self._build_fuse_ops,
+            build_app=partial(build_rest_app, self),
+            build_fs=partial(build_fuse_ops, self),
         )
         self.sessions = StageSessions(config, self.run_id)
 
@@ -227,16 +240,6 @@ class MidrunRuntime:
     @property
     def _logging_session(self) -> LoggingSession | None:
         return self.sessions.logging_session
-
-    def _build_rest_app(self) -> "FastAPI":
-        from midrun.rest.app import build_app
-
-        return build_app(self)
-
-    def _build_fuse_ops(self) -> "MidrunFS":
-        from midrun.fuse.filesystem import MidrunFS
-
-        return MidrunFS(self)
 
     @property
     def artifact_store(self) -> ArtifactStore:

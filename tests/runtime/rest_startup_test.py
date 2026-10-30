@@ -11,9 +11,9 @@ import pytest
 import torch.distributed as dist
 from loguru import logger
 
+from midrun.build_runtime import build_runtime
 from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
-from midrun.runtime.runtime import MidrunRuntime
 from midrun.runtime.virtual_fs.virtual_file_content import virtual_file_content
 
 
@@ -30,7 +30,7 @@ def test_rest_starts_without_distributed_process_group(tmp_path: Path) -> None:
         inspection_strict=True,
     )
     assert config.rest_enabled and config.torch_debug_enabled
-    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
+    runtime = build_runtime(config, load_backend("lightning.pytorch"))
     module = _FakeModule()
 
     runtime.setup_environment(module, "fit")
@@ -57,7 +57,7 @@ def test_rest_starts_when_the_paired_torch_debug_server_fails(
     config = MidrunConfig(
         fuse_enabled=False, artifact_dir=tmp_path / "artifacts", rest_port=18495
     )
-    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
+    runtime = build_runtime(config, load_backend("lightning.pytorch"))
     monkeypatch.setattr(
         runtime.torch_debug, "start_after_distributed_init", _failing_start
     )
@@ -86,7 +86,7 @@ def test_an_unanswering_torch_debug_frontend_url_is_not_published(
         artifact_dir=tmp_path / "artifacts",
         rest_port=18500,
     )
-    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
+    runtime = build_runtime(config, load_backend("lightning.pytorch"))
     # Accepts connections into its backlog and never answers them.
     with socket.create_server(("127.0.0.1", 0)) as silent:
 
@@ -133,7 +133,7 @@ def test_a_rank_without_a_debug_frontend_warns_of_nothing(
     monkeypatch.setattr(runtime_module, "distributed_initialized", lambda: True)
     monkeypatch.setattr(runtime_module, "is_rank_zero", lambda: False)
     config = MidrunConfig(fuse_enabled=False, artifact_dir=tmp_path / "artifacts")
-    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
+    runtime = build_runtime(config, load_backend("lightning.pytorch"))
     # A worker rank's start serves no frontend, so it selects no port.
     monkeypatch.setattr(
         runtime.torch_debug, "start_after_distributed_init", lambda port=None: None
@@ -152,7 +152,7 @@ def test_a_rank_without_a_debug_frontend_warns_of_nothing(
 
 def test_stopping_a_rest_server_that_does_not_exit_warns(tmp_path: Path) -> None:
     config = MidrunConfig(fuse_enabled=False, artifact_dir=tmp_path / "artifacts")
-    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
+    runtime = build_runtime(config, load_backend("lightning.pytorch"))
     release = threading.Event()
     stuck_thread = threading.Thread(target=release.wait, daemon=True)
     stuck_thread.start()

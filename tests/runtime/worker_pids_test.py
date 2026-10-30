@@ -3,6 +3,7 @@
 import multiprocessing
 import os
 
+from midrun.build_runtime import build_runtime
 from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
 from midrun.runtime.runtime import MidrunRuntime
@@ -21,7 +22,7 @@ def _make_runtime() -> MidrunRuntime:
     config = MidrunConfig(
         rest_enabled=False, fuse_enabled=False, torch_debug_enabled=False
     )
-    return MidrunRuntime(config, load_backend("lightning.pytorch"))
+    return build_runtime(config, load_backend("lightning.pytorch"))
 
 
 def test_gather_ranks_captures_own_pid_with_no_workers() -> None:

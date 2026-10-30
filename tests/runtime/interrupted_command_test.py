@@ -4,12 +4,12 @@ from dataclasses import replace
 
 import pytest
 
+from midrun.build_runtime import build_runtime
 from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
 from midrun.runtime.command_specs.command_specs import COMMAND_SPECS
 from midrun.runtime.command_specs.execute_command import execute_command
 from midrun.runtime.commands.parse_when import parse_when
-from midrun.runtime.runtime import MidrunRuntime
 
 
 def _interrupt(*_args: object) -> dict[str, object]:
@@ -22,7 +22,7 @@ def test_an_interrupted_handler_marks_the_command_failed(
     config = MidrunConfig(
         rest_enabled=False, fuse_enabled=False, torch_debug_enabled=False
     )
-    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
+    runtime = build_runtime(config, load_backend("lightning.pytorch"))
     spec = COMMAND_SPECS["set_lightning_profiler"]
     monkeypatch.setattr(
         "midrun.runtime.command_specs.execute_command.COMMAND_SPECS",

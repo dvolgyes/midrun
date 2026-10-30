@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from midrun.build_runtime import build_runtime
 from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
 from midrun.runtime.runtime import MidrunRuntime
@@ -69,7 +70,7 @@ def _runtime(path: Path, tmp_path: Path) -> MidrunRuntime:
         artifact_dir=tmp_path / "artifacts",
         fuse_mountpoint=path,
     )
-    return MidrunRuntime(config, load_backend("lightning.pytorch"))
+    return build_runtime(config, load_backend("lightning.pytorch"))
 
 
 def test_stale_midrun_mount_is_replaced(mountpoint: Path, tmp_path: Path) -> None:

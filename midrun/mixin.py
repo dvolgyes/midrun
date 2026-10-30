@@ -23,6 +23,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from midrun.build_runtime import build_runtime
 from midrun.config import MidrunConfig
 from midrun.detect_lightning_backend_from_mro import detect_lightning_backend_from_mro
 from midrun.hooks.lightning import build_hooks_callback_class
@@ -143,7 +144,7 @@ class MidrunMixin(_MixinBase):
             intercept_lightning_logging=intercept_lightning_logging,
             run_log_enabled=run_log_enabled,
         )
-        self._midrun = MidrunRuntime(config, type(self).__midrun_lightning_backend__)
+        self._midrun = build_runtime(config, type(self).__midrun_lightning_backend__)
         self._midrun_hooks_adapter: Any | None = None
         self._midrun_service_guard: Any | None = None
         super().__init__(*args, **kwargs)

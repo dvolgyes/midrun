@@ -1,9 +1,9 @@
 """Behavioral tests for PipelinePressureTracker's phase timing and rolling summary."""
 
+from midrun.build_runtime import build_runtime
 from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
 from midrun.runtime.pipeline_pressure import PipelinePressureTracker
-from midrun.runtime.runtime import MidrunRuntime
 
 
 def test_first_batch_has_no_input_gap() -> None:
@@ -100,7 +100,7 @@ def _run_one_batch(pipeline_pressure_enabled: bool) -> PipelinePressureTracker:
         torch_debug_enabled=False,
         pipeline_pressure_enabled=pipeline_pressure_enabled,
     )
-    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
+    runtime = build_runtime(config, load_backend("lightning.pytorch"))
     pl_module = _FakePLModule()
     runtime.begin_train_batch(pl_module, batch=None, batch_idx=0)
     runtime.before_backward(loss=None)

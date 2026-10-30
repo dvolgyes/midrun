@@ -7,9 +7,9 @@ from pathlib import Path
 
 import torch.distributed as dist
 
+from midrun.build_runtime import build_runtime
 from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
-from midrun.runtime.runtime import MidrunRuntime
 
 _WORLD_SIZE = 2
 
@@ -36,7 +36,7 @@ def _run_stages(rank: int, tmp_path: Path) -> None:
         hooks_enabled=False,
         artifact_dir=tmp_path / "artifacts",
     )
-    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
+    runtime = build_runtime(config, load_backend("lightning.pytorch"))
     counts = []
     for _ in range(6):
         runtime.setup_environment(_FakeModule(), "fit")

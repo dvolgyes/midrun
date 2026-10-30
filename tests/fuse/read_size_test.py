@@ -15,6 +15,7 @@ from typing import BinaryIO
 
 import pytest
 
+from midrun.build_runtime import build_runtime
 from midrun.config import MidrunConfig
 from midrun.fuse import filesystem
 from midrun.load_backend import load_backend
@@ -27,7 +28,7 @@ class _Module:
 
 @pytest.fixture
 def mountpoint(tmp_path: Path) -> Iterator[Path]:
-    runtime = MidrunRuntime(
+    runtime = build_runtime(
         MidrunConfig(
             rest_enabled=False,
             torch_debug_enabled=False,

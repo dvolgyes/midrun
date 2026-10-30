@@ -17,6 +17,7 @@ from lightning.pytorch.profilers import (
     SimpleProfiler,
 )
 
+from midrun.build_runtime import build_runtime
 from midrun.config import MidrunConfig
 from midrun.fuse.filesystem import MidrunFS
 from midrun.load_backend import load_backend
@@ -54,7 +55,7 @@ def _make_runtime(profiler: Profiler, level: str) -> tuple[MidrunRuntime, _Model
     config = MidrunConfig(
         rest_enabled=False, fuse_enabled=False, torch_debug_enabled=False
     )
-    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
+    runtime = build_runtime(config, load_backend("lightning.pytorch"))
     model = _Model()
     model.trainer = _FakeTrainer(profiler)
     runtime.lightning_profiler = profiler

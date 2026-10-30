@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 import uvicorn
 
+from midrun.build_runtime import build_runtime
 from midrun.config import MidrunConfig
 from midrun.debugger.hold_client import HoldClient, HoldNotActiveError
 from midrun.load_backend import load_backend
@@ -28,7 +29,7 @@ def served_runtime(tmp_path: Path) -> Iterator[tuple[MidrunRuntime, HoldClient]]
     config = MidrunConfig(
         rest_enabled=False, fuse_enabled=False, torch_debug_enabled=False
     )
-    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
+    runtime = build_runtime(config, load_backend("lightning.pytorch"))
     runtime.artifacts = ArtifactStore(tmp_path)
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(("127.0.0.1", 0))
