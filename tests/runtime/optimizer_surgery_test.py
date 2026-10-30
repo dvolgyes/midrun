@@ -2,9 +2,11 @@
 
 import pytest
 import torch
+from fastapi.testclient import TestClient
 
 from trainctl.config import TrainctlConfig
 from trainctl.load_backend import load_backend
+from trainctl.rest.app import build_app
 from trainctl.runtime.commands.command import Command
 from trainctl.runtime.commands.parse_when import parse_when
 from trainctl.runtime.optimizer_surgery.adam_surgery_adapter import (
@@ -378,3 +380,26 @@ def test_reset_momentum_rejects_part_of_a_fused_sgd_group_without_mutating_state
     for p in model.parameters():
         assert torch.equal(optimizer.state[p]["momentum_buffer"], before[id(p)])
     _step(model, optimizer)
+
+
+def test_set_learning_rate_updates_a_tensor_lr_in_place_and_reports_floats() -> None:
+    runtime = _make_runtime()
+    model = torch.nn.Linear(2, 2)
+    lr = torch.tensor(0.1)
+    optimizer = torch.optim.SGD(model.parameters(), lr=lr)
+    trainer = _FakeTrainer(optimizers=[optimizer])
+    pl_module = _FakePLModule(trainer, model)
+
+    command = _submit_and_run(
+        runtime, pl_module, trainer, "set_learning_rate", {"value": 0.5}
+    )
+
+    assert command.status == "succeeded"
+    assert optimizer.param_groups[0]["lr"] is lr
+    assert lr.item() == 0.5
+    response = TestClient(build_app(runtime)).get(f"/commands/{command.id}")
+    assert response.status_code == 200
+    assert response.json()["result"]["groups"]["0"] == {
+        "before": pytest.approx(0.1),
+        "after": 0.5,
+    }

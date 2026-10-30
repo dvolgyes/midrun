@@ -2,6 +2,8 @@
 
 from typing import TYPE_CHECKING, Any
 
+import torch
+
 from trainctl.runtime.commands.command import Command
 from trainctl.runtime.events import SafePoint
 from trainctl.runtime.handlers.optimizer_at import optimizer_at
@@ -44,8 +46,12 @@ def handle_set_learning_rate(
         groups = [(index, optimizer.param_groups[index])]
     changes: dict[str, Any] = {}
     for index, group in groups:
-        changes[str(index)] = {"before": group["lr"], "after": value}
-        group["lr"] = value
+        changes[str(index)] = {"before": float(group["lr"]), "after": value}
+        # A Tensor lr is updated in place, so it stays a Tensor of its dtype and device.
+        if isinstance(group["lr"], torch.Tensor):
+            group["lr"].fill_(value)
+        else:
+            group["lr"] = value
     result: dict[str, Any] = {"optimizer": optimizer_index, "groups": changes}
     if getattr(trainer, "lr_scheduler_configs", None):
         result["warning"] = (
