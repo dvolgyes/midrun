@@ -156,6 +156,37 @@ def test_no_dangling_gdb_process_after_capture(
     assert _no_gdb_processes_targeting(target_process.pid)
 
 
+@_attach_permitted
+def test_raising_snippet_leaves_the_target_running(
+    target_process: subprocess.Popen[bytes],
+) -> None:
+    with pytest.raises(TimeoutError):
+        gdb_capture(target_process.pid, "raise RuntimeError('boom')", poll_timeout_s=2)
+    assert target_process.poll() is None
+
+
+@_attach_permitted
+def test_call_serviced_after_the_timeout_leaves_the_target_running() -> None:
+    # One long sleep per loop: the pending call runs only after the caller has
+    # timed out and deleted the snippet file.
+    proc = subprocess.Popen(  # noqa: S603 -- fixed, non-shell argv; test-only target process
+        [
+            sys.executable,
+            "-c",
+            _ALLOW_ANY_TRACER + "import time\nwhile True:\n    time.sleep(2)\n",
+        ]
+    )
+    time.sleep(0.3)
+    try:
+        with pytest.raises(TimeoutError):
+            gdb_capture(proc.pid, "pass", poll_timeout_s=0.2)
+        time.sleep(3)
+        assert proc.poll() is None
+    finally:
+        proc.kill()
+        proc.wait(timeout=5)
+
+
 @pytest.mark.skipif(
     _YAMA_SCOPE == 0 or _IS_ROOT, reason="the kernel permits this attach"
 )

@@ -42,7 +42,12 @@ def schedule_pending_call(
     """
     check_gdb_available(gdb_bin)
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(python_snippet)
+        # An exception escaping a pending call raises SystemError in whatever
+        # code the target runs next, so the snippet's own errors stop here.
+        f.write(
+            f"try:\n    exec({python_snippet!r}, {{}})\n"
+            "except Exception:\n    __import__('traceback').print_exc()\n"
+        )
         snippet_path = Path(f.name)
 
     last_error: Exception | None = None
