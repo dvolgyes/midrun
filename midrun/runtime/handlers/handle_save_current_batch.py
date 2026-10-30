@@ -2,6 +2,8 @@
 
 from typing import TYPE_CHECKING, Any
 
+from lightning_utilities.core.apply_func import apply_to_collection
+
 from midrun.runtime.commands.command import Command
 from midrun.runtime.events import SafePoint
 
@@ -18,6 +20,10 @@ def handle_save_current_batch(
 ) -> dict[str, Any]:
     """Writes the in-flight batch with `torch.save` as a debug capture.
 
+    Each tensor in the batch's collections is saved as a detached copy on its own
+    device. `torch.save` writes a tensor's whole storage, so saving a view of a
+    larger tensor directly would write the whole base tensor.
+
     Raises:
         ValueError: No batch is in flight.
     """
@@ -28,8 +34,11 @@ def handle_save_current_batch(
 
     import torch
 
+    batch = apply_to_collection(
+        runtime.current_step.batch, torch.Tensor, lambda t: t.detach().clone()
+    )
     buffer = io.BytesIO()
-    torch.save(runtime.current_step.batch, buffer)
+    torch.save(batch, buffer)
     return runtime.artifact_store.write_debug_capture(
         "current-batch", {"batch.pt": buffer.getvalue()}
     )

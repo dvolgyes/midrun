@@ -172,6 +172,32 @@ def test_save_current_batch_and_loss_fail_without_an_in_flight_value(
     assert list((tmp_path / "debug").iterdir()) == []
 
 
+def test_save_current_batch_writes_only_the_viewed_elements(tmp_path: Path) -> None:
+    runtime = _make_runtime(tmp_path)
+    trainer = _FakeTrainer()
+    pl_module = _FakePLModule(trainer)
+    base = torch.arange(200_000 * 16, dtype=torch.float32).reshape(200_000, 16)
+    batch = {"x": base[:32], "pair": (base[32:64, ::2], 7), "names": ["a", "b"]}
+    runtime.current_step.begin(
+        batch=batch, batch_idx=0, epoch=0, global_step=0, started_ns=0
+    )
+
+    cmd = runtime.command_queue.submit("save_current_batch", {}, parse_when("now"))
+    runtime._execute(pl_module, trainer, cmd, safe_point=None)
+
+    assert cmd.status == "succeeded"
+    path = Path(cmd.result["path"]) / "batch.pt"
+    viewed_bytes = (32 * 16 + 32 * 8) * base.element_size()
+    assert path.stat().st_size < viewed_bytes + 64 * 1024
+    saved = torch.load(path)
+    assert saved.keys() == batch.keys()
+    assert torch.equal(saved["x"], batch["x"])
+    assert isinstance(saved["pair"], tuple)
+    assert torch.equal(saved["pair"][0], batch["pair"][0])
+    assert saved["pair"][1] == 7
+    assert saved["names"] == ["a", "b"]
+
+
 def test_save_partial_gradients_reports_grad_presence_and_norm(tmp_path: Path) -> None:
     runtime = _make_runtime(tmp_path)
     trainer = _FakeTrainer()
