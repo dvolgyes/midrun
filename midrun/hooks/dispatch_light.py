@@ -10,6 +10,8 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from midrun.hooks.capture_failed_result import capture_failed_result
+from midrun.hooks.create_invocation_dir import create_invocation_dir
 from midrun.hooks.is_hook_failure import is_hook_failure
 from midrun.hooks.log_hook_failure import log_hook_failure
 from midrun.hooks.payload.build_light_params import build_light_params
@@ -43,10 +45,14 @@ def dispatch_light(
     callback firing's identity, shared with the heavy hook dispatched for the same
     occurrence (each still gets its own invocation id).
 
+    An OS error while writing the payload (e.g. a full disk) is a failed capture:
+    the script is never launched and the result has `phase="capture_failed"`.
+
     Returns:
         `None` if the light script is not currently enabled (an ordinary skip, not
-        logged as a failure); otherwise the completed `ExecutionResult`. A failing
-        result is logged here as one ERROR record before being returned.
+        logged as a failure); otherwise the completed (or capture-failed)
+        `ExecutionResult`. A failing result is logged here as one ERROR record
+        before being returned.
     """
     if resolve_enabled_script(live_dir, "light", context.hook) is None:
         return None
@@ -64,18 +70,23 @@ def dispatch_light(
     if script is None:
         return None
     invocation_dir = tmp_root / invocation_id
-    invocation_dir.mkdir(mode=0o700, parents=True)
     try:
-        params_path = write_json_file(invocation_dir / "params.json", params)
-        result = run_script(
-            script,
-            [str(params_path)],
-            cwd=live_dir,
-            shell=shell,
-            timeout_s=timeout_s,
-            max_output_bytes=max_output_bytes,
-            log=log,
-        )
+        try:
+            create_invocation_dir(tmp_root, invocation_id)
+            params_path = write_json_file(invocation_dir / "params.json", params)
+        except OSError as exc:
+            # E.g. a full disk: the capture failed, training must not.
+            result = capture_failed_result(f"cannot write the light payload: {exc}")
+        else:
+            result = run_script(
+                script,
+                [str(params_path)],
+                cwd=live_dir,
+                shell=shell,
+                timeout_s=timeout_s,
+                max_output_bytes=max_output_bytes,
+                log=log,
+            )
     finally:
         shutil.rmtree(invocation_dir, ignore_errors=True)
     if is_hook_failure(result):

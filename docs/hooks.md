@@ -175,10 +175,12 @@ first, so the two are not a single simultaneous snapshot.
   the script itself has exited, for any reason, whatever is left of its process group gets `SIGKILL` — a backgrounded
   child cannot outlive its script. A process that leaves the group (for example via `setsid`) is not killed; if it keeps
   the script's stdout/stderr open, training stops waiting for that output one second after the script exits.
-- A nonzero exit code, a timeout, or a failure to launch the script at all produces exactly one structured `ERROR` log
-  record naming the hook, script, session/occurrence/invocation ids, rank, stage/epoch/global_step, phase, exit code,
-  signal, duration, whether each stream was truncated, and the retained stdout/stderr tails. A disabled or successful
-  (exit `0`) invocation logs nothing at that level.
+- A nonzero exit code, a timeout, a failure to launch the script at all, or a failed capture (`phase="capture_failed"`:
+  an OS error, such as a full disk, while writing the light or heavy payload, or a heavy tensor that cannot be exported;
+  the script is not launched and training continues) produces exactly one structured `ERROR` log record naming the hook,
+  script, session/occurrence/invocation ids, rank, stage/epoch/global_step, phase, exit code, signal, duration, whether
+  each stream was truncated, and the retained stdout/stderr tails. A disabled or successful (exit `0`) invocation logs
+  nothing at that level.
 - `hooks_rank_policy` (`"rank_zero"` default, or `"all"`) controls which ranks dispatch hooks at all.
 
 ## Security limits and recovery

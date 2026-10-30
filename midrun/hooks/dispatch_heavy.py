@@ -10,6 +10,8 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from midrun.hooks.capture_failed_result import capture_failed_result
+from midrun.hooks.create_invocation_dir import create_invocation_dir
 from midrun.hooks.is_hook_failure import is_hook_failure
 from midrun.hooks.log_hook_failure import log_hook_failure
 from midrun.hooks.payload.build_heavy_manifest import build_heavy_manifest
@@ -65,7 +67,7 @@ def dispatch_heavy(
     if script is None:
         return None
     if isinstance(prepared, HeavyCaptureFailure):
-        result = _capture_failed(prepared.reason)
+        result = capture_failed_result(prepared.reason)
         log_hook_failure(
             script, "heavy", context, occurrence_id, invocation_id, result, log
         )
@@ -74,7 +76,7 @@ def dispatch_heavy(
     invocation_dir = tmp_root / invocation_id
     try:
         try:
-            invocation_dir.mkdir(mode=0o700, parents=True)
+            create_invocation_dir(tmp_root, invocation_id)
             tensor_records = export_tensors(leaves, invocation_dir)
             manifest_path = write_json_file(
                 invocation_dir / "manifest.json",
@@ -93,7 +95,7 @@ def dispatch_heavy(
             )
         except OSError as exc:
             # E.g. a full disk: the capture failed, training must not.
-            result = _capture_failed(f"cannot write the heavy payload: {exc}")
+            result = capture_failed_result(f"cannot write the heavy payload: {exc}")
         else:
             result = run_script(
                 script,
@@ -111,18 +113,3 @@ def dispatch_heavy(
             script, "heavy", context, occurrence_id, invocation_id, result, log
         )
     return result
-
-
-def _capture_failed(reason: str) -> ExecutionResult:
-    """Returns the result of a heavy hook whose payload could not be captured."""
-    return ExecutionResult(
-        phase="capture_failed",
-        exit_code=None,
-        signal_number=None,
-        duration_s=0.0,
-        stdout_tail="",
-        stderr_tail="",
-        stdout_truncated=False,
-        stderr_truncated=False,
-        error=reason,
-    )

@@ -127,8 +127,6 @@ class HookSession:
             rank=self.rank,
             world_size=self.world_size,
         )
-        self._tmp_root.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        self._tmp_root.mkdir(mode=0o700, exist_ok=True)
         occurrence_id = new_hook_id()
         args = arguments or {}
         light_result = dispatch_light(

@@ -456,6 +456,24 @@ def test_heavy_payload_write_error_is_a_capture_failure(
     assert list(tmp_root.iterdir()) == []
 
 
+def test_light_payload_write_error_is_a_capture_failure(tmp_path, monkeypatch) -> None:
+    live_dir = tmp_path / "hooks"
+    canary = tmp_path / "should-not-run-5"
+    _make_light_script(live_dir, "on_train_batch_start", f'touch "{canary}"')
+    tmp_root = tmp_path / "tmp-root"
+    log = _FakeLog()
+    monkeypatch.setattr("midrun.hooks.dispatch_light.write_json_file", _raise_no_space)
+
+    result = _dispatch(live_dir, tmp_root, _context(), log=log)
+
+    assert result is not None
+    assert result.phase == "capture_failed"
+    assert result.error is not None and "No space left on device" in result.error
+    assert not canary.exists()
+    assert len(log.errors) == 1
+    assert list(tmp_root.iterdir()) == []
+
+
 def test_seeded_heavy_example_counts_the_exported_tensors(tmp_path) -> None:
     if shutil.which("python3") is None:
         pytest.skip("python3 is not on PATH in this environment")

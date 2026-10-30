@@ -348,3 +348,41 @@ def test_hooks_run_when_the_run_directory_is_relative(tmp_path, monkeypatch) -> 
     assert json.loads(result.light.stdout_tail)["session_id"] == "s-1"
     assert result.heavy.exit_code == 0, result.heavy.stderr_tail
     assert json.loads(result.heavy.stdout_tail)["tensor_records"] == []
+
+
+def _block_the_tmp_area(live_dir: Path) -> None:
+    """Puts a file where `.hooks-tmp/` goes, so no payload directory can be made."""
+    live_dir.mkdir(parents=True, exist_ok=True)
+    (live_dir.parent / ".hooks-tmp").write_text("not a directory\n")
+
+
+def test_an_unwritable_tmp_area_does_not_fail_a_callback_without_hooks(
+    tmp_path,
+) -> None:
+    live_dir = tmp_path / "run" / "hooks"
+    _block_the_tmp_area(live_dir)
+    session = _make_session(live_dir, rank=0, rank_policy="rank_zero")
+
+    result = session.handle("on_train_batch_start", stage="fit", epoch=0, global_step=0)
+
+    assert result.light is None
+    assert result.heavy is None
+
+
+def test_an_unwritable_tmp_area_is_a_capture_failure_of_each_enabled_hook(
+    tmp_path,
+) -> None:
+    live_dir = tmp_path / "run" / "hooks"
+    canary = tmp_path / "should-not-run"
+    _make_script(live_dir / "light" / "on_train_batch_start.sh", f'touch "{canary}"')
+    _make_script(live_dir / "heavy" / "on_train_batch_start.sh", f'touch "{canary}"')
+    _block_the_tmp_area(live_dir)
+    log = _FakeLog()
+    session = _make_session(live_dir, rank=0, rank_policy="rank_zero", log=log)
+
+    result = session.handle("on_train_batch_start", stage="fit", epoch=0, global_step=0)
+
+    assert result.light.phase == "capture_failed"
+    assert result.heavy.phase == "capture_failed"
+    assert not canary.exists()
+    assert len(log.errors) == 2
