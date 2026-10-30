@@ -398,7 +398,9 @@ def test_failed_hooks_bootstrap_warns_and_trains_with_hooks_off(tmp_path) -> Non
 
 
 def test_no_bash_warns_and_trains_with_hooks_off(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("midrun.runtime.runtime.shutil.which", lambda _name: None)
+    monkeypatch.setattr(
+        "midrun.runtime.stage_sessions.shutil.which", lambda _name: None
+    )
     model = _TinyModelLP(**_base_kwargs())
 
     trainer = _make_trainer(tmp_path)
