@@ -1,7 +1,7 @@
 """Read-only mfusepy filesystem projecting a MidrunRuntime's state onto files.
 
 All virtual files are generated fresh from the current `RuntimeSnapshot`/runtime
-object on every `open()`; the mount uses FUSE direct I/O (see `MidrunRuntime._start_fuse`)
+object on every `open()`; the mount uses FUSE direct I/O (see `RuntimeServices.start_fuse`)
 so the kernel never serves a stale cached read. A generated file's bytes are
 materialized once per `open()` and reused for the `read()` calls against that handle
 (see `MidrunFS.open`/`read`/`release`), matching the open-handle cache policy.

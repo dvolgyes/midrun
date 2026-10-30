@@ -8,26 +8,21 @@ Trainer/model state. REST and FUSE only read published `RuntimeSnapshot`s or enq
 
 import os
 import secrets
-import shutil
 import socket
 import threading
 import time
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, NoReturn, SupportsIndex
+from typing import TYPE_CHECKING, Any, NoReturn, SupportsIndex
 
 from loguru import logger
 
 from midrun.config import MidrunConfig
-from midrun.fuse import mountpoint_check, process_guard
-from midrun.hooks.manager.bootstrap_hooks_tree import bootstrap_hooks_tree
 from midrun.hooks.session import HandleResult, HookSession
 from midrun.lightning_backend import LightningBackend
 from midrun.logging.logging_session import LoggingSession
 from midrun.runtime.artifacts import ArtifactStore
-from midrun.runtime.bind_free_socket import bind_free_socket
-from midrun.runtime.bind_socket import bind_socket
 from midrun.runtime.command_args.validate_command_args import validate_command_args
 from midrun.runtime.commands.command import Command
 from midrun.runtime.commands.command_queue import CommandQueue
@@ -52,15 +47,13 @@ from midrun.runtime.hparam_registry.resolve_hparam_path import resolve_hparam_pa
 from midrun.runtime.hparam_registry.tunable_hparam_spec import TunableHparamSpec
 from midrun.runtime.is_rank_zero import is_rank_zero
 from midrun.runtime.live_capture import LiveCaptureBroker
-from midrun.runtime.new_hooks_session_id import new_hooks_session_id
 from midrun.runtime.phase_of_stage import phase_of_stage
 from midrun.runtime.pipeline_pressure import PipelinePressureTracker
 from midrun.runtime.profiler import ProfilerRun
 from midrun.runtime.rank_sync import RankSync
 from midrun.runtime.record_bad_batch import record_bad_batch
-from midrun.runtime.rest_base_url import rest_base_url
-from midrun.runtime.start_logging_session import start_logging_session
-from midrun.runtime.start_rest_server import start_rest_server
+from midrun.runtime.runtime_services import RuntimeServices
+from midrun.runtime.stage_sessions import StageSessions
 from midrun.runtime.state.exception_breakpoint_info import ExceptionBreakpointInfo
 from midrun.runtime.state.initial_snapshot import initial_snapshot
 from midrun.runtime.state.rank_info import RankInfo
@@ -68,8 +61,12 @@ from midrun.runtime.state.scalar_metric import ScalarMetric
 from midrun.runtime.state.state_store import StateStore
 from midrun.runtime.torchinfo_inspector.basic_summary_json import basic_summary_json
 from midrun.runtime.torchinfo_inspector.basic_summary_text import basic_summary_text
-from midrun.runtime.trainer_stage_name import trainer_stage_name
 from midrun.torch_debug.manager import TorchDebugManager
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
+
+    from midrun.fuse.filesystem import MidrunFS
 
 _ALLOWED_DURING_HOLD = frozenset(
     {
@@ -147,6 +144,8 @@ class MidrunRuntime:
             Entries declared via the dict form also carry `min`/`max`/`label`.
         rank_sync: Control-plane collectives with the other ranks of a distributed
             run.
+        services: The REST, FUSE and torch debug servers and their handles.
+        sessions: The logging session and hooks session of the current stage.
     """
 
     _unreadable_hparams_reported: set[str]
@@ -175,14 +174,15 @@ class MidrunRuntime:
         self._started = False
         self._is_rank_zero = True
 
-        self._fuse_ops: Any = None
-        self._fuse_thread: threading.Thread | None = None
-        self._fuse_mountpoint: Path | None = None
-        self._fuse_watcher: Any = None
-
-        self._rest_server: Any = None
-        self._rest_thread: threading.Thread | None = None
-        self._rest_port: int | None = None
+        self.services = RuntimeServices(
+            config,
+            self.state,
+            self.torch_debug,
+            run_id=self.run_id,
+            build_app=self._build_rest_app,
+            build_fs=self._build_fuse_ops,
+        )
+        self.sessions = StageSessions(config, self.run_id)
 
         self._model_class_name: str | None = None
         self._model_hparams: dict[str, Any] = {}
@@ -211,9 +211,6 @@ class MidrunRuntime:
         self._tunable_hparam_specs: dict[str, TunableHparamSpec] = {}
         self._unreadable_hparams_reported = set()
 
-        self._hook_session: HookSession | None = None
-        self._logging_session: LoggingSession | None = None
-
     def __reduce_ex__(self, protocol: SupportsIndex) -> NoReturn:
         """Rejects pickling and copying with a message that names the fix."""
         raise TypeError(
@@ -226,14 +223,34 @@ class MidrunRuntime:
     @property
     def rest_url(self) -> str | None:
         """The reachable REST base URL, once started."""
-        if self._rest_port is None:
-            return None
-        return rest_base_url(self.config.rest_host, self._rest_port)
+        return self.services.rest_url
+
+    @property
+    def _rest_port(self) -> int | None:
+        return self.services.rest_port
 
     @property
     def fuse_mountpoint(self) -> Path | None:
         """The active FUSE mountpoint, once started."""
-        return self._fuse_mountpoint
+        return self.services.fuse_mountpoint
+
+    @property
+    def _hook_session(self) -> HookSession | None:
+        return self.sessions.hook_session
+
+    @property
+    def _logging_session(self) -> LoggingSession | None:
+        return self.sessions.logging_session
+
+    def _build_rest_app(self) -> "FastAPI":
+        from midrun.rest.app import build_app
+
+        return build_app(self)
+
+    def _build_fuse_ops(self) -> "MidrunFS":
+        from midrun.fuse.filesystem import MidrunFS
+
+        return MidrunFS(self)
 
     @property
     def artifact_store(self) -> ArtifactStore:
@@ -288,17 +305,17 @@ class MidrunRuntime:
         if self._is_rank_zero and torch_debug and self.config.rest_enabled:
             self._guarded(
                 "REST server + pytorch distributed debug server (paired ports)",
-                self._start_rest_and_torch_debug,
+                self.services.start_rest_and_torch_debug,
             )
         else:
             if torch_debug:
                 self._guarded(
-                    "pytorch distributed debug server", self._start_torch_debug
+                    "pytorch distributed debug server", self.services.start_torch_debug
                 )
             if self._is_rank_zero and self.config.rest_enabled:
-                self._guarded("REST server", self._start_rest)
+                self._guarded("REST server", self.services.start_rest)
         if self._is_rank_zero and self.config.fuse_enabled:
-            self._guarded("FUSE mount", lambda: self._start_fuse(base_dir))
+            self._guarded("FUSE mount", lambda: self.services.start_fuse(base_dir))
 
         self.state.update(status="running")
 
@@ -335,83 +352,25 @@ class MidrunRuntime:
             self._guarded("profiler shutdown", lambda: run.save(self.artifact_store))
         self.state.update(status=final_status)
 
+    def _stop_rest(self) -> None:
+        self.services.stop_rest()
+
+    def _stop_fuse(self) -> None:
+        self.services.stop_fuse()
+
     # ---- lifecycle hooks --------------------------------------------------------
 
     def open_logging_session(self, trainer: Any, pl_module: Any) -> LoggingSession:
-        """Opens this stage `_run`'s logging session, unless it is open, and returns it.
-
-        Idempotent. The first Midrun callback `setup` of the `_run` opens it: the hooks
-        adapter's, which needs its logger, else the service guard's. The mixin's
-        `teardown` or the guard's `on_exception` closes it (`close_logging_session`).
-        """
-        if self._logging_session is None:
-            # Set before the bridge or the file can fail, so that the close finds it.
-            self._logging_session = LoggingSession(new_hooks_session_id())
-            start_logging_session(
-                self._logging_session,
-                self.config,
-                default_base_dir(pl_module, self.run_id),
-                trainer.global_rank,
-            )
-        return self._logging_session
+        """Opens this stage `_run`'s logging session; see `StageSessions`."""
+        return self.sessions.open_logging_session(trainer, pl_module)
 
     def close_logging_session(self) -> None:
-        """Closes the logging session, if one is open. Idempotent."""
-        if self._logging_session is not None:
-            self._logging_session.close()
-            self._logging_session = None
+        """Closes the logging session, if one is open; see `StageSessions`."""
+        self.sessions.close_logging_session()
 
     def ensure_hook_session(self, trainer: Any, pl_module: Any) -> None:
-        """Bootstraps this run's hooks tree for one stage `_run`.
-
-        Idempotent -- a no-op if a session from this same stage is already open.
-        Called only from the hooks adapter's own `setup(trainer, pl_module, stage)`,
-        which Lightning always calls before any other callback method for that
-        `_run` and always pairs with a matching `teardown` (barring an uncaught
-        exception, handled separately by `close_hook_session`). A hook that
-        fires with no stage active at all (e.g. a standalone `Trainer.save_checkpoint`
-        call outside `fit`/`validate`/`test`/`predict`) finds no session and is a
-        silent no-op in `dispatch_hook` -- there is no run for it to belong to.
-        Reads rank/world size directly from `trainer`: `_local_rank_info` is not
-        populated yet at this point (the adapter's `setup` runs before the composed
-        model's own `setup`, which is what triggers `_gather_ranks`).
-        A resumed run dispatches with the session id that the marker records; the
-        new id names only this stage's logging session and a freshly published tree.
-        """
-        if self._hook_session is not None:
-            return
-        logging_session = self.open_logging_session(trainer, pl_module)
-        session_id = logging_session.session_id
-        base_dir = default_base_dir(pl_module, self.run_id)
-        log = logging_session.bind()
-        shell = self.config.hooks_shell
-        if shell is None:
-            resolved = shutil.which("bash")
-            if resolved is None:
-                raise RuntimeError(
-                    "midrun: hooks_enabled requires bash on PATH or an explicit hooks_shell"
-                )
-            shell = Path(resolved)
-        setpriv = shutil.which("setpriv")
-        tree = bootstrap_hooks_tree(
-            base_dir, self.config.hooks_source_dir, session_id=session_id, log=log
-        )
-        self._hook_session = HookSession(
-            tree.live_dir,
-            session_id=tree.session_id,
-            rank=trainer.global_rank,
-            world_size=trainer.world_size,
-            rank_policy=self.config.hooks_rank_policy,
-            shell=shell,
-            setpriv=None if setpriv is None else Path(setpriv),
-            timeout_s=self.config.hooks_timeout_s,
-            max_params_bytes=self.config.hooks_max_params_bytes,
-            max_metadata_items=self.config.hooks_max_metadata_items,
-            max_metadata_depth=self.config.hooks_max_metadata_depth,
-            max_export_bytes=self.config.hooks_max_export_bytes,
-            max_output_bytes=self.config.hooks_max_output_bytes,
-            log=log,
-        )
+        """Bootstraps this run's hooks tree for one stage `_run`; see `StageSessions`."""
+        self.sessions.ensure_hook_session(trainer, pl_module)
 
     def dispatch_hook(
         self,
@@ -423,37 +382,19 @@ class MidrunRuntime:
         batch_idx: int | None = None,
         dataloader_idx: int | None = None,
     ) -> HandleResult | None:
-        """Dispatches one Lightning callback occurrence through the live `HookSession`.
-
-        A no-op if `ensure_hook_session` never installed a session (hooks disabled).
-        """
-        if self._hook_session is None:
-            return None
-        stage = (
-            stage_override
-            if stage_override is not None
-            else trainer_stage_name(trainer)
-        )
-        return self._hook_session.handle(
+        """Dispatches one Lightning callback occurrence; see `StageSessions`."""
+        return self.sessions.dispatch_hook(
+            trainer,
             hook,
-            stage=stage,
-            epoch=trainer.current_epoch,
-            global_step=trainer.global_step,
+            stage_override=stage_override,
+            arguments=arguments,
             batch_idx=batch_idx,
             dataloader_idx=dataloader_idx,
-            arguments=arguments,
         )
 
     def close_hook_session(self) -> None:
-        """Closes the hooks session, if one is open.
-
-        Idempotent. Called from the hooks adapter's own `teardown` on the normal
-        path, and from its `on_exception` on the failure path, since Lightning skips
-        the callback's own `teardown` after an uncaught exception.
-        """
-        if self._hook_session is not None:
-            self._hook_session.close()
-            self._hook_session = None
+        """Closes the hooks session, if one is open; see `StageSessions`."""
+        self.sessions.close_hook_session()
 
     # ---- safe points ----------------------------------------------------------
 
@@ -867,134 +808,7 @@ class MidrunRuntime:
                 raise
             logger.warning("midrun: {} failed: {}", description, exc)
 
-    def _start_torch_debug(self) -> None:
-        self.torch_debug.start_after_distributed_init()
-        self.state.update(torch_debug_url=self.torch_debug.ready_url(timeout=10))
-
-    def _start_rest_and_torch_debug(self) -> None:
-        """Starts REST and the torch_debug frontend as one paired unit: both ports are
-        offset from their configured base port by the same multiple of `_PORT_OFFSET_STEP`
-        (e.g. offset 200 pairs REST 8290 with torch_debug 26199) -- a human-legible
-        pairing, and a way to keep the two services from independently drifting to
-        unrelated ports when several runs share a host and start at nearly the same time.
-
-        Per offset attempt: probe the torch_debug candidate (it can't be held -- see
-        `TorchDebugManager.start_after_distributed_init`), then bind-and-hold the REST
-        candidate at the same offset (race-free once held), then re-probe the
-        torch_debug candidate immediately before starting it, narrowing (not
-        eliminating -- an upstream constraint) its check-then-bind race to that final
-        gap. A collision at either check abandons the offset and retries the next one.
-        """
-        max_attempts = self.config.paired_port_search_attempts
-        for attempt in range(max_attempts):
-            offset = attempt * _PORT_OFFSET_STEP
-            debug_candidate = self.config.torch_debug_port + offset
-            if not self.torch_debug.port_is_free(debug_candidate):
-                continue
-            try:
-                sock = bind_socket(
-                    self.config.rest_host, self.config.rest_port + offset
-                )
-            except OSError:
-                continue
-            if not self.torch_debug.port_is_free(debug_candidate):
-                sock.close()
-                continue
-            try:
-                self.torch_debug.start_after_distributed_init(port=debug_candidate)
-                debug_url = self.torch_debug.ready_url(timeout=10)
-            except Exception:
-                # REST still starts, so the run stays controllable without the debug server.
-                self._start_rest_on_socket(sock, self.config.rest_port + offset)
-                raise
-            self.state.update(torch_debug_url=debug_url)
-            self._start_rest_on_socket(sock, self.config.rest_port + offset)
-            return
-        raise RuntimeError(
-            f"no free paired REST/torch_debug port offset found in {max_attempts} "
-            f"attempts (step {_PORT_OFFSET_STEP})"
-        )
-
     def _resolve_artifact_dir(self, base_dir: Path) -> None:
         artifact_dir = self.config.artifact_dir or base_dir / "artifacts"
         self.artifacts = ArtifactStore(artifact_dir)
         self.state.update(artifacts_path=str(artifact_dir))
-
-    def _start_fuse(self, base_dir: Path) -> None:
-        import mfusepy
-
-        from midrun.fuse.filesystem import MidrunFS
-
-        mountpoint = mountpoint_check.prepare_mountpoint(
-            self.config.fuse_mountpoint or base_dir / "procfs"
-        )
-        ops = MidrunFS(self)
-
-        def _run() -> None:
-            mfusepy.FUSE(
-                ops,
-                str(mountpoint),
-                foreground=True,
-                direct_io=True,
-                ro=True,
-                attr_timeout=0,
-                fsname=mountpoint_check.FUSE_FSNAME,
-            )
-
-        thread = threading.Thread(target=_run, name="midrun-fuse", daemon=True)
-        self._fuse_watcher = process_guard.mount_guarded(
-            mountpoint, thread, ops.wait_ready
-        )
-        self._fuse_ops = ops
-        self._fuse_thread = thread
-        self._fuse_mountpoint = mountpoint
-
-    def _stop_fuse(self) -> None:
-        if self._fuse_thread is None:
-            return
-        import subprocess
-
-        subprocess.run(["fusermount3", "-u", str(self._fuse_mountpoint)], check=False)  # noqa: S603, S607 -- own mount
-        self._fuse_thread.join(timeout=5)
-        if self._fuse_watcher is not None:
-            # A byte on stdin tells the watcher to check once and exit.
-            self._fuse_watcher.communicate(b"\n", timeout=5)
-        self._fuse_ops = None
-        self._fuse_thread = None
-        self._fuse_mountpoint = None
-        self._fuse_watcher = None
-
-    def _start_rest(self) -> None:
-        sock, port = bind_free_socket(
-            self.config.rest_host, self.config.rest_port, self.config.rest_port_search
-        )
-        self._start_rest_on_socket(sock, port)
-
-    def _start_rest_on_socket(self, sock: socket.socket, port: int) -> None:
-        from midrun.rest.app import build_app
-
-        server, thread = start_rest_server(
-            build_app(self), sock, self.config.rest_host, port, self.run_id
-        )
-        self._rest_server = server
-        self._rest_thread = thread
-        self._rest_port = port
-        self.state.update(rest_host=self.config.rest_host, rest_port=port)
-
-    def _stop_rest(self) -> None:
-        if self._rest_server is None:
-            return
-        self._rest_server.should_exit = True
-        if self._rest_thread is not None:
-            self._rest_thread.join(timeout=5)
-            if self._rest_thread.is_alive():
-                logger.warning("midrun: the REST server thread did not stop in 5 s")
-        self._rest_server = None
-        self._rest_thread = None
-        self._rest_port = None
-
-
-# Shared offset step for `MidrunRuntime._start_rest_and_torch_debug`'s paired port
-# selection: REST and torch_debug candidates at attempt N are both `N * _PORT_OFFSET_STEP`
-# above their configured base port (e.g. offset 200 pairs REST 8290 with debug 26199).
-_PORT_OFFSET_STEP = 100

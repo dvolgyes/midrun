@@ -156,8 +156,8 @@ def test_stopping_a_rest_server_that_does_not_exit_warns(tmp_path: Path) -> None
     release = threading.Event()
     stuck_thread = threading.Thread(target=release.wait, daemon=True)
     stuck_thread.start()
-    runtime._rest_server = SimpleNamespace(should_exit=False)
-    runtime._rest_thread = stuck_thread
+    runtime.services._rest_server = SimpleNamespace(should_exit=False)
+    runtime.services._rest_thread = stuck_thread
     warnings: list[str] = []
     sink_id = logger.add(warnings.append, level="WARNING", format="{message}")
     try:
