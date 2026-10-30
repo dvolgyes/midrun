@@ -88,3 +88,11 @@ def test_repeated_captures_never_stall_or_kill_target(
 def test_capture_unknown_pid_raises_pyspy_error() -> None:
     with pytest.raises(pyspy_capture.PySpyError):
         pyspy_capture.capture(1)
+
+
+def test_capture_hung_py_spy_raises_pyspy_error(tmp_path: Path) -> None:
+    hung_py_spy = tmp_path / "py-spy"
+    hung_py_spy.write_text("#!/bin/sh\nexec sleep 120\n")
+    hung_py_spy.chmod(0o755)
+    with pytest.raises(pyspy_capture.PySpyError, match="timed out"):
+        pyspy_capture.capture(1, py_spy_bin=str(hung_py_spy))

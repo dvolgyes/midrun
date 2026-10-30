@@ -53,7 +53,7 @@ def capture(
         list (each entry has `thread_id`, `active`, `owns_gil`, `frames`, ...).
 
     Raises:
-        PySpyError: py-spy exited non-zero or produced unparsable output.
+        PySpyError: py-spy exited non-zero, timed out, or produced unparsable output.
         HoldNotActiveError: a hold check was requested but the hold isn't active.
     """
     if hold_client is not None and hold_command_id is not None:
@@ -66,9 +66,12 @@ def capture(
         argv.append("--nonblocking")
     if subprocesses:
         argv.append("--subprocesses")
-    result = subprocess.run(  # noqa: S603 -- operator-specified py-spy binary and pid
-        argv, capture_output=True, text=True, timeout=30, check=False
-    )
+    try:
+        result = subprocess.run(  # noqa: S603 -- operator-specified py-spy binary and pid
+            argv, capture_output=True, text=True, timeout=30, check=False
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise PySpyError(f"py-spy dump timed out after {exc.timeout}s") from exc
     if result.returncode != 0:
         raise PySpyError(
             f"py-spy dump failed (exit {result.returncode}): {result.stderr.strip()}"
