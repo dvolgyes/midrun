@@ -105,7 +105,10 @@ def test_one_continue_resumes_after_a_double_pause(tmp_path) -> None:
             "queued": False,
         }
 
-        assert client.post("/control/continue").json() == {"released": True}
+        assert client.post("/control/continue").json() == {
+            "released": True,
+            "cancelled_holds": [],
+        }
         step = model.trainer.global_step
         assert _wait_until(lambda: model.trainer.global_step > step + 5)
         assert not gate.is_held()
@@ -177,6 +180,26 @@ def test_a_pause_after_a_stop_in_the_same_step_does_not_hold(tmp_path) -> None:
     assert client.get(f"/commands/{hold_id}").json()["status"] == "cancelled"
     assert not held
     assert not runtime.gate.is_held()
+
+
+def test_a_continue_before_the_pause_is_due_cancels_the_pause() -> None:
+    runtime = _EndlessModel()._midrun
+    client = TestClient(build_app(runtime))
+    later = client.post(
+        "/holds", json={"when": {"safe_point": "train_epoch_end"}, "timeout_s": 0}
+    ).json()
+    hold_id = client.post("/control/pause").json()["hold_id"]
+
+    resumed = client.post("/control/continue").json()
+    held = runtime._run_due_commands(
+        None, _StepTrainer(), SafePoint.TRAIN_BATCH_END, allowed=None
+    )
+
+    assert not held
+    assert client.get(f"/commands/{hold_id}").json()["status"] == "cancelled"
+    assert client.get(f"/commands/{later['id']}").json()["status"] == "queued"
+    assert resumed == {"released": False, "cancelled_holds": [hold_id]}
+    assert client.post("/control/pause").json()["queued"] is True
 
 
 def test_a_hold_after_an_executed_stop_is_refused(tmp_path) -> None:

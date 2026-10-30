@@ -182,7 +182,16 @@ def build_app(runtime: "MidrunRuntime") -> FastAPI:
 
     @app.post("/control/continue")
     def control_continue() -> dict[str, Any]:
-        return {"released": runtime.gate.release()}
+        # Cancels a pause that is not due yet before the release, so it cannot hold
+        # the run at the next safe point. Holds from /holds stay queued.
+        cancelled = [
+            command.id
+            for command in runtime.command_queue.list_all()
+            if (command.kind, command.args, command.when)
+            == ("hold", {"reason": "control/pause"}, parse_when("now"))
+            and runtime.command_queue.cancel(command.id)
+        ]
+        return {"released": runtime.gate.release(), "cancelled_holds": cancelled}
 
     @app.post("/control/stop")
     def control_stop() -> dict[str, Any]:
