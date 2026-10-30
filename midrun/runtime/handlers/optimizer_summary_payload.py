@@ -8,7 +8,9 @@ def optimizer_summary_payload(trainer: Any) -> dict[str, Any]:
     return {
         str(index): {
             "type": type(optimizer).__name__,
-            "param_groups": [{"lr": group["lr"]} for group in optimizer.param_groups],
+            "param_groups": [
+                {"lr": float(group["lr"])} for group in optimizer.param_groups
+            ],
         }
         for index, optimizer in enumerate(trainer.optimizers)
     }

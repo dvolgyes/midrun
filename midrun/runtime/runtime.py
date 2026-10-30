@@ -763,7 +763,7 @@ class MidrunRuntime:
             except (TypeError, ValueError):
                 continue
         learning_rates = tuple(
-            group["lr"]
+            float(group["lr"])
             for optimizer in trainer.optimizers
             for group in optimizer.param_groups
         )

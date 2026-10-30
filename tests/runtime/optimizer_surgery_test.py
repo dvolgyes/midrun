@@ -1,5 +1,8 @@
 """Behavioral tests for optimizer surgery: LR changes and momentum reset."""
 
+import json
+from pathlib import Path
+
 import pytest
 import torch
 from fastapi.testclient import TestClient
@@ -7,6 +10,7 @@ from fastapi.testclient import TestClient
 from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
 from midrun.rest.app import build_app
+from midrun.runtime.artifacts import ArtifactStore
 from midrun.runtime.commands.command import Command
 from midrun.runtime.commands.parse_when import parse_when
 from midrun.runtime.optimizer_surgery.adam_surgery_adapter import (
@@ -403,3 +407,42 @@ def test_set_learning_rate_updates_a_tensor_lr_in_place_and_reports_floats() -> 
         "before": pytest.approx(0.1),
         "after": 0.5,
     }
+
+
+def test_published_learning_rates_of_a_tensor_lr_are_floats_over_rest() -> None:
+    runtime = _make_runtime()
+    model = torch.nn.Linear(2, 2)
+    optimizer = torch.optim.Adam(model.parameters(), lr=torch.tensor(0.01))
+    pl_module = _FakePLModule(_FakeTrainer(optimizers=[optimizer]), model)
+    runtime._gather_ranks(pl_module)
+
+    runtime._publish(pl_module, "running")
+
+    client = TestClient(build_app(runtime))
+    optimizers = client.get("/optimizers")
+    assert optimizers.status_code == 200
+    assert optimizers.json() == {"learning_rates": [pytest.approx(0.01)]}
+    assert client.get("/run").status_code == 200
+
+
+def test_optimizer_summary_of_a_tensor_lr_reports_a_float(tmp_path: Path) -> None:
+    runtime = _make_runtime()
+    runtime.artifacts = ArtifactStore(tmp_path)
+    model = torch.nn.Linear(2, 2)
+    optimizer = torch.optim.Adam(model.parameters(), lr=torch.tensor(0.01))
+    trainer = _FakeTrainer(optimizers=[optimizer])
+    pl_module = _FakePLModule(trainer, model)
+
+    capture = _submit_and_run(runtime, pl_module, trainer, "save_optimizer_summary", {})
+    snapshot = _submit_and_run(
+        runtime, pl_module, trainer, "snapshot", {"kind": "optimizer_summary"}
+    )
+
+    assert capture.status == "succeeded", capture.error
+    assert snapshot.status == "succeeded", snapshot.error
+    for path in (
+        Path(capture.result["path"]) / "optimizer.json",
+        Path(snapshot.result["path"]) / "optimizer_summary.json",
+    ):
+        lr = json.loads(path.read_text())["0"]["param_groups"][0]["lr"]
+        assert lr == pytest.approx(0.01)
