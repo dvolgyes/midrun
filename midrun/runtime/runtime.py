@@ -349,7 +349,9 @@ class MidrunRuntime:
             self._started = False
         self.state.update(status="stopping")
         # A command queued for this stage must not run in the next one.
-        self.command_queue.expire_queued("the stage stopped before the command ran")
+        self.command_queue.end_queued(
+            "expired", error="the stage stopped before the command ran"
+        )
         self.gate.release()
         self._guarded("REST shutdown", self._stop_rest)
         if self.cuda_memory_history.enabled:
@@ -745,9 +747,7 @@ class MidrunRuntime:
         if batch_idx is None and self.current_step.batch is not None:
             # A publish inside a batch, such as from a hold, shows that batch.
             batch_idx = self.current_step.batch_idx
-        pending = sum(
-            1 for command in self.command_queue.list_all() if command.status == "queued"
-        )
+        pending = len(self.command_queue.list_all(status="queued"))
         self.state.update(
             status=status,
             stage=stage,

@@ -7,6 +7,7 @@ from typing import Any
 
 from midrun.runtime.commands.command import Command
 from midrun.runtime.commands.command_refusals import CommandRefusals
+from midrun.runtime.commands.command_store import CommandStore
 from midrun.runtime.commands.command_when import CommandWhen
 from midrun.runtime.commands.next_id import next_id
 from midrun.runtime.commands.refused_command_error import RefusedCommandError
@@ -19,13 +20,16 @@ class CommandQueue:
     `validate_args` checks each submission's kind and args, and returns the args with
     defaults filled in. It raises ValueError for an invalid submission.
 
+    The queue keeps every queued or executing command, and the last
+    `CommandStore.finished_limit` finished ones; it forgets older finished commands.
+
     Attributes:
         refusals: The command kinds that `submit` and `submit_once` refuse.
     """
 
     _validate_args: Callable[[str, dict[str, Any]], dict[str, Any]]
     _lock: threading.Lock
-    _commands: dict[str, Command]
+    _store: CommandStore
     refusals: CommandRefusals
 
     def __init__(
@@ -33,7 +37,7 @@ class CommandQueue:
     ) -> None:
         self._validate_args = validate_args
         self._lock = threading.Lock()
-        self._commands: dict[str, Command] = {}
+        self._store = CommandStore()
         self.refusals = CommandRefusals()
 
     def submit(self, kind: str, args: dict[str, Any], when: CommandWhen) -> Command:
@@ -50,44 +54,32 @@ class CommandQueue:
         with self._lock:
             if (reason := self.refusals.reason(kind)) is not None:
                 raise RefusedCommandError(f"{kind} refused: {reason}")
-            self._commands[command.id] = command
+            self._store.add(command)
         return command
 
-    def cancel_kind(self, kind: str) -> list[str]:
-        """Cancels every still-queued command of `kind`.
+    def end_queued(
+        self, status: str, *, kind: str | None = None, error: str | None = None
+    ) -> list[str]:
+        """Ends every still-queued command, or every one of `kind`, with `status`.
 
-        To keep the kind out, refuse it in `refusals` first: a submission that
-        passed the refusal check before then is already queued, and is cancelled here.
-
-        Returns:
-            The ids of the cancelled commands.
-        """
-        with self._lock:
-            cancelled = [
-                command
-                for command in self._commands.values()
-                if command.kind == kind and command.status == "queued"
-            ]
-            for command in cancelled:
-                command.status = "cancelled"
-            return [command.id for command in cancelled]
-
-    def expire_queued(self, reason: str) -> list[str]:
-        """Marks every still-queued command `expired`, with `reason` as its error.
+        `status` is `cancelled` or `expired`; `error` becomes each command's error.
+        To keep a kind out, refuse it in `refusals` first: a submission that passed
+        the refusal check before then is already queued, and is ended here.
 
         Returns:
-            The ids of the expired commands.
+            The ids of the ended commands.
         """
         with self._lock:
-            expired = [
+            ended = [
                 command
-                for command in self._commands.values()
-                if command.status == "queued"
+                for command in self._store.queued()
+                if kind is None or command.kind == kind
             ]
-            for command in expired:
-                command.status = "expired"
-                command.error = reason
-            return [command.id for command in expired]
+            for command in ended:
+                command.status = status
+                command.error = error
+                self._store.finish(command)
+            return [command.id for command in ended]
 
     def submit_once(
         self, kind: str, args: dict[str, Any], when: CommandWhen
@@ -105,7 +97,7 @@ class CommandQueue:
         with self._lock:
             if (reason := self.refusals.reason(kind)) is not None:
                 raise RefusedCommandError(f"{kind} refused: {reason}")
-            for command in self._commands.values():
+            for command in self._store.all():
                 if command.status in ("queued", "executing") and (
                     command.kind,
                     command.args,
@@ -119,18 +111,27 @@ class CommandQueue:
                 when=when,
                 created_at=time.time(),
             )
-            self._commands[command.id] = command
+            self._store.add(command)
         return command, True
 
     def get(self, command_id: str) -> Command | None:
-        """Returns a command by id, or None."""
+        """Returns a command by id, or None if unknown or forgotten."""
         with self._lock:
-            return self._commands.get(command_id)
+            return self._store.get(command_id)
 
-    def list_all(self) -> list[Command]:
-        """Returns all known commands, in submission order."""
+    def list_all(self, *, status: str | None = None) -> list[Command]:
+        """Returns the known commands, in submission order.
+
+        A `status` limits the result to the commands with that status.
+        """
         with self._lock:
-            return list(self._commands.values())
+            if status == "queued":
+                return self._store.queued()
+            return [
+                command
+                for command in self._store.all()
+                if status is None or command.status == status
+            ]
 
     def due(
         self,
@@ -146,9 +147,8 @@ class CommandQueue:
         with self._lock:
             return [
                 command
-                for command in self._commands.values()
-                if command.status == "queued"
-                and (allowed is None or command.kind in allowed)
+                for command in self._store.queued()
+                if (allowed is None or command.kind in allowed)
                 and command.when.is_due(safe_point, epoch, global_step)
             ]
 
@@ -159,10 +159,11 @@ class CommandQueue:
             True if cancelled, False if unknown or already past `queued`.
         """
         with self._lock:
-            command = self._commands.get(command_id)
+            command = self._store.get(command_id)
             if command is None or command.status != "queued":
                 return False
             command.status = "cancelled"
+            self._store.finish(command)
             return True
 
     def mark_executing(self, command: Command) -> bool:
@@ -178,6 +179,7 @@ class CommandQueue:
             if command.status != "queued":
                 return False
             command.status = "executing"
+            self._store.start(command)
             return True
 
     def mark_result(
@@ -193,3 +195,4 @@ class CommandQueue:
             command.status = "succeeded" if succeeded else "failed"
             command.result = result
             command.error = error
+            self._store.finish(command)
