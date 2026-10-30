@@ -174,6 +174,21 @@ class TorchDebugManager:
                 time.sleep(0.2)
         return False
 
+    def ready_url(self, *, timeout: float = 10.0) -> str | None:
+        """Returns `frontend_url` once it answers; None on a rank without a frontend.
+
+        Raises:
+            RuntimeError: The frontend did not answer within `timeout`.
+        """
+        if self.frontend_url is None:
+            return None
+        if not self.wait_ready(timeout):
+            raise RuntimeError(
+                f"pytorch distributed debug frontend {self.frontend_url} did not answer"
+                f" within {timeout}s"
+            )
+        return self.frontend_url
+
     def stop(self) -> None:
         """Stops the debug server stack. Idempotent."""
         if not self._started:

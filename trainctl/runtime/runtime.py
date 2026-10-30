@@ -855,8 +855,7 @@ class TrainctlRuntime:
 
     def _start_torch_debug(self) -> None:
         self.torch_debug.start_after_distributed_init()
-        self.torch_debug.wait_ready(timeout=10)
-        self.state.update(torch_debug_url=self.torch_debug.frontend_url)
+        self.state.update(torch_debug_url=self.torch_debug.ready_url(timeout=10))
 
     def _start_rest_and_torch_debug(self) -> None:
         """Starts REST and the torch_debug frontend as one paired unit: both ports are
@@ -889,12 +888,12 @@ class TrainctlRuntime:
                 continue
             try:
                 self.torch_debug.start_after_distributed_init(port=debug_candidate)
+                debug_url = self.torch_debug.ready_url(timeout=10)
             except Exception:
                 # REST still starts, so the run stays controllable without the debug server.
                 self._start_rest_on_socket(sock, self.config.rest_port + offset)
                 raise
-            self.torch_debug.wait_ready(timeout=10)
-            self.state.update(torch_debug_url=self.torch_debug.frontend_url)
+            self.state.update(torch_debug_url=debug_url)
             self._start_rest_on_socket(sock, self.config.rest_port + offset)
             return
         raise RuntimeError(
