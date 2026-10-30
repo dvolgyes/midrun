@@ -8,6 +8,7 @@ import pytest
 import torch
 from loguru import logger
 
+from trainctl.hooks.manager.bootstrap_hooks_tree import bootstrap_hooks_tree
 from trainctl.hooks.session import HookSession
 
 _SHELL = Path(shutil.which("bash"))
@@ -298,3 +299,18 @@ def test_rank_gating_skips_both_modalities_together(tmp_path) -> None:
 
     assert result is None
     assert not heavy_marker.exists()
+
+
+def test_hooks_run_when_the_run_directory_is_relative(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    tree = bootstrap_hooks_tree(Path("runs"), None, session_id="s-rel", log=logger)
+    _make_script(tree.live_dir / "light" / "on_train_batch_start.sh", 'cat "$1"')
+    _make_script(tree.live_dir / "heavy" / "on_train_batch_start.sh", 'cat "$1"')
+    session = _make_session(tree.live_dir, rank=0, rank_policy="rank_zero")
+
+    result = session.handle("on_train_batch_start", stage="fit", epoch=0, global_step=0)
+
+    assert result.light.exit_code == 0, result.light.stderr_tail
+    assert json.loads(result.light.stdout_tail)["session_id"] == "s-1"
+    assert result.heavy.exit_code == 0, result.heavy.stderr_tail
+    assert json.loads(result.heavy.stdout_tail)["tensor_records"] == []

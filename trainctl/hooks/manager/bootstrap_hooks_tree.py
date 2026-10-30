@@ -26,8 +26,8 @@ def bootstrap_hooks_tree(
     never re-copies, re-seeds, or restores a deleted script.
 
     Args:
-        base_dir: The resolved run directory (typically the Trainer's log directory); this
-            function may create it.
+        base_dir: The run directory (typically the Trainer's log directory), made absolute
+            here; this function may create it.
         source_dir: Optional baseline directory (`light/`, `heavy/`, and supporting files),
             copied into the live tree once. Never executed in place and never modified.
         session_id: This run's collision-resistant identity, recorded in the marker/provenance
@@ -36,8 +36,8 @@ def bootstrap_hooks_tree(
             module-level logger, so callers control attribution.
 
     Returns:
-        The live `hooks/` directory and the session id that the marker records: `session_id`
-        for a fresh tree, the earlier session's id for a resumed one.
+        The absolute live `hooks/` directory and the session id that the marker records:
+        `session_id` for a fresh tree, the earlier session's id for a resumed one.
 
     Raises:
         HooksBootstrapError: `source_dir` is unsafe relative to `base_dir` (equal, containing, or
@@ -47,6 +47,9 @@ def bootstrap_hooks_tree(
         PermissionError: Preserving a copied entry's ownership failed (message includes the path
             and the ownership that was required).
     """
+    # Scripts run with the live tree as their working directory, so a relative
+    # path (e.g. Lightning's default `runs/...` log_dir) would not resolve there.
+    base_dir = base_dir.resolve()
     live_dir = base_dir / "hooks"
     marker_path = base_dir / MARKER_NAME
 
