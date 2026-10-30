@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from midrun.runtime import inspectors_registry
 from midrun.runtime.cuda_memory.cheap_cuda_memory_stats import cheap_cuda_memory_stats
 from midrun.encode_json import encode_json
+from midrun.runtime.state.host_snapshot import host_snapshot
 from midrun.runtime.virtual_fs.encode_text import encode_text
 
 if TYPE_CHECKING:
@@ -123,7 +124,9 @@ STATIC_FILES: dict[str, Callable[["MidrunRuntime"], bytes]] = {
     "/meta/optimizer-surgery-enabled": lambda rt: encode_text(
         _bool(rt.config.optimizer_surgery_enabled)
     ),
-    "/state/snapshot.json": lambda rt: encode_json(asdict(rt.state.read())),
+    "/state/snapshot.json": lambda rt: encode_json(
+        asdict(host_snapshot(rt.state.read()))
+    ),
     "/state/status": lambda rt: encode_text(rt.state.read().status),
     "/state/stage": lambda rt: encode_text(rt.state.read().stage or ""),
     "/state/phase": lambda rt: encode_text(rt.state.read().phase),
@@ -134,7 +137,10 @@ STATIC_FILES: dict[str, Callable[["MidrunRuntime"], bytes]] = {
     ),
     "/state/generation": lambda rt: encode_text(str(rt.state.read().generation)),
     "/state/metrics/index.json": lambda rt: encode_json(
-        {key: asdict(metric) for key, metric in rt.state.read().metrics.items()}
+        {
+            key: asdict(metric)
+            for key, metric in host_snapshot(rt.state.read()).metrics.items()
+        }
     ),
     "/state/control/hold-state": lambda rt: encode_text(rt.state.read().hold_state),
     "/state/control/pending-command-count": lambda rt: encode_text(

@@ -48,6 +48,7 @@ from midrun.runtime.cuda_memory.set_cuda_memory_history import (
     set_cuda_memory_history,
 )
 from midrun.runtime.runtime import _ALLOWED_DURING_EXCEPTION, _ALLOWED_DURING_HOLD
+from midrun.runtime.state.host_snapshot import host_snapshot
 from midrun.runtime.virtual_fs.is_virtual_dir import is_virtual_dir
 from midrun.runtime.virtual_fs.list_virtual_dir import list_virtual_dir
 from midrun.runtime.virtual_fs.virtual_file_content import virtual_file_content
@@ -108,17 +109,17 @@ def build_app(runtime: "MidrunRuntime") -> FastAPI:
 
     @app.get("/run")
     def get_run() -> dict[str, Any]:
-        return asdict(runtime.state.read())
+        return asdict(host_snapshot(runtime.state.read()))
 
     @app.get("/metrics")
     def get_metrics() -> dict[str, Any]:
-        return {
-            key: asdict(metric) for key, metric in runtime.state.read().metrics.items()
-        }
+        metrics = host_snapshot(runtime.state.read()).metrics
+        return {key: asdict(metric) for key, metric in metrics.items()}
 
     @app.get("/optimizers")
     def get_optimizers() -> dict[str, Any]:
-        return {"learning_rates": list(runtime.state.read().learning_rates)}
+        learning_rates = host_snapshot(runtime.state.read()).learning_rates
+        return {"learning_rates": list(learning_rates)}
 
     @app.get("/commands")
     def list_commands() -> list[dict[str, Any]]:

@@ -8,6 +8,7 @@ from midrun.runtime.events import SafePoint
 from midrun.runtime.handlers.optimizer_summary_payload import (
     optimizer_summary_payload,
 )
+from midrun.runtime.state.host_snapshot import host_snapshot
 
 if TYPE_CHECKING:
     from midrun.runtime.runtime import MidrunRuntime
@@ -28,7 +29,7 @@ def handle_snapshot(
     del safe_point
     kind = command.args["kind"]
     if kind == "runtime":
-        payload = asdict(runtime.state.read())
+        payload = asdict(host_snapshot(runtime.state.read()))
     elif kind == "model_summary":
         payload = {
             "class": type(pl_module).__name__,

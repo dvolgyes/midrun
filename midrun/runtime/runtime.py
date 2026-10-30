@@ -60,6 +60,7 @@ from midrun.runtime.runtime_services import RuntimeServices
 from midrun.runtime.stage_sessions import StageSessions
 from midrun.runtime.state.exception_breakpoint_info import ExceptionBreakpointInfo
 from midrun.runtime.state.initial_snapshot import initial_snapshot
+from midrun.runtime.state.publishable_value import publishable_value
 from midrun.runtime.state.rank_info import RankInfo
 from midrun.runtime.state.scalar_metric import ScalarMetric
 from midrun.runtime.state.state_store import StateStore
@@ -746,18 +747,22 @@ class MidrunRuntime:
     ) -> None:
         trainer = pl_module.trainer
         metrics: dict[str, ScalarMetric] = {}
+        # Tensor values stay on their device: a copy to the host here would make
+        # each step wait for the device. Readers copy them (`host_snapshot`).
         for key, value in trainer.callback_metrics.items():
-            try:
-                metrics[key] = ScalarMetric(
-                    value=float(value),
-                    epoch=trainer.current_epoch,
-                    step=trainer.global_step,
-                    updated_at=time.time(),
-                )
-            except (TypeError, ValueError):
+            published = publishable_value(value)
+            if published is None:
                 continue
+            metrics[key] = ScalarMetric(
+                value=published,
+                epoch=trainer.current_epoch,
+                step=trainer.global_step,
+                updated_at=time.time(),
+            )
         learning_rates = tuple(
-            float(group["lr"])
+            group["lr"].detach()
+            if isinstance(group["lr"], torch.Tensor)
+            else float(group["lr"])
             for optimizer in trainer.optimizers
             for group in optimizer.param_groups
         )

@@ -3,6 +3,8 @@
 from collections.abc import Mapping
 from typing import TypedDict
 
+from torch import Tensor
+
 from midrun.runtime.state.exception_breakpoint_info import ExceptionBreakpointInfo
 from midrun.runtime.state.rank_info import RankInfo
 from midrun.runtime.state.scalar_metric import ScalarMetric
@@ -50,7 +52,7 @@ class RuntimeSnapshotChanges(TypedDict, total=False):
     world_size: int
     ranks: tuple[RankInfo, ...]
     metrics: Mapping[str, ScalarMetric]
-    learning_rates: tuple[float, ...]
+    learning_rates: tuple[float | Tensor, ...]
     pending_commands: int
     hold_state: str
     rest_host: str | None

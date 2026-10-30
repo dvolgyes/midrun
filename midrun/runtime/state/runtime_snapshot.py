@@ -3,6 +3,8 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from torch import Tensor
+
 from midrun.runtime.state.exception_breakpoint_info import ExceptionBreakpointInfo
 from midrun.runtime.state.rank_info import RankInfo
 from midrun.runtime.state.scalar_metric import ScalarMetric
@@ -26,7 +28,8 @@ class RuntimeSnapshot:
         world_size: Number of distributed processes.
         ranks: Static metadata for every known rank.
         metrics: Latest scalar metrics keyed by Lightning log key.
-        learning_rates: Current learning rate per optimizer param group.
+        learning_rates: Current learning rate per optimizer param group; a
+            tensor learning rate stays a tensor (see `host_snapshot`).
         pending_commands: Number of commands still queued.
         hold_state: `none` or `held`.
         rest_host: REST bind host, once started.
@@ -63,7 +66,7 @@ class RuntimeSnapshot:
     ranks: tuple[RankInfo, ...]
 
     metrics: Mapping[str, ScalarMetric]
-    learning_rates: tuple[float, ...]
+    learning_rates: tuple[float | Tensor, ...]
 
     pending_commands: int
     hold_state: str
