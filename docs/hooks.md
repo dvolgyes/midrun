@@ -78,8 +78,9 @@ temporary directory (removed after the script exits) and contains:
 A tensor argument is *described*, never evaluated —
 `{"kind": "tensor", "shape": [...], "dtype": "...", "device": "...", "requires_grad": false}`. No `.item()`,
 `.tolist()`, or `.cpu()` runs on this path. Nested mappings/lists/tuples are traversed up to `hooks_max_metadata_items`
-/ `hooks_max_metadata_depth`; a cycle is reported as `{"kind": "cycle"}` rather than recursing. If the encoded document
-would exceed `hooks_max_params_bytes`, `arguments` is dropped entirely (not partially re-truncated) and
+/ `hooks_max_metadata_depth`; a cycle is reported as `{"kind": "cycle"}` rather than recursing. A NaN or infinite float
+becomes `{"kind": "float", "value": "nan"}` (or `"inf"`, `"-inf"`), so the file is always standard JSON. If the encoded
+document would exceed `hooks_max_params_bytes`, `arguments` is dropped entirely (not partially re-truncated) and
 `truncated_reason` records why.
 
 ## The heavy hook manifest

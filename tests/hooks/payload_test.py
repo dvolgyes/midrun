@@ -5,6 +5,7 @@ import json
 import threading
 
 import numpy
+import pytest
 import torch
 
 from trainctl.hooks.payload.build_heavy_manifest import build_heavy_manifest
@@ -224,6 +225,15 @@ def test_write_json_file_writes_reloadable_json_and_returns_path(tmp_path) -> No
     returned = write_json_file(target, document)
     assert returned == target
     assert json.loads(target.read_text()) == document
+
+
+def test_write_json_file_refuses_non_finite_floats_and_writes_nothing(tmp_path) -> None:
+    target = tmp_path / "params.json"
+
+    with pytest.raises(ValueError, match="not JSON compliant"):
+        write_json_file(target, {"loss": float("nan")})
+
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_write_json_file_never_exposes_a_partial_document(tmp_path) -> None:

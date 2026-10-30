@@ -12,8 +12,12 @@ def write_json_file(path: Path, document: dict[str, Any]) -> Path:
     The JSON goes to a new temporary file in the same directory, which then
     replaces `path`, so a concurrent reader (e.g. another DDP rank reading the
     marker) sees either no file, the previous one, or the complete new one.
+
+    Raises:
+        ValueError: `document` holds a NaN or infinite float, which standard JSON
+            cannot represent; nothing is written.
     """
-    encoded = json.dumps(document, indent=2, sort_keys=True) + "\n"
+    encoded = json.dumps(document, indent=2, sort_keys=True, allow_nan=False) + "\n"
     temporary = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
     replaced = False
     try:

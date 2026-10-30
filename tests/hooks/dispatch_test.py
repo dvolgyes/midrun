@@ -484,3 +484,51 @@ def test_seeded_heavy_example_counts_the_exported_tensors(tmp_path) -> None:
     assert result is not None
     assert result.exit_code == 0
     assert result.stdout_tail.endswith("2 tensor(s)\n")
+
+
+def _reject_constant(name: str):
+    raise ValueError(f"non-standard JSON constant {name}")
+
+
+_NON_FINITE_ARGUMENTS = {
+    "loss": float("nan"),
+    "metrics": {"high": numpy.float64("inf"), "low": float("-inf")},
+}
+_NON_FINITE_DESCRIBED = {
+    "loss": {"kind": "float", "value": "nan"},
+    "metrics": {
+        "high": {"kind": "float", "value": "inf"},
+        "low": {"kind": "float", "value": "-inf"},
+    },
+}
+
+
+def test_light_params_describe_non_finite_floats_as_standard_json(tmp_path) -> None:
+    live_dir = tmp_path / "hooks"
+    _make_light_script(live_dir, "on_train_batch_start", 'cat "$1"')
+
+    result = _dispatch(
+        live_dir, tmp_path / "tmp-root", _context(), arguments=_NON_FINITE_ARGUMENTS
+    )
+
+    assert result is not None
+    params = json.loads(result.stdout_tail, parse_constant=_reject_constant)
+    assert params["arguments"] == _NON_FINITE_DESCRIBED
+
+
+def test_heavy_manifest_describes_non_finite_floats_as_standard_json(tmp_path) -> None:
+    live_dir = tmp_path / "hooks"
+    _make_heavy_script(live_dir, "on_train_batch_start", 'cat "$1"')
+
+    result = _dispatch_heavy(
+        live_dir,
+        tmp_path / "tmp-root",
+        _context(),
+        "occ-1",
+        {"batch": _NON_FINITE_ARGUMENTS},
+        ("batch",),
+    )
+
+    assert result is not None
+    manifest = json.loads(result.stdout_tail, parse_constant=_reject_constant)
+    assert manifest["arguments"] == {"batch": _NON_FINITE_DESCRIBED}

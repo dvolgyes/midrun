@@ -1,5 +1,6 @@
 """Describes callback arguments as a bounded, JSON-safe structure."""
 
+import math
 from collections.abc import Mapping
 from typing import Any
 
@@ -42,6 +43,9 @@ def _describe(value: Any, state: TraversalState, *, depth: int) -> Any:
             "requires_grad": value.requires_grad,
         }
     if value is None or isinstance(value, bool | int | float):
+        if isinstance(value, float) and not math.isfinite(value):
+            # Standard JSON has no NaN/Infinity literal.
+            value = {"kind": "float", "value": repr(float(value))}
         return value
     if isinstance(value, str):
         if len(value) <= _MAX_STRING_LEN:
