@@ -324,13 +324,17 @@ function setupControls() {
   });
 
   byId("tunable-hparams-set-all-btn").addEventListener("click", async () => {
-    const rows = byId("tunable-hparams-list").querySelectorAll(
-      "[data-hparam-name]",
+    // Only edited rows are sent, so an unedited row does not overwrite a value
+    // that changed on the server since the last poll.
+    const rows = Array.from(
+      byId("tunable-hparams-list").querySelectorAll("[data-hparam-name]"),
+    ).filter(
+      (row) => row.querySelector("input, textarea")?.dataset.dirty === "1",
     );
     const overallStatus = byId("tunable-hparams-set-all-status");
     overallStatus.textContent = "setting…";
     const results = await Promise.all(
-      Array.from(rows).map((row) => setTunableHparamFromRow(row)),
+      rows.map((row) => setTunableHparamFromRow(row)),
     );
     const succeeded = results.filter(Boolean).length;
     overallStatus.textContent = results.length
