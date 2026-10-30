@@ -13,6 +13,7 @@ import json
 import subprocess
 from typing import Any
 
+from midrun.debugger.descendant_pids import descendant_pids
 from midrun.debugger.hold_client import HoldClient
 
 
@@ -39,7 +40,9 @@ def capture(
         native: Include native (C/C++/Cython) frames.
         nonblocking: Read memory without pausing the target -- less consistent, but
             removes even the brief pause py-spy's default mode uses.
-        subprocesses: Also profile subprocesses of `pid`.
+        subprocesses: Also dump every live descendant process of `pid`, one py-spy
+            run each (`py-spy dump --json --subprocesses` reports only `pid`). The
+            processes are paused one after another, not at the same time.
         py_spy_bin: `py-spy` executable to invoke, resolved via `PATH`.
         hold_client: When given with `hold_command_id`, refuses to run unless that
             hold is confirmed currently active (see `HoldClient.require_hold_active`).
@@ -50,22 +53,42 @@ def capture(
 
     Returns:
         `{"pid": pid, "threads": [...]}` -- `threads` is py-spy's own per-thread dump
-        list (each entry has `thread_id`, `active`, `owns_gil`, `frames`, ...).
+        list (each entry has `pid`, `thread_id`, `active`, `owns_gil`, `frames`, ...).
+        With `subprocesses`, `threads` also holds the threads of the descendants, and
+        `failed_subprocesses` lists `{"pid", "error"}` for each descendant that py-spy
+        could not dump (it exited, is not Python, or refused the attach).
 
     Raises:
-        PySpyError: py-spy exited non-zero, timed out, or produced unparsable output.
+        PySpyError: py-spy exited non-zero, timed out, or produced unparsable output
+            for `pid` itself.
         HoldNotActiveError: a hold check was requested but the hold isn't active.
     """
     if hold_client is not None and hold_command_id is not None:
         hold_client.require_hold_active(hold_command_id)
-    argv = [py_spy_bin, "dump", "--pid", str(pid), "--json"]
-    argv.extend(["-l"] * max(locals_verbosity, 0))
+    options = ["--json", *["-l"] * max(locals_verbosity, 0)]
     if native:
-        argv.append("--native")
+        options.append("--native")
     if nonblocking:
-        argv.append("--nonblocking")
+        options.append("--nonblocking")
+    result: dict[str, Any] = {"pid": pid, "threads": _dump(py_spy_bin, pid, options)}
     if subprocesses:
-        argv.append("--subprocesses")
+        failed: list[dict[str, Any]] = []
+        for child in descendant_pids(pid):
+            try:
+                result["threads"].extend(_dump(py_spy_bin, child, options))
+            except PySpyError as exc:
+                failed.append({"pid": child, "error": str(exc)})
+        result["failed_subprocesses"] = failed
+    return result
+
+
+def _dump(py_spy_bin: str, pid: int, options: list[str]) -> list[dict[str, Any]]:
+    """Runs one `py-spy dump` of `pid` and returns its parsed per-thread list.
+
+    Raises:
+        PySpyError: py-spy exited non-zero, timed out, or produced unparsable output.
+    """
+    argv = [py_spy_bin, "dump", "--pid", str(pid), *options]
     try:
         result = subprocess.run(  # noqa: S603 -- operator-specified py-spy binary and pid
             argv, capture_output=True, text=True, timeout=30, check=False
@@ -77,7 +100,7 @@ def capture(
             f"py-spy dump failed (exit {result.returncode}): {result.stderr.strip()}"
         )
     try:
-        threads = json.loads(result.stdout)
+        threads: list[dict[str, Any]] = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
         raise PySpyError(f"py-spy dump produced unparsable output: {exc}") from exc
-    return {"pid": pid, "threads": threads}
+    return threads

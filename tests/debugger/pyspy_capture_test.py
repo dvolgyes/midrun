@@ -12,6 +12,7 @@ process, for both a busy-looping and an idle target.
 
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -83,6 +84,70 @@ def test_repeated_captures_never_stall_or_kill_target(
     for _ in range(5):
         pyspy_capture.capture(target_process.pid, locals_verbosity=1)
     assert target_process.poll() is None
+
+
+@pytest.fixture
+def target_with_children() -> Iterator[subprocess.Popen[bytes]]:
+    python_child = (
+        _ALLOW_ANY_TRACER + "import time\nwhile True:\n    time.sleep(0.01)\n"
+    )
+    code = (
+        _ALLOW_ANY_TRACER
+        + "import subprocess, sys, time\n"
+        + f"subprocess.Popen([sys.executable, '-c', {python_child!r}])\n"
+        + "subprocess.Popen(['sleep', '60'])\n"
+        + "while True:\n    time.sleep(0.01)\n"
+    )
+    proc = subprocess.Popen(  # noqa: S603 -- fixed, non-shell argv; test-only target process
+        [sys.executable, "-c", code], start_new_session=True
+    )
+    children = Path(f"/proc/{proc.pid}/task/{proc.pid}/children")
+    deadline = time.monotonic() + 10
+    while len(children.read_text().split()) < 2 and time.monotonic() < deadline:
+        time.sleep(0.05)
+    time.sleep(0.3)
+    try:
+        yield proc
+    finally:
+        os.killpg(proc.pid, signal.SIGKILL)
+        proc.wait(timeout=5)
+
+
+@_needs_ptrace
+def test_capture_with_subprocesses_dumps_every_python_descendant(
+    target_with_children: subprocess.Popen[bytes],
+) -> None:
+    children = [
+        int(pid)
+        for pid in Path(
+            f"/proc/{target_with_children.pid}/task/{target_with_children.pid}/children"
+        )
+        .read_text()
+        .split()
+    ]
+    comms = {pid: Path(f"/proc/{pid}/comm").read_text().strip() for pid in children}
+    sleep_pid = next(pid for pid, comm in comms.items() if comm == "sleep")
+    python_pid = next(pid for pid in children if pid != sleep_pid)
+
+    result = pyspy_capture.capture(target_with_children.pid, subprocesses=True)
+
+    assert result["pid"] == target_with_children.pid
+    assert {thread["pid"] for thread in result["threads"]} == {
+        target_with_children.pid,
+        python_pid,
+    }
+    assert [failure["pid"] for failure in result["failed_subprocesses"]] == [sleep_pid]
+    assert result["failed_subprocesses"][0]["error"]
+
+
+@_needs_ptrace
+def test_capture_without_subprocesses_dumps_only_the_target(
+    target_with_children: subprocess.Popen[bytes],
+) -> None:
+    result = pyspy_capture.capture(target_with_children.pid)
+
+    assert {thread["pid"] for thread in result["threads"]} == {target_with_children.pid}
+    assert "failed_subprocesses" not in result
 
 
 def test_capture_unknown_pid_raises_pyspy_error() -> None:
