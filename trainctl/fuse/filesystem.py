@@ -86,9 +86,7 @@ class TrainctlFS(mfusepy.Operations):
                 "st_size": 0,
                 **owner,
             }
-        content = virtual_file_content(self._runtime, path)
-        if content is None:
-            raise mfusepy.FuseOSError(errno.ENOENT)
+        content = self._generate(path)
         return {
             "st_mode": (stat.S_IFREG | 0o444),
             "st_nlink": 1,
@@ -103,16 +101,7 @@ class TrainctlFS(mfusepy.Operations):
     def open(self, path: str, flags: int) -> int:
         if flags & os.O_ACCMODE != os.O_RDONLY:
             raise mfusepy.FuseOSError(errno.EROFS)
-        try:
-            content = virtual_file_content(self._runtime, path)
-        except TimeoutError as exc:
-            logger.warning("trainctl FUSE read of {} timed out: {}", path, exc)
-            raise mfusepy.FuseOSError(errno.ETIMEDOUT) from exc
-        except Exception as exc:
-            logger.warning("trainctl FUSE read of {} failed: {}", path, exc)
-            raise mfusepy.FuseOSError(errno.EIO) from exc
-        if content is None:
-            raise mfusepy.FuseOSError(errno.ENOENT)
+        content = self._generate(path)
         with self._handles_lock:
             handle = self._next_fh
             self._next_fh += 1
@@ -136,3 +125,17 @@ class TrainctlFS(mfusepy.Operations):
     def statfs(self, path: str) -> dict[str, int]:
         del path
         return {}
+
+    def _generate(self, path: str) -> bytes:
+        """Generates `path`'s bytes, turning a missing or failing file into its errno."""
+        try:
+            content = virtual_file_content(self._runtime, path)
+        except TimeoutError as exc:
+            logger.warning("trainctl FUSE read of {} timed out: {}", path, exc)
+            raise mfusepy.FuseOSError(errno.ETIMEDOUT) from exc
+        except Exception as exc:
+            logger.warning("trainctl FUSE read of {} failed: {}", path, exc)
+            raise mfusepy.FuseOSError(errno.EIO) from exc
+        if content is None:
+            raise mfusepy.FuseOSError(errno.ENOENT)
+        return content
