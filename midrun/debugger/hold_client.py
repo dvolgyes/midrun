@@ -100,6 +100,7 @@ class HoldClient:
     def require_hold_active(self, command_id: str) -> None:
         """Raises `HoldNotActiveError` unless `command_id` is the currently active hold.
 
+        A hold that joined the active hold counts, since releasing it releases the run.
         Re-checks live state rather than trusting a previously-observed `succeeded`
         status, since a hold can be released between when it engaged and when a
         capture actually attaches.
@@ -110,7 +111,10 @@ class HoldClient:
                 f"hold {command_id!r} has not engaged (status={command.get('status')!r})"
             )
         active = self.get_holds().get("active")
-        if active is None or active.get("command_id") != command_id:
+        if active is None or command_id not in (
+            active.get("command_id"),
+            *active.get("joined_ids", ()),
+        ):
             raise HoldNotActiveError(
                 f"hold {command_id!r} is not the currently active hold"
             )
