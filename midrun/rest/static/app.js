@@ -752,7 +752,7 @@ function setupInspectorControls() {
         resultBox.textContent = `failed: ${command.error}`;
         return;
       }
-      resultBox.textContent = `armed -- waiting for ${args.warmup_steps + args.active_steps} batch(es)…`;
+      resultBox.textContent = `armed -- waiting for the current batch to end, then for ${args.warmup_steps + args.active_steps} batch(es)…`;
       const manifest = await pollForArtifact("profiler", before);
       await renderArtifactManifest(resultBox, manifest);
     } catch (err) {

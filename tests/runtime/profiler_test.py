@@ -1,5 +1,6 @@
 """Behavioral tests for the bounded profiler run and its runtime integration."""
 
+import json
 import threading
 import time
 from pathlib import Path
@@ -67,6 +68,9 @@ def test_profiler_run_completes_after_warmup_plus_active_steps() -> None:
     )
     run.start()
     x = torch.randn(8, 8)
+    # Ends the batch in which the run started; it is not a counted step.
+    assert run.step() is False
+    _ = x @ x
     assert run.step() is False
     _ = x @ x
     assert run.step() is False
@@ -117,7 +121,9 @@ def test_profile_command_rejects_second_concurrent_arm(tmp_path: Path) -> None:
         assert "already armed" in second.error
     finally:
         # torch.profiler's underlying session is process-global; leaving the first
-        # run started would corrupt later tests in this process.
+        # run started would corrupt later tests in this process. One step ends the
+        # arming batch, so the run has recorded something to finalize.
+        runtime.profiler_run.step()
         runtime.profiler_run.finalize()
 
 
@@ -133,12 +139,14 @@ def test_finish_train_batch_advances_and_finalizes_profiler(tmp_path: Path) -> N
     )
     runtime._execute(pl_module, trainer, cmd, safe_point=None)
     assert runtime.profiler_run is not None
-
-    runtime.begin_train_batch(pl_module, batch={"x": 1}, batch_idx=0)
     runtime.finish_train_batch(pl_module)
     assert runtime.profiler_run is not None
 
     runtime.begin_train_batch(pl_module, batch={"x": 1}, batch_idx=1)
+    runtime.finish_train_batch(pl_module)
+    assert runtime.profiler_run is not None
+
+    runtime.begin_train_batch(pl_module, batch={"x": 1}, batch_idx=2)
     runtime.finish_train_batch(pl_module)
     assert runtime.profiler_run is None
 
@@ -170,7 +178,8 @@ def test_finish_train_batch_with_then_hold_enters_cooperative_hold(
             parse_when("now"),
         )
         runtime._execute(pl_module, trainer, cmd, safe_point=None)
-        runtime.begin_train_batch(pl_module, batch={"x": 1}, batch_idx=0)
+        runtime.finish_train_batch(pl_module)
+        runtime.begin_train_batch(pl_module, batch={"x": 1}, batch_idx=1)
         runtime.finish_train_batch(pl_module)
 
     thread = threading.Thread(target=_drive)
@@ -182,3 +191,38 @@ def test_finish_train_batch_with_then_hold_enters_cooperative_hold(
         runtime.gate.release()
         thread.join(timeout=5)
         assert not thread.is_alive()
+
+
+def _traced_op_names(capture_dir: Path) -> set[str]:
+    trace = json.loads((capture_dir / "trace.json").read_text())
+    return {event.get("name") for event in trace["traceEvents"]}
+
+
+def test_profile_armed_mid_batch_records_the_next_full_batch(tmp_path: Path) -> None:
+    runtime = _make_runtime(tmp_path)
+    trainer = _FakeTrainer()
+    pl_module = _FakePLModule(trainer)
+    x = torch.randn(4, 8)
+    weight = torch.randn(8, 8)
+
+    # The command runs at a safe point inside batch 0, e.g. before the optimizer step
+    # or in a hold there; the rest of batch 0 is not a counted step.
+    cmd = runtime.command_queue.submit(
+        "profile",
+        {"warmup_steps": 0, "active_steps": 1, "level": "basic"},
+        parse_when("now"),
+    )
+    runtime._execute(pl_module, trainer, cmd, safe_point=None)
+    _ = torch.cumsum(x, dim=0)
+    runtime.finish_train_batch(pl_module)
+    assert runtime.profiler_run is not None
+
+    runtime.begin_train_batch(pl_module, batch={"x": 1}, batch_idx=1)
+    _ = torch.nn.functional.linear(x, weight)
+    runtime.finish_train_batch(pl_module)
+
+    assert runtime.profiler_run is None
+    (capture_dir,) = (runtime.artifacts.root / "debug").iterdir()
+    names = _traced_op_names(capture_dir)
+    assert "aten::linear" in names
+    assert "aten::cumsum" not in names

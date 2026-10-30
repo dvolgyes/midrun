@@ -19,6 +19,9 @@ def handle_profile(
 ) -> dict[str, Any]:
     """Starts a bounded torch.profiler run with the step counts and the level of `command`.
 
+    The steps count full batches from the next batch on. The rest of the current
+    batch, with a hold in which this command runs, is not recorded.
+
     Raises:
         ValueError: A profiler run is already armed.
     """

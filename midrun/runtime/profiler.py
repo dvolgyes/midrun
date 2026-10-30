@@ -22,13 +22,17 @@ _LEVEL_KWARGS: dict[str, dict[str, Any]] = {
 class ProfilerRun:
     """One armed-through-finalized bounded profiling run.
 
+    The run starts at a safe point inside a batch, possibly in a hold. That rest of
+    the batch, which ends at the first `step()`, is not a counted step, so the
+    first warmup or active step is a full batch.
+
     Attributes:
         id: The `profile` command's id, used to label the resulting artifact.
-        warmup_steps: Batches to run under the profiler before recording starts.
-        active_steps: Batches to actually record after warmup.
+        warmup_steps: Full batches to run under the profiler before recording starts.
+        active_steps: Full batches to actually record after warmup.
         level: One of `basic`, `shapes`, `memory`, `full` (see `_LEVEL_KWARGS`).
         then_hold: Whether to enter a cooperative hold once this run finalizes.
-        steps_done: Number of `step()` calls made so far.
+        steps_done: Number of `step()` calls made so far, the first included.
     """
 
     def __init__(
@@ -59,7 +63,7 @@ class ProfilerRun:
         if torch.cuda.is_available():
             activities.append(torch.profiler.ProfilerActivity.CUDA)
         sched = torch.profiler.schedule(
-            wait=0, warmup=self.warmup_steps, active=self.active_steps, repeat=1
+            wait=1, warmup=self.warmup_steps, active=self.active_steps, repeat=1
         )
         self._prof = torch.profiler.profile(
             activities=activities, schedule=sched, **_LEVEL_KWARGS[self.level]
@@ -67,14 +71,14 @@ class ProfilerRun:
         self._prof.start()
 
     def step(self) -> bool:
-        """Advances the profiler by one batch.
+        """Advances the profiler at the end of a batch.
 
         Returns:
-            True once `warmup_steps + active_steps` batches have been stepped.
+            True once `warmup_steps + active_steps` full batches have been stepped.
         """
         self._prof.step()
         self.steps_done += 1
-        return self.steps_done >= self.warmup_steps + self.active_steps
+        return self.steps_done > self.warmup_steps + self.active_steps
 
     def finalize(self) -> dict[str, str | bytes]:
         """Stops the profiler and returns its exported artifact contents.
@@ -92,7 +96,12 @@ class ProfilerRun:
 
     def phase_state(self) -> dict[str, Any]:
         """Live progress, for FUSE/status reporting."""
-        phase = "warmup" if self.steps_done < self.warmup_steps else "active"
+        if self.steps_done == 0:
+            phase = "waiting"
+        elif self.steps_done <= self.warmup_steps:
+            phase = "warmup"
+        else:
+            phase = "active"
         return {
             "state": phase,
             "level": self.level,
