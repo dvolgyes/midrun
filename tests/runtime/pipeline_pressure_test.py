@@ -32,14 +32,11 @@ def test_full_phase_breakdown_recorded_in_order() -> None:
     tracker.batch_start(0, epoch=0, global_step=0, batch_idx=0)
     tracker.before_backward(100)
     tracker.after_backward(150)
-    tracker.before_optimizer(150)
-    tracker.optimizer_step(180)
     sample = tracker.batch_end(200)
 
     assert sample.forward_loss_ns == 100
     assert sample.backward_ns == 50
     assert sample.post_backward_ns == 50
-    assert sample.optimizer_step_ns == 30
     assert sample.batch_total_ns == 200
 
 
@@ -51,7 +48,6 @@ def test_missing_backward_phases_are_none() -> None:
     assert sample.forward_loss_ns is None
     assert sample.backward_ns is None
     assert sample.post_backward_ns is None
-    assert sample.optimizer_step_ns is None
 
 
 def test_window_evicts_oldest_samples() -> None:
@@ -109,7 +105,6 @@ def _run_one_batch(pipeline_pressure_enabled: bool) -> PipelinePressureTracker:
     runtime.begin_train_batch(pl_module, batch=None, batch_idx=0)
     runtime.before_backward(loss=None)
     runtime.after_backward()
-    runtime.before_optimizer_step()
     runtime.finish_train_batch(pl_module)
     return runtime.pipeline
 

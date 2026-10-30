@@ -29,8 +29,6 @@ class PipelinePressureSample:
         post_backward_ns: Time from after backward to batch end -- gradient handling,
             optimizer work, bookkeeping. `None` if backward never finished.
         batch_total_ns: Time from batch start to batch end.
-        optimizer_step_ns: Time inside `optimizer_step`, when that capability is
-            supported for the active strategy; `None` otherwise.
     """
 
     epoch: int
@@ -41,7 +39,6 @@ class PipelinePressureSample:
     backward_ns: int | None
     post_backward_ns: int | None
     batch_total_ns: int | None
-    optimizer_step_ns: int | None = None
 
 
 class PipelinePressureTracker:
@@ -57,8 +54,6 @@ class PipelinePressureTracker:
         self._batch_start_ns: int | None = None
         self._before_backward_ns: int | None = None
         self._after_backward_ns: int | None = None
-        self._before_optimizer_ns: int | None = None
-        self._optimizer_step_ns: int | None = None
         self._prev_batch_end_ns: int | None = None
         self._epoch = 0
         self._global_step = 0
@@ -71,8 +66,6 @@ class PipelinePressureTracker:
         self._batch_start_ns = now_ns
         self._before_backward_ns = None
         self._after_backward_ns = None
-        self._before_optimizer_ns = None
-        self._optimizer_step_ns = None
         self._epoch = epoch
         self._global_step = global_step
         self._batch_idx = batch_idx
@@ -84,18 +77,6 @@ class PipelinePressureTracker:
     def after_backward(self, now_ns: int) -> None:
         """Records the point just after `backward()`. Call from `on_after_backward`."""
         self._after_backward_ns = now_ns
-
-    def before_optimizer(self, now_ns: int) -> None:
-        """Records the point just before the optimizer step.
-
-        Call from `on_before_optimizer_step`.
-        """
-        self._before_optimizer_ns = now_ns
-
-    def optimizer_step(self, now_ns: int) -> None:
-        """Records optimizer-step duration, when that capability is supported."""
-        if self._before_optimizer_ns is not None:
-            self._optimizer_step_ns = now_ns - self._before_optimizer_ns
 
     def batch_end(self, now_ns: int) -> PipelinePressureSample:
         """Finalizes the current batch's sample and appends it to the rolling window."""
@@ -132,7 +113,6 @@ class PipelinePressureTracker:
             backward_ns=backward_ns,
             post_backward_ns=post_backward_ns,
             batch_total_ns=batch_total_ns,
-            optimizer_step_ns=self._optimizer_step_ns,
         )
         self._samples.append(sample)
         self._prev_batch_end_ns = now_ns

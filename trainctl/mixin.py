@@ -225,7 +225,6 @@ class TrainctlMixin(_MixinBase):
         """Lightning's `on_before_optimizer_step` hook; forwards to `TrainctlRuntime`."""
         super().on_before_optimizer_step(optimizer)
         if self._trainctl.config.enabled:
-            self._trainctl.before_optimizer_step()
             self._trainctl.process_safe_point(self, SafePoint.BEFORE_OPTIMIZER_STEP)
 
     def on_fit_end(self) -> None:

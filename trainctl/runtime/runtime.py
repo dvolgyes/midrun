@@ -583,10 +583,6 @@ class TrainctlRuntime:
         """Records the post-backward timestamp. Called from `on_after_backward`."""
         self.pipeline.after_backward(time.perf_counter_ns())
 
-    def before_optimizer_step(self) -> None:
-        """Records the pre-optimizer-step timestamp. Called from `on_before_optimizer_step`."""
-        self.pipeline.before_optimizer(time.perf_counter_ns())
-
     def finish_train_batch(self, pl_module: Any) -> None:
         """Finalizes this batch's pipeline-pressure sample and clears `current_step`.
 
