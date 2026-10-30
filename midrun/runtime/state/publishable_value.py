@@ -1,28 +1,27 @@
-"""Turns one logged metric value into the value a safe point publishes."""
+"""Turns one logged host value into the float that a safe point publishes."""
 
 from typing import SupportsFloat
 
 from torch import Tensor
 
 
-def publishable_value(value: object) -> float | Tensor | None:
-    """Returns `value` as a publishable scalar without a copy to the host.
+def publishable_value(value: object) -> float | None:
+    """Returns `value` as a float, or None when it is not a real scalar.
 
-    A tensor stays on its device, detached, so the training loop does not wait
-    for the device; `host_snapshot` copies it when a reader asks.
+    A CUDA tensor goes through `publishable_values` instead, because `float` on it
+    makes the training loop wait for the device.
 
     Args:
-        value: A value from `trainer.callback_metrics`.
+        value: A value from `trainer.callback_metrics`, or a learning rate.
 
     Returns:
-        A detached one-element real tensor, a float, or None when `value` is
-        not a real scalar (a multi-element, empty or complex tensor, or a
-        value `float` rejects).
+        A float, or None when `value` is a multi-element, empty or complex tensor,
+        or a value that `float` rejects.
     """
     if isinstance(value, Tensor):
         if value.numel() != 1 or value.is_complex():
             return None
-        return value.detach()
+        return float(value)
     if not isinstance(value, str | SupportsFloat):
         return None
     try:

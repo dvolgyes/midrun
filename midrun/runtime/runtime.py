@@ -60,7 +60,7 @@ from midrun.runtime.runtime_services import RuntimeServices
 from midrun.runtime.stage_sessions import StageSessions
 from midrun.runtime.state.exception_breakpoint_info import ExceptionBreakpointInfo
 from midrun.runtime.state.initial_snapshot import initial_snapshot
-from midrun.runtime.state.publishable_value import publishable_value
+from midrun.runtime.state.publishable_values import publishable_values
 from midrun.runtime.state.rank_info import RankInfo
 from midrun.runtime.state.scalar_metric import ScalarMetric
 from midrun.runtime.state.state_store import StateStore
@@ -750,22 +750,25 @@ class MidrunRuntime:
         epoch = trainer.current_epoch
         global_step = trainer.global_step
         now = time.time()
-        metrics: dict[str, ScalarMetric] = {}
-        # Tensor values stay on their device: a copy to the host here would make
-        # each step wait for the device. Readers copy them (`host_snapshot`).
-        for key, value in trainer.callback_metrics.items():
-            published = publishable_value(value)
-            if published is None:
-                continue
-            metrics[key] = ScalarMetric(
-                value=published, epoch=epoch, step=global_step, updated_at=now
-            )
-        learning_rates = tuple(
-            group["lr"].detach()
-            if isinstance(group["lr"], torch.Tensor)
-            else float(group["lr"])
+        callback_metrics = trainer.callback_metrics
+        lrs = [
+            group["lr"]
             for optimizer in trainer.optimizers
             for group in optimizer.param_groups
+        ]
+        # A CUDA value goes to the host without a wait; only a reader waits for it.
+        published = publishable_values([*callback_metrics.values(), *lrs])
+        metrics = {
+            key: ScalarMetric(
+                value=value, epoch=epoch, step=global_step, updated_at=now
+            )
+            for key, value in zip(callback_metrics, published, strict=False)
+            if value is not None
+        }
+        # A learning rate is a real scalar; `float` raises for one that is not.
+        learning_rates = tuple(
+            float(lr) if value is None else value
+            for lr, value in zip(lrs, published[len(callback_metrics) :], strict=True)
         )
         stage = trainer.state.stage.value if trainer.state.stage is not None else None
         if batch_idx is None and self.current_step.batch is not None:

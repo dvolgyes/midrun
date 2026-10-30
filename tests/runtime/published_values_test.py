@@ -123,10 +123,15 @@ def test_a_non_finite_metric_reads_as_the_same_float(
     assert read == value or (math.isnan(read) and math.isnan(value))
 
 
-def test_a_read_shows_a_learning_rate_tensor_changed_in_place(tmp_path: Path) -> None:
+def test_a_learning_rate_changed_in_place_reads_as_of_the_last_safe_point(
+    tmp_path: Path,
+) -> None:
     lr = torch.tensor(0.5)
-    runtime, _ = _published(tmp_path, {}, [lr])
+    runtime, model = _published(tmp_path, {}, [lr])
 
     lr.fill_(0.25)
+    before = host_snapshot(runtime.state.read()).learning_rates
+    runtime.process_safe_point(model, SafePoint.TRAIN_BATCH_END)
 
+    assert before == (0.5,)
     assert host_snapshot(runtime.state.read()).learning_rates == (0.25,)

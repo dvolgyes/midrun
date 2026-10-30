@@ -3,9 +3,8 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from torch import Tensor
-
 from midrun.runtime.state.exception_breakpoint_info import ExceptionBreakpointInfo
+from midrun.runtime.state.host_scalar import HostScalar
 from midrun.runtime.state.rank_info import RankInfo
 from midrun.runtime.state.scalar_metric import ScalarMetric
 
@@ -29,7 +28,7 @@ class RuntimeSnapshot:
         ranks: Static metadata for every known rank.
         metrics: Latest scalar metrics keyed by Lightning log key.
         learning_rates: Current learning rate per optimizer param group; a
-            tensor learning rate stays a tensor (see `host_snapshot`).
+            CUDA tensor learning rate is a `HostScalar` (see `host_snapshot`).
         pending_commands: Number of commands still queued.
         hold_state: `none` or `held`.
         rest_host: REST bind host, once started.
@@ -69,7 +68,7 @@ class RuntimeSnapshot:
     ranks: tuple[RankInfo, ...]
 
     metrics: Mapping[str, ScalarMetric]
-    learning_rates: tuple[float | Tensor, ...]
+    learning_rates: tuple[float | HostScalar, ...]
 
     pending_commands: int
     hold_state: str
