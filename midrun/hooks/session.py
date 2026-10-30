@@ -36,12 +36,18 @@ class HandleResult:
 class HookSession:
     """Dispatches lifecycle callback occurrences against one run's live hooks tree.
 
+    Scripts start through `setpriv` (resolved once by the caller), so that the
+    kernel kills a script's shell when the trainer dies. When `setpriv` is `None`,
+    an eligible session logs one warning that scripts can outlive a killed trainer.
+
     Attributes:
         live_dir: The published `hooks/` tree this session dispatches against.
         session_id: This run's hooks session id (shared with the bootstrap marker).
         rank: This process's `trainer.global_rank`.
         world_size: This process's `trainer.world_size`.
     """
+
+    _setpriv: Path | None
 
     def __init__(
         self,
@@ -52,6 +58,7 @@ class HookSession:
         world_size: int,
         rank_policy: str,
         shell: Path,
+        setpriv: Path | None,
         timeout_s: float | None,
         max_params_bytes: int,
         max_metadata_items: int,
@@ -66,6 +73,12 @@ class HookSession:
         self.world_size = world_size
         self._rank_policy = rank_policy
         self._shell = shell
+        self._setpriv = setpriv
+        if setpriv is None and (rank_policy == "all" or rank == 0):
+            log.warning(
+                "midrun: setpriv is not on PATH; a hook script can outlive a "
+                "killed trainer"
+            )
         self._timeout_s = timeout_s
         self._max_params_bytes = max_params_bytes
         self._max_metadata_items = max_metadata_items
@@ -135,6 +148,7 @@ class HookSession:
             args,
             occurrence_id=occurrence_id,
             shell=self._shell,
+            setpriv=self._setpriv,
             timeout_s=self._timeout_s,
             max_params_bytes=self._max_params_bytes,
             max_metadata_items=self._max_metadata_items,
@@ -152,6 +166,7 @@ class HookSession:
             args,
             tensor_arg_names,
             shell=self._shell,
+            setpriv=self._setpriv,
             timeout_s=self._timeout_s,
             max_metadata_items=self._max_metadata_items,
             max_metadata_depth=self._max_metadata_depth,

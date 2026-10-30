@@ -16,6 +16,8 @@ from midrun.hooks.manager.bootstrap_hooks_tree import bootstrap_hooks_tree
 from midrun.hooks.payload.occurrence_context import OccurrenceContext
 
 _SHELL = Path(shutil.which("bash"))
+_SETPRIV_FOUND = shutil.which("setpriv")
+_SETPRIV = None if _SETPRIV_FOUND is None else Path(_SETPRIV_FOUND)
 
 
 class _FakeLog:
@@ -72,6 +74,7 @@ def _dispatch(live_dir, tmp_root, context, *, arguments=None, log=None):
         arguments or {},
         occurrence_id="occ-1",
         shell=_SHELL,
+        setpriv=_SETPRIV,
         timeout_s=5.0,
         max_params_bytes=256 * 1024,
         max_metadata_items=1000,
@@ -100,6 +103,7 @@ def _dispatch_heavy(
         arguments,
         tensor_arg_names,
         shell=_SHELL,
+        setpriv=_SETPRIV,
         timeout_s=5.0,
         max_metadata_items=1000,
         max_metadata_depth=8,

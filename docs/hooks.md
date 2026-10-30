@@ -177,6 +177,10 @@ first, so the two are not a single simultaneous snapshot.
   the script itself has exited, for any reason, whatever is left of its process group gets `SIGKILL` — a backgrounded
   child cannot outlive its script. A process that leaves the group (for example via `setsid`) is not killed; if it keeps
   the script's stdout/stderr open, training stops waiting for that output one second after the script exits.
+- When `setpriv` (util-linux) is on `PATH`, the script's shell starts through `setpriv --pdeathsig KILL`, so the kernel
+  kills the shell when the trainer is killed (for example with `SIGKILL` or by the out-of-memory killer). Only the shell
+  gets this signal: a process that the script started can outlive a killed trainer. Without `setpriv`, midrun logs one
+  warning per session, and the script itself can outlive a killed trainer.
 - A nonzero exit code, a timeout, a failure to launch the script at all, or a failed capture (`phase="capture_failed"`:
   an OS error, such as a full disk, while writing the light or heavy payload, or a heavy tensor that cannot be exported;
   the script is not launched and training continues) produces exactly one structured `ERROR` log record naming the hook,

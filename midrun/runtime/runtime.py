@@ -392,6 +392,7 @@ class MidrunRuntime:
                     "midrun: hooks_enabled requires bash on PATH or an explicit hooks_shell"
                 )
             shell = Path(resolved)
+        setpriv = shutil.which("setpriv")
         tree = bootstrap_hooks_tree(
             base_dir, self.config.hooks_source_dir, session_id=session_id, log=log
         )
@@ -402,6 +403,7 @@ class MidrunRuntime:
             world_size=trainer.world_size,
             rank_policy=self.config.hooks_rank_policy,
             shell=shell,
+            setpriv=None if setpriv is None else Path(setpriv),
             timeout_s=self.config.hooks_timeout_s,
             max_params_bytes=self.config.hooks_max_params_bytes,
             max_metadata_items=self.config.hooks_max_metadata_items,

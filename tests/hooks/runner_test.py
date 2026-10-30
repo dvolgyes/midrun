@@ -5,6 +5,7 @@ import os
 import shutil
 import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -14,6 +15,8 @@ from loguru import logger
 from midrun.hooks.runner import run_script
 
 _SHELL = Path(shutil.which("bash"))
+_SETPRIV_FOUND = shutil.which("setpriv")
+_SETPRIV = None if _SETPRIV_FOUND is None else Path(_SETPRIV_FOUND)
 
 
 @pytest.fixture()
@@ -51,6 +54,7 @@ def test_success_reports_completed_with_exit_code_zero(tmp_path, shell, log) -> 
         [],
         cwd=tmp_path,
         shell=shell,
+        setpriv=_SETPRIV,
         timeout_s=5.0,
         max_output_bytes=1024,
         log=log,
@@ -68,6 +72,7 @@ def test_nonzero_exit_is_reported_as_data_not_raised(tmp_path, shell, log) -> No
         [],
         cwd=tmp_path,
         shell=shell,
+        setpriv=_SETPRIV,
         timeout_s=5.0,
         max_output_bytes=1024,
         log=log,
@@ -85,6 +90,7 @@ def test_argv_extra_is_forwarded_as_positional_argument(tmp_path, shell, log) ->
         [str(params_path)],
         cwd=tmp_path,
         shell=shell,
+        setpriv=_SETPRIV,
         timeout_s=5.0,
         max_output_bytes=1024,
         log=log,
@@ -103,6 +109,7 @@ def test_cwd_is_honored(tmp_path, shell, log) -> None:
         [],
         cwd=workdir,
         shell=shell,
+        setpriv=_SETPRIV,
         timeout_s=5.0,
         max_output_bytes=1024,
         log=log,
@@ -122,6 +129,7 @@ def test_stdin_is_devnull_so_read_sees_immediate_eof(tmp_path, shell, log) -> No
         [],
         cwd=tmp_path,
         shell=shell,
+        setpriv=_SETPRIV,
         timeout_s=5.0,
         max_output_bytes=1024,
         log=log,
@@ -143,6 +151,7 @@ def test_timeout_kills_the_entire_process_group(tmp_path, shell, log) -> None:
         [],
         cwd=tmp_path,
         shell=shell,
+        setpriv=_SETPRIV,
         timeout_s=0.3,
         max_output_bytes=1024,
         log=log,
@@ -165,6 +174,7 @@ def test_background_child_does_not_outlive_a_script_that_exits(
         [],
         cwd=tmp_path,
         shell=shell,
+        setpriv=_SETPRIV,
         timeout_s=1.0,
         max_output_bytes=1024,
         log=log,
@@ -190,6 +200,7 @@ def test_timeout_kills_a_child_that_ignores_sigterm(tmp_path, shell, log) -> Non
         [],
         cwd=tmp_path,
         shell=shell,
+        setpriv=_SETPRIV,
         timeout_s=0.5,
         max_output_bytes=1024,
         log=log,
@@ -213,6 +224,7 @@ def test_escaped_child_holding_the_pipes_does_not_block_return(
             [],
             cwd=tmp_path,
             shell=shell,
+            setpriv=_SETPRIV,
             timeout_s=1.0,
             max_output_bytes=1024,
             log=log,
@@ -234,6 +246,7 @@ def test_long_output_is_bounded(tmp_path, shell, log) -> None:
         [],
         cwd=tmp_path,
         shell=shell,
+        setpriv=_SETPRIV,
         timeout_s=5.0,
         max_output_bytes=100,
         log=log,
@@ -253,6 +266,7 @@ def test_long_output_keeps_the_last_bytes(tmp_path, shell, log) -> None:
         [],
         cwd=tmp_path,
         shell=shell,
+        setpriv=_SETPRIV,
         timeout_s=5.0,
         max_output_bytes=100,
         log=log,
@@ -283,6 +297,7 @@ def test_streamed_log_output_stops_at_the_limit(tmp_path, shell) -> None:
         [],
         cwd=tmp_path,
         shell=shell,
+        setpriv=_SETPRIV,
         timeout_s=5.0,
         max_output_bytes=100,
         log=log,
@@ -325,6 +340,7 @@ def test_output_is_logged_while_the_script_still_runs(tmp_path, shell) -> None:
         [],
         cwd=tmp_path,
         shell=shell,
+        setpriv=_SETPRIV,
         timeout_s=10.0,
         max_output_bytes=1024,
         log=log,
@@ -340,6 +356,7 @@ def test_binary_output_does_not_raise(tmp_path, shell, log) -> None:
         [],
         cwd=tmp_path,
         shell=shell,
+        setpriv=_SETPRIV,
         timeout_s=5.0,
         max_output_bytes=1024,
         log=log,
@@ -376,6 +393,7 @@ def test_keyboard_interrupt_is_contained_then_reraised(
             [],
             cwd=tmp_path,
             shell=shell,
+            setpriv=_SETPRIV,
             timeout_s=None,
             max_output_bytes=1024,
             log=log,
@@ -385,13 +403,24 @@ def test_keyboard_interrupt_is_contained_then_reraised(
     _assert_process_dead(pid)
 
 
-def test_launch_error_is_reported_not_raised(tmp_path, log) -> None:
+@pytest.mark.parametrize(
+    "setpriv",
+    [
+        None,
+        pytest.param(
+            _SETPRIV,
+            marks=pytest.mark.skipif(_SETPRIV is None, reason="setpriv not on PATH"),
+        ),
+    ],
+)
+def test_launch_error_is_reported_not_raised(tmp_path, log, setpriv) -> None:
     script = _write_script(tmp_path, "#!/usr/bin/env bash\nexit 0\n")
     result = run_script(
         script,
         [],
         cwd=tmp_path,
         shell=Path("/nonexistent/not-a-real-shell"),
+        setpriv=setpriv,
         timeout_s=5.0,
         max_output_bytes=1024,
         log=log,
@@ -399,3 +428,72 @@ def test_launch_error_is_reported_not_raised(tmp_path, log) -> None:
     assert result.phase == "launch_error"
     assert result.exit_code is None
     assert result.error
+
+
+_DISPATCHER = """
+import sys
+from pathlib import Path
+
+from loguru import logger
+
+from midrun.hooks.runner import run_script
+
+script, shell, setpriv = (Path(arg) for arg in sys.argv[1:4])
+run_script(
+    script,
+    [],
+    cwd=script.parent,
+    shell=shell,
+    setpriv=setpriv,
+    timeout_s=None,
+    max_output_bytes=1024,
+    log=logger,
+)
+"""
+
+
+def _process_is_gone(pid: int) -> bool:
+    """Whether `pid` no longer runs (absent, or a zombie that waits for its reaper)."""
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+    except (FileNotFoundError, ProcessLookupError):  # reaped before or during the read
+        return True
+    return stat.rsplit(")", 1)[1].split()[0] == "Z"
+
+
+@pytest.mark.skipif(_SETPRIV is None, reason="setpriv not on PATH")
+def test_script_dies_when_the_dispatching_process_is_killed(tmp_path) -> None:
+    pid_file = tmp_path / "script.pid"
+    script = _write_script(
+        tmp_path,
+        f'#!/usr/bin/env bash\necho $$ > "{pid_file}.tmp"\n'
+        f'mv "{pid_file}.tmp" "{pid_file}"\nsleep 600\n',
+    )
+    dispatcher = subprocess.Popen(  # noqa: S603
+        [sys.executable, "-c", _DISPATCHER, str(script), str(_SHELL), str(_SETPRIV)],
+    )
+    script_pid = None
+    try:
+        deadline = time.monotonic() + 60.0
+        while not pid_file.exists():
+            assert dispatcher.poll() is None, (
+                "the dispatcher exited before the script ran"
+            )
+            assert time.monotonic() < deadline, "the script did not start"
+            time.sleep(0.05)
+        script_pid = int(pid_file.read_text())
+
+        dispatcher.kill()
+        dispatcher.wait()
+
+        deadline = time.monotonic() + 5.0
+        while not _process_is_gone(script_pid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert _process_is_gone(script_pid)
+    finally:
+        dispatcher.kill()
+        dispatcher.wait()
+        if script_pid is not None:
+            # The script leads its own process group; this also stops its `sleep`.
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(script_pid, signal.SIGKILL)

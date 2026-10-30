@@ -7,6 +7,7 @@ contains the child's process group before re-raising, never swallowing it.
 """
 
 import contextlib
+import errno
 import os
 import signal
 import subprocess
@@ -54,6 +55,7 @@ def run_script(
     *,
     cwd: Path,
     shell: Path,
+    setpriv: Path | None,
     timeout_s: float | None,
     max_output_bytes: int,
     log: Any,
@@ -65,6 +67,11 @@ def run_script(
         argv_extra: Extra positional arguments after `script` (the params/manifest path).
         cwd: Working directory for the child -- the live `hooks/` root.
         shell: The validated Bash executable.
+        setpriv: The `setpriv` executable. When given, the shell starts through
+            `setpriv --pdeathsig KILL`, so the kernel kills the shell when the
+            thread that launched it dies (e.g. a SIGKILLed trainer). Processes that
+            the shell starts do not get this signal. `None` launches the shell
+            directly, and the shell can then outlive a killed trainer.
         timeout_s: Seconds to wait before terminating the child; `None` waits forever.
         max_output_bytes: Retained-tail budget per stream.
         log: A Loguru-compatible logger for streamed output and termination warnings.
@@ -75,11 +82,18 @@ def run_script(
         containing the child's process group first.
     """
     start = time.monotonic()
+    command = [str(shell), str(script), *argv_extra]
+    if setpriv is not None:
+        command = [str(setpriv), "--pdeathsig", "KILL", "--", *command]
     try:
+        if setpriv is not None and not (shell.is_file() and os.access(shell, os.X_OK)):
+            # setpriv would start, then fail to exec the shell: report it as the
+            # launch error that a direct launch gives.
+            raise PermissionError(errno.EACCES, "cannot execute the shell", str(shell))
         # Running an operator-enabled hook script is this module's purpose; the
         # execute bit is the sole privilege boundary.
         process = subprocess.Popen(  # noqa: S603  # pylint: disable=consider-using-with
-            [str(shell), str(script), *argv_extra],
+            command,
             cwd=str(cwd),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,

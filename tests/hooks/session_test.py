@@ -14,6 +14,8 @@ from midrun.hooks.manager.bootstrap_hooks_tree import bootstrap_hooks_tree
 from midrun.hooks.session import HookSession
 
 _SHELL = Path(shutil.which("bash"))
+_SETPRIV_FOUND = shutil.which("setpriv")
+_SETPRIV = None if _SETPRIV_FOUND is None else Path(_SETPRIV_FOUND)
 
 
 class _FakeLog:
@@ -38,7 +40,7 @@ def _make_script(path: Path, body: str, *, executable: bool = True) -> None:
 
 
 def _make_session(
-    live_dir: Path, *, rank: int, rank_policy: str, log=None
+    live_dir: Path, *, rank: int, rank_policy: str, log=None, setpriv=_SETPRIV
 ) -> HookSession:
     return HookSession(
         live_dir,
@@ -47,6 +49,7 @@ def _make_session(
         world_size=2,
         rank_policy=rank_policy,
         shell=_SHELL,
+        setpriv=setpriv,
         timeout_s=5.0,
         max_params_bytes=256 * 1024,
         max_metadata_items=1000,
@@ -386,3 +389,35 @@ def test_an_unwritable_tmp_area_is_a_capture_failure_of_each_enabled_hook(
     assert result.heavy.phase == "capture_failed"
     assert not canary.exists()
     assert len(log.errors) == 2
+
+
+def test_a_missing_setpriv_warns_once_per_session(tmp_path) -> None:
+    live_dir = tmp_path / "run" / "hooks"
+    _make_script(live_dir / "light" / "on_train_batch_start.sh", "exit 0")
+    log = _FakeLog()
+    session = _make_session(
+        live_dir, rank=0, rank_policy="rank_zero", log=log, setpriv=None
+    )
+
+    for step in range(3):
+        result = session.handle(
+            "on_train_batch_start", stage="fit", epoch=0, global_step=step
+        )
+        assert result.light.phase == "completed"
+
+    assert len(log.warnings) == 1
+    assert "setpriv" in log.warnings[0]
+    assert "outlive" in log.warnings[0]
+
+
+@pytest.mark.skipif(_SETPRIV is None, reason="setpriv not on PATH")
+def test_a_found_setpriv_gives_no_warning(tmp_path) -> None:
+    live_dir = tmp_path / "run" / "hooks"
+    _make_script(live_dir / "light" / "on_train_batch_start.sh", "exit 0")
+    log = _FakeLog()
+    session = _make_session(live_dir, rank=0, rank_policy="rank_zero", log=log)
+
+    result = session.handle("on_train_batch_start", stage="fit", epoch=0, global_step=0)
+
+    assert result.light.phase == "completed"
+    assert log.warnings == []
