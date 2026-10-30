@@ -350,3 +350,31 @@ def test_reset_momentum_with_selector_only_resets_targeted_group() -> None:
         assert "momentum_buffer" not in optimizer.state[p]
     for p in model.b.parameters():
         assert "momentum_buffer" in optimizer.state[p]
+
+
+def test_reset_momentum_rejects_part_of_a_fused_sgd_group_without_mutating_state() -> (
+    None
+):
+    runtime = _make_runtime()
+    model = _Model()
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.1, momentum=0.9, fused=True)
+    _step(model, optimizer)
+    before = {
+        id(p): optimizer.state[p]["momentum_buffer"].clone() for p in model.parameters()
+    }
+    trainer = _FakeTrainer(optimizers=[optimizer])
+    pl_module = _FakePLModule(trainer, model)
+
+    command = _submit_and_run(
+        runtime,
+        pl_module,
+        trainer,
+        "reset_momentum",
+        {"selector": {"parameter_prefix": "a."}},
+    )
+
+    assert command.status == "failed"
+    assert "fused" in command.error
+    for p in model.parameters():
+        assert torch.equal(optimizer.state[p]["momentum_buffer"], before[id(p)])
+    _step(model, optimizer)

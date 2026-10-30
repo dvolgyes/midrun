@@ -14,6 +14,25 @@ class SGDSurgeryAdapter:
     def reset_momentum(
         self, optimizer: torch.optim.Optimizer, parameters: list[torch.nn.Parameter]
     ) -> dict[str, Any]:
+        """Drops the momentum buffers of `parameters`.
+
+        Raises:
+            ValueError: `parameters` holds only some of the buffered parameters of a
+                fused param group, whose step needs a buffer for all or none of them.
+        """
+        selected = set(parameters)
+        for index, group in enumerate(optimizer.param_groups):
+            buffered = [
+                parameter
+                for parameter in group["params"]
+                if optimizer.state.get(parameter, {}).get("momentum_buffer") is not None
+            ]
+            dropped = [parameter for parameter in buffered if parameter in selected]
+            if group.get("fused") and 0 < len(dropped) < len(buffered):
+                raise ValueError(
+                    f"param_group {index} is fused: reset_momentum must select all "
+                    "of its parameters or none"
+                )
         reset_count = 0
         for parameter in parameters:
             state = optimizer.state.get(parameter)
