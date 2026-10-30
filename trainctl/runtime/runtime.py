@@ -522,10 +522,7 @@ class TrainctlRuntime:
         global_step: int,
         allowed: frozenset[str] | None,
     ) -> tuple[Command, ...]:
-        due = self.command_queue.due(safe_point, epoch, global_step)
-        return tuple(
-            command for command in due if allowed is None or command.kind in allowed
-        )
+        return tuple(self.command_queue.due(safe_point, epoch, global_step, allowed))
 
     def _execute(
         self,
@@ -534,7 +531,10 @@ class TrainctlRuntime:
         command: Command,
         safe_point: SafePoint | None,
     ) -> None:
-        self.command_queue.mark_executing(command)
+        # Skips a hold cancelled after `_due_commands` returned it. Only holds can be
+        # cancelled, and only rank 0 runs them, so no rank skips what the others run.
+        if not self.command_queue.mark_executing(command):
+            return
         handler = COMMAND_HANDLERS.get(command.kind)
         if handler is None:
             self.command_queue.mark_result(

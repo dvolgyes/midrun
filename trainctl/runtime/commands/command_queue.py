@@ -84,14 +84,22 @@ class CommandQueue:
             return list(self._commands.values())
 
     def due(
-        self, safe_point: SafePoint | None, epoch: int, global_step: int
+        self,
+        safe_point: SafePoint | None,
+        epoch: int,
+        global_step: int,
+        allowed: frozenset[str] | None,
     ) -> list[Command]:
-        """Returns queued commands whose `when` condition is satisfied now."""
+        """Returns queued commands whose `when` condition is satisfied now.
+
+        `allowed` limits the result to these kinds; None allows every kind.
+        """
         with self._lock:
             return [
                 command
                 for command in self._commands.values()
                 if command.status == "queued"
+                and (allowed is None or command.kind in allowed)
                 and command.when.is_due(safe_point, epoch, global_step)
             ]
 
@@ -108,10 +116,20 @@ class CommandQueue:
             command.status = "cancelled"
             return True
 
-    def mark_executing(self, command: Command) -> None:
-        """Transitions a command to `executing`."""
+    def mark_executing(self, command: Command) -> bool:
+        """Transitions a command from `queued` to `executing`.
+
+        A command that `due` returned can be cancelled before it runs, so the
+        transition happens only if the command is still queued.
+
+        Returns:
+            True if the command is now executing, False if it is no longer queued.
+        """
         with self._lock:
+            if command.status != "queued":
+                return False
             command.status = "executing"
+            return True
 
     def mark_result(
         self,

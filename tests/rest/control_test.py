@@ -15,6 +15,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from trainctl.mixin import TrainctlMixin
 from trainctl.rest.app import build_app
+from trainctl.runtime.events import SafePoint
 
 
 class _EndlessModel(TrainctlMixin, PL.LightningModule):
@@ -151,3 +152,28 @@ def test_run_shows_the_batch_index_while_held_before_the_optimizer_step(
     _fit_while(model, drive, tmp_path)
     assert len(seen) == 1
     assert isinstance(seen[0], int)
+
+
+class _StepTrainer:
+    current_epoch = 0
+    global_step = 0
+    should_stop = False
+
+
+def test_a_pause_after_a_stop_in_the_same_step_does_not_hold(tmp_path) -> None:
+    runtime = _EndlessModel()._trainctl
+    trainer = _StepTrainer()
+    client = TestClient(build_app(runtime))
+    stop = client.post("/control/stop").json()
+    hold_id = client.post("/control/pause").json()["hold_id"]
+
+    held = runtime._run_due_commands(
+        None, trainer, SafePoint.TRAIN_BATCH_END, allowed=None
+    )
+
+    assert client.get(f"/commands/{stop['id']}").json()["result"][
+        "cancelled_holds"
+    ] == [hold_id]
+    assert client.get(f"/commands/{hold_id}").json()["status"] == "cancelled"
+    assert not held
+    assert not runtime.gate.is_held()

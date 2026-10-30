@@ -66,7 +66,9 @@ def test_queued_commands_never_raise_at_a_safe_point(tmp_path: Path) -> None:
     )
     assert accepted.status_code == 200
 
-    due = runtime.command_queue.due(SafePoint.TRAIN_BATCH_END, epoch=0, global_step=0)
+    due = runtime.command_queue.due(
+        SafePoint.TRAIN_BATCH_END, epoch=0, global_step=0, allowed=None
+    )
 
     assert [command.id for command in due] == [accepted.json()["id"]]
 
