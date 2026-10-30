@@ -49,6 +49,17 @@ immediately before every dispatch; nothing about enablement is cached from an ea
 least one execute bit set is enabled; a symlink, directory, or non-regular file is never treated as enabled even if its
 target would qualify.
 
+To change a script that is enabled, replace it atomically: write the new text to a temporary file on the same file
+system, then `mv` it over the script. Bash reads a script while it runs, so a script that is edited in place can run a
+mix of the old and the new text. Put the temporary file in `hooks/` itself, not in `light/` or `heavy/`, where the
+filename scan would warn about it:
+
+```sh
+cp <run-dir>/hooks/light/on_train_batch_end.sh <run-dir>/hooks/edit.sh   # edit edit.sh, then:
+chmod +x <run-dir>/hooks/edit.sh
+mv <run-dir>/hooks/edit.sh <run-dir>/hooks/light/on_train_batch_end.sh
+```
+
 Once per distinct `(stage, epoch)` — not per callback firing — midrun also scans `light/` and `heavy/` for files that
 don't match a known callback name and logs one warning per such path (so a typo like `on_train_batch_ned.sh` is caught
 even though it will never run).
