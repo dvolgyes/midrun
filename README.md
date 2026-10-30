@@ -169,7 +169,10 @@ curl -s -X POST $URL/control/continue              # release the hold
 curl -s -X POST $URL/control/stop                  # stop the training cleanly
 ```
 
-Each command returns an id. Use `GET $URL/commands/<id>` to see its status and result.
+Each command returns an id. Use `GET $URL/commands/<id>` to see its status and result. The status is `queued`,
+`executing`, `succeeded`, `failed`, `cancelled` or `expired`. A command that is still queued when its stage stops
+becomes `expired`, with an error. midrun keeps the last 1000 finished commands, so `GET $URL/commands/<id>` returns
+status 404 for an older id.
 
 By default a command runs at the next point where it is safe. To run it later, add `execution.when`:
 
@@ -223,6 +226,13 @@ hold lists it under `joined_ids`, and a release with either id releases the run.
 
 Other routes: `/run`, `/metrics`, `/optimizers`, `/artifacts`, `/telemetry/pipeline`, `/inspectors`,
 `/debug/cuda-memory/snapshot`, `/files/<path>` (the same tree as `procfs/`).
+`GET $URL/debug/cuda-memory/history?enabled=true` starts to record the CUDA allocator history for the snapshots. Without
+`max_entries`, it keeps the last 100_000 entries.
+
+`/run`, `/metrics` and `/optimizers` show the values of the last safe point (before each optimizer step and at each
+training batch end), as floats. At each safe point, midrun copies the CUDA metric values and learning rates to the host
+without a wait for the device. Only a read waits for that copy, so the training loop never waits for the device because
+of midrun. A metric that is not a real scalar, such as a vector or a complex tensor, is not shown.
 
 ### Model inspectors
 

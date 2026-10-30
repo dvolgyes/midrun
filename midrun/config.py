@@ -64,7 +64,10 @@ class MidrunConfig:
         artifact_dir: Directory for checkpoints/snapshots/debug captures; auto-selected
             as `artifacts` in the run directory (see `fuse_mountpoint`) when None.
         inspection_strict: Raise instead of logging a warning when a Midrun service
-            fails to start. Intended for development/tests.
+            fails to start, or when the hooks session of a stage cannot open (no bash,
+            a foreign `hooks/` tree, a bad marker, a copy error). Without it, such a
+            stage logs a warning and runs with the hooks off. Intended for
+            development/tests.
         pipeline_pressure_enabled: Record cheap per-batch phase timing (input gap,
             forward/loss, backward, post-backward).
         pipeline_pressure_window: Number of recent batches kept for rolling
