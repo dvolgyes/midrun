@@ -558,3 +558,17 @@ def test_a_baseline_of_another_group_is_copied_with_one_warning(
     ownership_warnings = [w for w in warnings if "ownership" in w]
     assert len(ownership_warnings) == 1
     assert "light/on_fit_start.sh" in ownership_warnings[0]
+
+
+def test_a_resume_without_the_hooks_tree_warns_and_does_not_reseed(tmp_path) -> None:
+    base_dir = tmp_path / "run"
+    bootstrap_hooks_tree(base_dir, None, session_id="s-a", log=logger)
+    shutil.rmtree(base_dir / "hooks")
+
+    warnings = _warnings_of_bootstrap(base_dir, None, "s-b")
+
+    missing = [w for w in warnings if "is missing" in w]
+    assert len(missing) == 1
+    assert str(base_dir / "hooks") in missing[0]
+    assert str(base_dir / "midrun-hooks-state.json") in missing[0]
+    assert not (base_dir / "hooks").exists()

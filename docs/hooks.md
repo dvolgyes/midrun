@@ -211,7 +211,8 @@ first, so the two are not a single simultaneous snapshot.
   a heavy hook. A later session never reuses or removes it; when no run is using that run directory, delete
   `.hooks-tmp/` manually. If a run's `hooks/` tree itself is in a bad state, the marker file (`midrun-hooks-state.json`,
   next to `hooks/`) records the session that published it; deleting both and restarting the run bootstraps a fresh tree
-  from `hooks_source_dir` (or fresh disabled examples) exactly as the first run did.
+  from `hooks_source_dir` (or fresh disabled examples) exactly as the first run did. When only `hooks/` was deleted and
+  the marker remains, a resume logs a warning that names both paths and runs no hook; it does not seed the tree again.
 
 ## Attaching to a Lightning `Trainer`
 

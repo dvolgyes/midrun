@@ -80,6 +80,14 @@ def bootstrap_hooks_tree(
                 record.get("source_dir"),
             )
         warn_on_catalogue_mismatch(record, marker_path, live_dir, log)
+        if not live_dir.exists():
+            log.warning(
+                "hooks: the live tree {} is missing, but the marker {} records this run, "
+                "so no hook runs; a resume never seeds the tree again. To start the hooks "
+                "tree again, delete the marker, then restart the run.",
+                live_dir,
+                marker_path,
+            )
         return HooksTree(live_dir, record["session_id"])
 
     resolved_source = None
