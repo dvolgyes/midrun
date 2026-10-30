@@ -148,17 +148,19 @@ def build_app(runtime: "MidrunRuntime") -> FastAPI:
     def list_holds() -> dict[str, Any]:
         commands = runtime.command_queue.list_all()
         active = runtime.gate.active_hold()
+        exception = runtime.state.read().exception
         # A hold runs only some kinds; the other queued commands wait for its end.
         # While an exception is held, the training thread runs only the exception
         # hold loop, so that loop's policy applies.
         allowed: frozenset[str] | None = None
-        if runtime.state.read().exception is not None:
+        if exception is not None:
             allowed = ALLOWED_DURING_EXCEPTION
         elif active is not None:
             allowed = ALLOWED_DURING_HOLD
         return {
             "holds": [command_dict(c) for c in commands if c.kind == "hold"],
             "active": asdict(active) if active else None,
+            "exception": asdict(exception) if exception else None,
             "waiting": [
                 command_dict(c)
                 for c in commands

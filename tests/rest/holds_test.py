@@ -147,6 +147,28 @@ def test_holds_applies_the_exception_hold_policy_during_an_exception(
     assert [entry["id"] for entry in waiting] == [snapshot.id]
 
 
+def test_holds_shows_the_active_exception_hold(tmp_path: Path) -> None:
+    runtime = _runtime(tmp_path)
+    client = TestClient(build_app(runtime), base_url="http://localhost")
+    assert client.get("/holds").json()["exception"] is None
+    exception = ExceptionBreakpointInfo(
+        exception_type="RuntimeError",
+        exception_message="boom",
+        epoch=0,
+        global_step=3,
+        batch_idx=3,
+        rank=0,
+        started_at=0.0,
+    )
+
+    runtime.state.update(exception=exception)
+
+    shown = client.get("/holds").json()["exception"]
+    assert shown["exception_type"] == "RuntimeError"
+    assert shown["exception_message"] == "boom"
+    assert shown["global_step"] == 3
+
+
 def test_release_exception_without_an_exception_hold_is_rejected(
     tmp_path: Path,
 ) -> None:
