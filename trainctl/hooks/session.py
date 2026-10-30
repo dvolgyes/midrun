@@ -74,7 +74,9 @@ class HookSession:
         self._max_output_bytes = max_output_bytes
         self._log = log
         self._epoch_scan = EpochScanState()
-        self._tmp_root = live_dir.parent / ".hooks-tmp"
+        # `.hooks-tmp/` is shared by every rank and session of the run; each session
+        # owns only its uniquely named directory inside it.
+        self._tmp_root = live_dir.parent / ".hooks-tmp" / f"rank-{rank}-{new_hook_id()}"
 
     def handle(
         self,
@@ -125,7 +127,8 @@ class HookSession:
             rank=self.rank,
             world_size=self.world_size,
         )
-        self._tmp_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self._tmp_root.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self._tmp_root.mkdir(mode=0o700, exist_ok=True)
         occurrence_id = new_hook_id()
         args = arguments or {}
         light_result = dispatch_light(
@@ -166,6 +169,7 @@ class HookSession:
 
         Idempotent. Any invocation directory still present here is a leak from an
         invocation that did not clean up after itself (e.g. a hard-killed process);
-        this only ever removes paths under this run's own `.hooks-tmp/`.
+        this only ever removes this session's own directory under the run's
+        `.hooks-tmp/`, never another session's or rank's.
         """
         shutil.rmtree(self._tmp_root, ignore_errors=True)

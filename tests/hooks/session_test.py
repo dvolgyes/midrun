@@ -2,6 +2,8 @@
 
 import json
 import shutil
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -155,14 +157,46 @@ def test_close_removes_tmp_root_and_is_idempotent(tmp_path) -> None:
     session = _make_session(live_dir, rank=0, rank_policy="rank_zero")
     session.handle("on_train_batch_start", stage="fit", epoch=0, global_step=0)
 
-    tmp_root = live_dir.parent / ".hooks-tmp"
-    assert tmp_root.exists()
+    shared_tmp = live_dir.parent / ".hooks-tmp"
+    (session_tmp,) = shared_tmp.iterdir()
 
     session.close()
-    assert not tmp_root.exists()
+    assert not session_tmp.exists()
+    assert list(shared_tmp.iterdir()) == []
 
     session.close()  # idempotent, must not raise
-    assert not tmp_root.exists()
+    assert not session_tmp.exists()
+
+
+def test_close_leaves_another_sessions_in_flight_invocation_intact(tmp_path) -> None:
+    live_dir = tmp_path / "run" / "hooks"
+    started = tmp_path / "started"
+    proceed = tmp_path / "proceed"
+    _make_script(
+        live_dir / "light" / "on_train_batch_start.sh",
+        f'touch "{started}"\n'
+        f'while [ ! -e "{proceed}" ]; do sleep 0.01; done\n'
+        'test -e "$1"',
+    )
+    busy = _make_session(live_dir, rank=0, rank_policy="all")
+    other = _make_session(live_dir, rank=1, rank_policy="all")
+    other.handle("on_fit_start", stage="fit", epoch=0, global_step=0)
+    results = []
+    worker = threading.Thread(
+        target=lambda: results.append(
+            busy.handle("on_train_batch_start", stage="fit", epoch=0, global_step=0)
+        )
+    )
+    worker.start()
+    deadline = time.monotonic() + 5.0
+    while not started.exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    other.close()
+    proceed.touch()
+    worker.join()
+
+    assert results[0].light.exit_code == 0
 
 
 def test_public_identity_attributes_match_constructor_args(tmp_path) -> None:

@@ -295,7 +295,7 @@ def test_exception_triggers_on_exception_once_and_finalizes(tmp_path) -> None:
 
     assert exception_marker.exists()
     assert not fit_end_marker.exists()
-    assert not (tmp_path / ".hooks-tmp").exists()
+    assert list((tmp_path / ".hooks-tmp").iterdir()) == []
     assert model._trainctl._hook_session is None
     assert model._trainctl._logging_session is None
 
