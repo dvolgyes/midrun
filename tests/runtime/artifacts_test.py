@@ -164,3 +164,30 @@ def test_write_debug_capture_rejects_bad_name_before_writing(
     with pytest.raises(ValueError, match="invalid capture filename"):
         store.write_debug_capture("bad", {"ok.txt": "x", bad_filename: "y"})
     assert list((tmp_path / "debug").iterdir()) == []
+
+
+def _strict_loads(text: str) -> object:
+    def reject(constant: str) -> None:
+        raise ValueError(f"non-standard JSON constant {constant}")
+
+    return json.loads(text, parse_constant=reject)
+
+
+def test_debug_capture_manifest_encodes_non_finite_metadata_as_null(
+    tmp_path: Path,
+) -> None:
+    manifest = ArtifactStore(tmp_path).write_debug_capture(
+        "k", {}, {"loss": float("nan"), "bounds": [float("inf"), -float("inf")]}
+    )
+
+    written = _strict_loads((Path(manifest["path"]) / "manifest.json").read_text())
+    assert written["metadata"] == {"loss": None, "bounds": [None, None]}
+
+
+def test_snapshot_payload_encodes_non_finite_floats_as_null(tmp_path: Path) -> None:
+    manifest = ArtifactStore(tmp_path).write_snapshot(
+        "metrics", {"loss": float("nan"), "steps": [float("inf")]}
+    )
+
+    written = _strict_loads((Path(manifest["path"]) / "metrics.json").read_text())
+    assert written == {"loss": None, "steps": [None]}

@@ -6,15 +6,14 @@ under `root`, a sibling of the FUSE mount that the mount does not project (its
 module owns only the on-disk layout and manifest format.
 """
 
-import json
 import re
 import time
 from collections.abc import Mapping
-from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
 
 from midrun.runtime.commands.next_id import next_id
+from midrun.runtime.virtual_fs.encode_json import encode_json
 
 # Allowed checkpoint labels and capture filenames: one plain path component.
 ARTIFACT_NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
@@ -77,10 +76,8 @@ class ArtifactStore:
         """
         snap_id, snap_dir = _new_artifact_dir(self.root / "snapshots", "snap")
         manifest = {"id": snap_id, "kind": kind, "created_at": time.time()}
-        (snap_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
-        (snap_dir / f"{kind}.json").write_text(
-            json.dumps(payload, indent=2, default=_json_default)
-        )
+        (snap_dir / "manifest.json").write_bytes(encode_json(manifest))
+        (snap_dir / f"{kind}.json").write_bytes(encode_json(payload))
         manifest["path"] = str(snap_dir)
         return manifest
 
@@ -125,7 +122,7 @@ class ArtifactStore:
             "metadata": metadata or {},
             "files": sorted(files),
         }
-        (dbg_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
+        (dbg_dir / "manifest.json").write_bytes(encode_json(manifest))
         for filename, content in files.items():
             if isinstance(content, bytes):
                 (dbg_dir / filename).write_bytes(content)
@@ -155,9 +152,3 @@ def _new_artifact_dir(parent: Path, prefix: str) -> tuple[str, Path]:
     raise FileExistsError(
         f"no free {prefix} id under {parent} after {_MAX_ID_ATTEMPTS} attempts"
     )
-
-
-def _json_default(value: object) -> object:
-    if is_dataclass(value) and not isinstance(value, type):
-        return asdict(value)
-    return str(value)
