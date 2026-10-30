@@ -974,6 +974,8 @@ class MidrunRuntime:
         self._rest_server.should_exit = True
         if self._rest_thread is not None:
             self._rest_thread.join(timeout=5)
+            if self._rest_thread.is_alive():
+                logger.warning("midrun: the REST server thread did not stop in 5 s")
         self._rest_server = None
         self._rest_thread = None
         self._rest_port = None

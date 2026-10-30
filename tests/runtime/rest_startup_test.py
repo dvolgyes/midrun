@@ -1,8 +1,10 @@
-"""Behavioral test: REST starts with default service options in a non-distributed run."""
+"""Behavioral tests: REST starts with default options and warns of a stuck stop."""
 
 import json
 import socket
+import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx2
 import pytest
@@ -146,3 +148,22 @@ def test_a_rank_without_a_debug_frontend_warns_of_nothing(
     finally:
         logger.remove(sink_id)
         runtime.teardown(module, "fit")
+
+
+def test_stopping_a_rest_server_that_does_not_exit_warns(tmp_path: Path) -> None:
+    config = MidrunConfig(fuse_enabled=False, artifact_dir=tmp_path / "artifacts")
+    runtime = MidrunRuntime(config, load_backend("lightning.pytorch"))
+    release = threading.Event()
+    stuck_thread = threading.Thread(target=release.wait, daemon=True)
+    stuck_thread.start()
+    runtime._rest_server = SimpleNamespace(should_exit=False)
+    runtime._rest_thread = stuck_thread
+    warnings: list[str] = []
+    sink_id = logger.add(warnings.append, level="WARNING", format="{message}")
+    try:
+        runtime._stop_rest()
+    finally:
+        logger.remove(sink_id)
+        release.set()
+
+    assert any("REST server thread did not stop" in message for message in warnings)

@@ -14,6 +14,9 @@ def start_rest_server(
 ) -> tuple[uvicorn.Server, threading.Thread]:
     """Serves `app` on `sock` and waits until the server reports `run_id`.
 
+    Once `should_exit` is set, the server cancels requests still running after 3 s,
+    so that it stops within the 5 s join of `MidrunRuntime._stop_rest`.
+
     Returns:
         The server and the daemon thread that runs it.
 
@@ -22,7 +25,13 @@ def start_rest_server(
             stopped and `sock` is closed first.
     """
     server = uvicorn.Server(
-        uvicorn.Config(app, host=host, port=port, log_level="warning")
+        uvicorn.Config(
+            app,
+            host=host,
+            port=port,
+            log_level="warning",
+            timeout_graceful_shutdown=3,
+        )
     )
     thread = threading.Thread(
         target=server.run,

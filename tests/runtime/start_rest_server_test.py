@@ -1,5 +1,6 @@
-"""Behavioral tests: a REST server that fails its readiness probe does not keep running."""
+"""Behavioral tests: a REST server stops after a failed readiness probe or a stop."""
 
+import asyncio
 import socket
 import threading
 
@@ -33,3 +34,32 @@ def test_a_server_that_misses_its_readiness_probe_is_stopped(
     assert sock.fileno() == -1
     with socket.socket() as client:
         assert client.connect_ex(("127.0.0.1", port)) != 0
+
+
+def test_a_stopped_server_exits_before_its_stop_join_timeout_with_a_hung_request() -> (
+    None
+):
+    entered = threading.Event()
+    app = FastAPI()
+
+    @app.get("/health")
+    def health() -> dict[str, str]:
+        return {"run_id": "run-own"}
+
+    @app.get("/slow")
+    async def slow() -> None:
+        entered.set()
+        await asyncio.sleep(60)
+
+    sock = socket.create_server(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    server, thread = start_rest_server(app, sock, "127.0.0.1", port, "run-own")
+    with socket.create_connection(("127.0.0.1", port)) as client:
+        client.sendall(b"GET /slow HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        assert entered.wait(timeout=5)
+
+        server.should_exit = True
+        # The same join timeout as `MidrunRuntime._stop_rest`.
+        thread.join(timeout=5)
+
+        assert not thread.is_alive()
