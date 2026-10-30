@@ -161,7 +161,8 @@ class TrainctlConfig:
                 f"hooks_rank_policy must be one of {_VALID_HOOKS_RANK_POLICIES}, "
                 f"got {self.hooks_rank_policy!r}"
             )
-        if self.hooks_timeout_s is not None and self.hooks_timeout_s <= 0:
+        # `not > 0` also rejects NaN, which `Popen.wait` treats as no timeout.
+        if self.hooks_timeout_s is not None and not self.hooks_timeout_s > 0:
             raise ValueError(
                 f"hooks_timeout_s must be positive or None, got {self.hooks_timeout_s!r}"
             )

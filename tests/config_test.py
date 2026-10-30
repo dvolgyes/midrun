@@ -27,6 +27,8 @@ def test_non_positive_hooks_timeout_s_raises_at_construction() -> None:
         TrainctlConfig(hooks_timeout_s=0)
     with pytest.raises(ValueError, match="hooks_timeout_s"):
         TrainctlConfig(hooks_timeout_s=-1.0)
+    with pytest.raises(ValueError, match="hooks_timeout_s"):
+        TrainctlConfig(hooks_timeout_s=float("nan"))
 
 
 def test_none_hooks_timeout_s_is_accepted_as_unbounded() -> None:
