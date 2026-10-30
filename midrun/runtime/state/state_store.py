@@ -13,7 +13,7 @@ class StateStore:
     """Publishes and reads `RuntimeSnapshot` instances under a small lock.
 
     Attributes:
-        None: State is private; use `read`/`publish`/`update`.
+        None: State is private; use `read`/`update`.
     """
 
     def __init__(self, snapshot: RuntimeSnapshot) -> None:
@@ -24,11 +24,6 @@ class StateStore:
         """Returns the current snapshot."""
         with self._lock:
             return self._snapshot
-
-    def publish(self, snapshot: RuntimeSnapshot) -> None:
-        """Replaces the current snapshot outright."""
-        with self._lock:
-            self._snapshot = snapshot
 
     def update(self, **changes: Unpack[RuntimeSnapshotChanges]) -> RuntimeSnapshot:
         """Publishes a new snapshot derived from the current one.

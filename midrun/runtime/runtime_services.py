@@ -46,7 +46,6 @@ class RuntimeServices:
     _build_fs: Callable[[], Any]
     _rest_server: Any
     _rest_thread: threading.Thread | None
-    _fuse_ops: Any
     _fuse_thread: threading.Thread | None
     _fuse_watcher: Any
 
@@ -70,7 +69,6 @@ class RuntimeServices:
         self.fuse_mountpoint = None
         self._rest_server = None
         self._rest_thread = None
-        self._fuse_ops = None
         self._fuse_thread = None
         self._fuse_watcher = None
 
@@ -183,7 +181,6 @@ class RuntimeServices:
         self._fuse_watcher = process_guard.mount_guarded(
             mountpoint, thread, ops.wait_ready
         )
-        self._fuse_ops = ops
         self._fuse_thread = thread
         self.fuse_mountpoint = mountpoint
 
@@ -198,7 +195,6 @@ class RuntimeServices:
         if self._fuse_watcher is not None:
             # A byte on stdin tells the watcher to check once and exit.
             self._fuse_watcher.communicate(b"\n", timeout=5)
-        self._fuse_ops = None
         self._fuse_thread = None
         self.fuse_mountpoint = None
         self._fuse_watcher = None

@@ -502,12 +502,8 @@ class MidrunRuntime:
         # cancelled, and only rank 0 runs them, so no rank skips what the others run.
         if not self.command_queue.mark_executing(command):
             return
-        handler = COMMAND_HANDLERS.get(command.kind)
-        if handler is None:
-            self.command_queue.mark_result(
-                command, succeeded=False, error=f"unknown command kind {command.kind!r}"
-            )
-            return
+        # The queue validates the kind at submit, so every queued kind has a handler.
+        handler = COMMAND_HANDLERS[command.kind]
         try:
             result = handler(self, pl_module, trainer, command, safe_point)
         except Exception as exc:  # noqa: BLE001 -- command boundary: untrusted REST input must not crash training
