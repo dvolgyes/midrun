@@ -321,7 +321,7 @@ def build_app(runtime: "MidrunRuntime") -> FastAPI:
         if is_virtual_dir(runtime, virtual_path):
             return JSONResponse(
                 {
-                    "path": virtual_path,
+                    "path": virtual_path.rstrip("/") or "/",
                     "entries": list_virtual_dir(runtime, virtual_path),
                 }
             )

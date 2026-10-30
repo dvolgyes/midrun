@@ -3,8 +3,8 @@
 from typing import TYPE_CHECKING
 
 from midrun.runtime.virtual_fs.live_files import LIVE_FILES
+from midrun.runtime.virtual_fs.parse_rank_path import parse_rank_path
 from midrun.runtime.virtual_fs.rank_path_fields import RANK_FIELDS, WORKER_FIELDS
-from midrun.runtime.virtual_fs.resolve_rank import resolve_rank
 from midrun.runtime.virtual_fs.static_files import STATIC_FILES
 
 if TYPE_CHECKING:
@@ -13,30 +13,20 @@ if TYPE_CHECKING:
 
 def list_virtual_dir(runtime: "MidrunRuntime", path: str) -> list[str]:
     """Returns `path`'s child names, sorted, without `.`/`..` (a FUSE-only convention)."""
-    if path == "/meta/ranks":
-        count = len(runtime.state.read().ranks)
-        return [f"{i:03d}" for i in range(count)]
-
-    parts = path.split("/")
     ranks = runtime.state.read().ranks
-    if len(parts) == 4 and parts[1] == "meta" and parts[2] == "ranks":
-        return [*RANK_FIELDS, "workers"]
-    if (
-        len(parts) == 5
-        and parts[1] == "meta"
-        and parts[2] == "ranks"
-        and parts[4] == "workers"
-    ):
-        rank = resolve_rank(parts, ranks)
-        count = len(rank.worker_pids) if rank is not None else 0
-        return [f"{i:03d}" for i in range(count)]
-    if (
-        len(parts) == 6
-        and parts[1] == "meta"
-        and parts[2] == "ranks"
-        and parts[4] == "workers"
-    ):
-        return [*WORKER_FIELDS]
+    parsed = parse_rank_path(path, ranks)
+    if parsed is not None:
+        match parsed.kind:
+            case "ranks":
+                return [f"{i:03d}" for i in range(len(ranks))]
+            case "rank":
+                return [*RANK_FIELDS, "workers"]
+            case "workers" if parsed.rank is not None:
+                return [f"{i:03d}" for i in range(len(parsed.rank.worker_pids))]
+            case "worker":
+                return [*WORKER_FIELDS]
+            case _:
+                return []
 
     prefix = path if path.endswith("/") else path + "/"
     names: set[str] = set()

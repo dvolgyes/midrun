@@ -3,8 +3,7 @@
 from typing import TYPE_CHECKING
 
 from midrun.runtime.virtual_fs.encode_text import encode_text
-from midrun.runtime.virtual_fs.rank_path_fields import RANK_FIELDS
-from midrun.runtime.virtual_fs.resolve_rank import resolve_rank
+from midrun.runtime.virtual_fs.parse_rank_path import parse_rank_path
 
 if TYPE_CHECKING:
     from midrun.runtime.runtime import MidrunRuntime
@@ -23,15 +22,12 @@ def _rank_field_values(rank: "RankInfo") -> dict[str, str]:
 
 def rank_file_content(runtime: "MidrunRuntime", path: str) -> bytes | None:
     """Returns the content of a `/meta/ranks/<idx>/<field>` file, or `None` for another path."""
-    parts = path.split("/")
+    parsed = parse_rank_path(path, runtime.state.read().ranks)
     if (
-        len(parts) != 5
-        or parts[1] != "meta"
-        or parts[2] != "ranks"
-        or parts[4] not in RANK_FIELDS
+        parsed is None
+        or parsed.kind != "rank_field"
+        or parsed.rank is None
+        or parsed.field is None
     ):
         return None
-    rank = resolve_rank(parts, runtime.state.read().ranks)
-    if rank is None:
-        return None
-    return encode_text(_rank_field_values(rank)[parts[4]])
+    return encode_text(_rank_field_values(parsed.rank)[parsed.field])
