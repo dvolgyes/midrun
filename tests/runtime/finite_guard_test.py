@@ -5,6 +5,7 @@ import time
 from collections import namedtuple
 from pathlib import Path
 
+import pytest
 import torch
 
 from midrun.config import MidrunConfig
@@ -147,6 +148,40 @@ def test_begin_train_batch_enters_hold_on_bad_batch(tmp_path: Path) -> None:
         snapshots = sorted((runtime.artifacts.root / "snapshots").iterdir())
         assert len(snapshots) == 1
         assert (snapshots[0] / "anomaly_input_nonfinite.json").exists()
+    finally:
+        runtime.gate.release()
+        thread.join(timeout=5)
+        assert not thread.is_alive()
+
+
+class _FullDiskArtifactStore(ArtifactStore):
+    def write_snapshot(self, kind: str, payload: dict) -> dict:
+        raise OSError(f"no space left for snapshot {kind}")
+
+
+@pytest.mark.parametrize("store", ["missing", "full_disk"])
+def test_begin_train_batch_holds_when_the_bad_batch_snapshot_fails(
+    tmp_path: Path, store: str
+) -> None:
+    # In a distributed run the other ranks wait in the hold loop, so this rank
+    # must enter it too.
+    runtime = _make_runtime(tmp_path, dataloader_finite_check_enabled=True)
+    runtime.artifacts = None if store == "missing" else _FullDiskArtifactStore(tmp_path)
+    trainer = _FakeTrainer()
+    pl_module = _FakePLModule(trainer)
+    runtime._gather_ranks(pl_module)
+
+    thread = threading.Thread(
+        target=runtime.begin_train_batch,
+        args=(pl_module, {"x": torch.tensor([float("nan")])}, 0),
+    )
+    thread.start()
+    try:
+        deadline = time.monotonic() + 5
+        while not runtime.gate.is_held() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert runtime.gate.is_held()
+        assert runtime.state.read().status == "held"
     finally:
         runtime.gate.release()
         thread.join(timeout=5)

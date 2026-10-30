@@ -13,7 +13,7 @@ import socket
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import asdict, replace
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, NoReturn, SupportsIndex
 
@@ -57,6 +57,7 @@ from midrun.runtime.phase_of_stage import phase_of_stage
 from midrun.runtime.pipeline_pressure import PipelinePressureTracker
 from midrun.runtime.profiler import ProfilerRun
 from midrun.runtime.rank_sync import RankSync
+from midrun.runtime.record_bad_batch import record_bad_batch
 from midrun.runtime.state.exception_breakpoint_info import ExceptionBreakpointInfo
 from midrun.runtime.state.initial_snapshot import initial_snapshot
 from midrun.runtime.state.rank_info import RankInfo
@@ -648,19 +649,15 @@ class MidrunRuntime:
         batch_idx: int,
         report: FiniteCheckReport | None,
     ) -> None:
-        """Records this rank's bad batch, if any, and holds every rank."""
+        """Records this rank's bad batch, if any, then holds every rank in any case."""
         if report is not None:
-            rank = self._local_rank_info.global_rank if self._local_rank_info else 0
-            self.artifact_store.write_snapshot(
-                "anomaly_input_nonfinite",
-                {
-                    "reason": "nonfinite_dataloader_tensor",
-                    "rank": rank,
-                    "epoch": trainer.current_epoch,
-                    "global_step": trainer.global_step,
-                    "batch_idx": batch_idx,
-                    "tensors": [asdict(bad) for bad in report.bad_tensors],
-                },
+            record_bad_batch(
+                self.artifacts,
+                report,
+                rank=self._local_rank_info.global_rank if self._local_rank_info else 0,
+                epoch=trainer.current_epoch,
+                global_step=trainer.global_step,
+                batch_idx=batch_idx,
             )
         if self._is_rank_zero:
             self.gate.enter(
