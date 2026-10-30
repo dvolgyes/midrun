@@ -74,6 +74,15 @@ def _wait_for_mount(
                 f"FUSE mount at {path} failed; libfuse printed the reason on stderr"
             )
         if time.monotonic() > deadline:
+            # No watcher or teardown would ever remove a mount the thread still makes.
+            give_up = time.monotonic() + _READY_TIMEOUT_S
+            while fuse_thread.is_alive() and time.monotonic() < give_up:
+                subprocess.run(  # noqa: S603 -- own mount
+                    ["fusermount3", "-uz", str(path)],  # noqa: S607 -- system fusermount3
+                    check=False,
+                    capture_output=True,
+                )
+                fuse_thread.join(_READY_POLL_S)
             raise RuntimeError(f"FUSE mount at {path} did not become ready in time")
 
 
