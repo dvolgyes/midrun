@@ -381,10 +381,40 @@ def test_subclass_configure_callbacks_override_preserves_both(tmp_path) -> None:
     assert any(type(cb).__name__ == "MidrunHooksCallback" for cb in trainer.callbacks)
 
 
-def test_failed_hooks_bootstrap_lets_a_later_fit_run(tmp_path) -> None:
+def test_failed_hooks_bootstrap_warns_and_trains_with_hooks_off(tmp_path) -> None:
     marker = tmp_path / _MARKER_NAME
     marker.write_text("garbage")
     model = _TinyModelLP(**_base_kwargs())
+
+    trainer = _make_trainer(tmp_path)
+    trainer.fit(model, _make_loader())
+
+    assert trainer.global_step == 2
+    assert marker.read_text() == "garbage"
+    assert not (tmp_path / "hooks").exists()
+    run_log = (tmp_path / "midrun.log").read_text()
+    assert "hooks are off for this stage" in run_log
+    assert "delete it and the hooks" in run_log
+
+
+def test_no_bash_warns_and_trains_with_hooks_off(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("midrun.runtime.runtime.shutil.which", lambda _name: None)
+    model = _TinyModelLP(**_base_kwargs())
+
+    trainer = _make_trainer(tmp_path)
+    trainer.fit(model, _make_loader())
+
+    assert trainer.global_step == 2
+    assert not (tmp_path / "hooks").exists()
+    assert "requires bash on PATH" in (tmp_path / "midrun.log").read_text()
+
+
+def test_failed_hooks_bootstrap_under_strict_mode_raises_and_a_later_fit_runs(
+    tmp_path,
+) -> None:
+    marker = tmp_path / _MARKER_NAME
+    marker.write_text("garbage")
+    model = _TinyModelLP(**_base_kwargs(inspection_strict=True))
 
     for _ in range(2):
         with pytest.raises(HooksBootstrapError, match="delete it and the hooks"):

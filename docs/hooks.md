@@ -20,6 +20,9 @@ run:
   when the catalogue version or the configured `hooks_source_dir` differs from the marker's. Without a marker, it
   resumes from the tree's own provenance record and gives the same catalogue version warning. A callback that has no
   script slot in a reused tree is never dispatched.
+- When the tree cannot be bootstrapped (no `bash` on `PATH` and no `hooks_shell`, a `hooks/` tree of unknown origin, an
+  unreadable marker, or a failed copy), midrun logs a warning and the stage trains with hooks off. With
+  `inspection_strict=True`, the error is raised and the stage stops.
 - A slot seeded from a disabled example template always starts **disabled** (mode `0o644`, no execute bit). A slot the
   baseline *does* provide is copied with its own mode preserved byte-for-byte (uid/gid too, where permitted) — a
   baseline script that is already executable comes up enabled immediately, letting an operator ship a pre-armed

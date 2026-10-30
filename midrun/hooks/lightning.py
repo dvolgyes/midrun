@@ -8,6 +8,8 @@ here never discovers a method that way.
 
 from typing import Any
 
+from loguru import logger
+
 from midrun.lightning_backend import LightningBackend
 
 
@@ -23,10 +25,23 @@ class _HookMethods:
     below) -- so opening in `setup` and closing in `teardown` cannot leak or
     outlive the `_run` it belongs to, even for a stage entered without `fit`/
     `validate`/`test`/`predict` ever completing normally.
+
+    A session that cannot open (no bash, a foreign `hooks/` tree, a bad marker, a
+    copy error) raises under `inspection_strict`; otherwise it logs a warning, and
+    the stage trains with no session, so every dispatch is a no-op.
     """
 
     def setup(self, trainer: Any, pl_module: Any, stage: str) -> None:
-        pl_module._midrun.ensure_hook_session(trainer, pl_module)
+        runtime = pl_module._midrun
+        try:
+            runtime.ensure_hook_session(trainer, pl_module)
+        except (RuntimeError, OSError) as exc:
+            if runtime.config.inspection_strict:
+                raise
+            logger.warning(
+                "midrun: hooks are off for this stage: the hooks session failed: {}",
+                exc,
+            )
         _dispatch(trainer, pl_module, "setup", stage_override=stage)
 
     def teardown(self, trainer: Any, pl_module: Any, stage: str) -> None:

@@ -302,7 +302,7 @@ description of each option.
 | `break_on_backward_exception` | `True` | Hold the run when `backward()` raises, so that you can inspect the batch. |
 | `dataloader_finite_check_enabled` | `False` | Check each batch for NaN/Inf (slow). |
 | `optimizer_surgery_enabled` | `True` | Allow `reset_momentum` and per-group learning rates. |
-| `inspection_strict` | `False` | Raise instead of a warning when a service does not start. |
+| `inspection_strict` | `False` | Raise instead of a warning when a service or the hooks tree does not start. |
 
 ## Limits
 
