@@ -37,6 +37,7 @@ def prepare_heavy_export(
         if not is_supported_tensor_layout(leaf.tensor):
             return HeavyCaptureFailure(
                 f"unsupported tensor layout/device at {leaf.path}: "
+                f"type={type(leaf.tensor).__name__}, "
                 f"layout={leaf.tensor.layout}, device={leaf.tensor.device}"
             )
         export_dtype = resolve_export_dtype(leaf.tensor)

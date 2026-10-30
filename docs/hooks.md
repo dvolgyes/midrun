@@ -152,12 +152,12 @@ first, so the two are not a single simultaneous snapshot.
   as `original_dtype`. No other conversion happens; a lazily conjugated or negated view is written with its logical
   values.
 - **All-or-failed capture:** before any tensor is copied off its device, every tensor the callback would export is
-  checked for a supported layout (dense/strided; sparse, quantized, meta-device, and nested tensors are rejected) and
-  the predicted total converted size is checked against `hooks_max_export_bytes` (default 1 GiB). If any tensor is
-  unsupported or the budget would be exceeded, the *entire* heavy capture fails — no partial manifest, no files written,
-  the script is never launched — and this is logged as one `ERROR` record (`phase="capture_failed"`) naming the
-  offending argument or the exceeded limit. An OS error while writing the `.npy` files or the manifest (e.g. a full
-  disk) is a `capture_failed` too: the script is not launched and training continues.
+  checked for a supported layout (dense/strided; sparse, quantized, meta-device, nested, and wrapper-subclass tensors
+  such as `DTensor` are rejected) and the predicted total converted size is checked against `hooks_max_export_bytes`
+  (default 1 GiB). If any tensor is unsupported or the budget would be exceeded, the *entire* heavy capture fails — no
+  partial manifest, no files written, the script is never launched — and this is logged as one `ERROR` record
+  (`phase="capture_failed"`) naming the offending argument or the exceeded limit. An OS error while writing the `.npy`
+  files or the manifest (e.g. a full disk) is a `capture_failed` too: the script is not launched and training continues.
 - The private per-invocation directory (manifest plus `.npy` files) exists for the heavy script's entire supervised
   lifetime and is removed afterward, on success, failure, or timeout alike — the same lifecycle the light hook's
   `params.json` directory has.

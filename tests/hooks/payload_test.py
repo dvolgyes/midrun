@@ -7,6 +7,7 @@ import threading
 import numpy
 import pytest
 import torch
+from torch.testing._internal.two_tensor import TwoTensor
 
 from midrun.hooks.payload.build_heavy_manifest import build_heavy_manifest
 from midrun.hooks.payload.build_light_params import build_light_params
@@ -337,6 +338,22 @@ def test_prepare_heavy_export_fails_on_unsupported_layout() -> None:
     )
     assert isinstance(result, HeavyCaptureFailure)
     assert "batch" in result.reason
+
+
+def test_prepare_heavy_export_fails_on_a_wrapper_tensor_subclass() -> None:
+    # A wrapper subclass (e.g. DTensor) reports a strided layout, but `.numpy()`
+    # refuses it, so it must fail validation instead of reaching the export.
+    wrapped = TwoTensor(torch.zeros(2), torch.ones(2))
+    result = prepare_heavy_export(
+        {"batch": {"w": wrapped}},
+        ("batch",),
+        max_items=10,
+        max_depth=4,
+        max_export_bytes=1024**3,
+    )
+    assert isinstance(result, HeavyCaptureFailure)
+    assert "batch/w" in result.reason
+    assert "TwoTensor" in result.reason
 
 
 def test_prepare_heavy_export_fails_when_predicted_size_exceeds_budget() -> None:
