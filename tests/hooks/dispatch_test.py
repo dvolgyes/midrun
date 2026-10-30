@@ -8,9 +8,11 @@ from pathlib import Path
 import numpy
 import pytest
 import torch
+from loguru import logger
 
 from trainctl.hooks.dispatch_heavy import dispatch_heavy
 from trainctl.hooks.dispatch_light import dispatch_light
+from trainctl.hooks.manager.bootstrap_hooks_tree import bootstrap_hooks_tree
 from trainctl.hooks.payload.occurrence_context import OccurrenceContext
 
 _SHELL = Path(shutil.which("bash"))
@@ -452,3 +454,33 @@ def test_heavy_payload_write_error_is_a_capture_failure(
     assert not canary.exists()
     assert len(log.errors) == 1
     assert list(tmp_root.iterdir()) == []
+
+
+def test_seeded_heavy_example_counts_the_exported_tensors(tmp_path) -> None:
+    if shutil.which("python3") is None:
+        pytest.skip("python3 is not on PATH in this environment")
+    live_dir = bootstrap_hooks_tree(
+        tmp_path / "run", None, session_id="s-1", log=logger
+    ).live_dir
+    script = live_dir / "heavy" / "on_train_batch_start.sh"
+    preamble, example = script.read_text().split(
+        "# Example: summarize the manifest without loading any array.\n"
+    )
+    uncommented = "".join(
+        f"{line.removeprefix('# ')}\n" for line in example.splitlines()
+    )
+    script.write_text(preamble + uncommented)
+    script.chmod(0o755)
+
+    result = _dispatch_heavy(
+        live_dir,
+        tmp_path / "tmp-root",
+        _context(),
+        "occ-1",
+        {"batch": {"x": torch.zeros(2), "y": torch.ones(3)}},
+        ("batch",),
+    )
+
+    assert result is not None
+    assert result.exit_code == 0
+    assert result.stdout_tail.endswith("2 tensor(s)\n")

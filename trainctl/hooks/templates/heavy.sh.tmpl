@@ -40,5 +40,5 @@ echo "[@@NAME@@] manifest: ${manifest_json}"
 # python3 -c '
 # import json, sys
 # manifest = json.load(open(sys.argv[1]))
-# print(len(manifest.get("tensors", [])), "tensor(s)")
+# print(len(manifest["tensor_records"]), "tensor(s)")
 # ' "${manifest_json}"
