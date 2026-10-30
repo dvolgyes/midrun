@@ -40,6 +40,17 @@ class RankSync:
             return cls()
         return cls(group=dist.new_group(backend="gloo"))
 
+    def close(self) -> None:
+        """Destroys the control group; the instance is then a single-process one.
+
+        Each stage makes its own group, so a group that outlived its stage would keep
+        its sockets open. This is not a collective. A group is already gone when the
+        default process group was destroyed, so it is not destroyed again.
+        """
+        group, self._group = self._group, None
+        if group is not None and dist.is_initialized():
+            dist.destroy_process_group(group)
+
     @property
     def world_size(self) -> int:
         """Number of ranks."""

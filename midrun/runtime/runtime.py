@@ -361,6 +361,7 @@ class MidrunRuntime:
         if (run := self.profiler_run) is not None:
             self.profiler_run = None
             self._guarded("profiler shutdown", lambda: run.save(self.artifact_store))
+        self._guarded("control group shutdown", self.rank_sync.close)
         self.state.update(status=final_status)
 
     def _stop_rest(self) -> None:
