@@ -1,5 +1,6 @@
 """Behavioral tests for midrun.hooks.manager's baseline bootstrap (T1)."""
 
+import errno
 import json
 import os
 import shutil
@@ -391,6 +392,32 @@ def test_an_ownership_that_cannot_be_set_keeps_the_owner_and_sets_the_mode(
     preserved = apply_ownership_and_mode(
         target, before.st_uid + 1, before.st_gid, 0o755
     )
+
+    after = target.stat()
+    assert preserved is False
+    assert (after.st_uid, after.st_gid) == (before.st_uid, before.st_gid)
+    assert stat.S_IMODE(after.st_mode) == 0o755
+
+
+def _refuse_unmapped_chown(path, uid, gid) -> None:
+    raise OSError(errno.EINVAL, f"invalid argument: {path} to {uid}:{gid}")
+
+
+def test_an_ownership_outside_the_user_namespace_keeps_the_owner_and_sets_the_mode(
+    tmp_path, monkeypatch
+) -> None:
+    """In a user namespace, chown to an unmapped uid/gid fails with EINVAL."""
+    from midrun.hooks.manager.apply_ownership_and_mode import (
+        apply_ownership_and_mode,
+    )
+
+    target = tmp_path / "file.sh"
+    target.write_text("echo x\n")
+    target.chmod(0o644)
+    before = target.stat()
+    monkeypatch.setattr(os, "chown", _refuse_unmapped_chown)
+
+    preserved = apply_ownership_and_mode(target, 65534, 65534, 0o755)
 
     after = target.stat()
     assert preserved is False

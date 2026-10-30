@@ -21,7 +21,8 @@ run:
   baseline *does* provide is copied with its own mode preserved byte-for-byte (uid/gid too, where permitted) — a
   baseline script that is already executable comes up enabled immediately, letting an operator ship a pre-armed
   baseline. Where the uid/gid is not permitted (for example, a baseline owned by root or by a group that the run user is
-  not a member of), the copy keeps the run user's owner and group, and one warning lists those copies.
+  not a member of, or by an owner that the user namespace of a rootless container does not map), the copy keeps the run
+  user's owner and group, and one warning lists those copies.
 
 ## Enabling and disabling a hook
 
