@@ -45,8 +45,6 @@ def bootstrap_hooks_tree(
             being copied, or an existing `hooks/` tree is not a compatible resume (unknown-origin
             conflict). A concurrent initializer that wins the publish race is resumed, not an
             error.
-        PermissionError: Preserving a copied entry's ownership failed (message includes the path
-            and the ownership that was required).
     """
     # Scripts run with the live tree as their working directory, so a relative
     # path (e.g. Lightning's default `runs/...` log_dir) would not resolve there.

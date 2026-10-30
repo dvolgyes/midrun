@@ -371,8 +371,12 @@ def test_source_file_changing_during_copy_is_rejected(
     assert list(base_dir.glob(".hooks-staging-*")) == []
 
 
-def test_ownership_change_failure_is_reported_with_path_and_target_ids(
-    tmp_path, monkeypatch, log
+def _refuse_chown(path, uid, gid) -> None:
+    raise PermissionError(f"operation not permitted: {path} to {uid}:{gid}")
+
+
+def test_an_ownership_that_cannot_be_set_keeps_the_owner_and_sets_the_mode(
+    tmp_path, monkeypatch
 ) -> None:
     from midrun.hooks.manager.apply_ownership_and_mode import (
         apply_ownership_and_mode,
@@ -380,12 +384,52 @@ def test_ownership_change_failure_is_reported_with_path_and_target_ids(
 
     target = tmp_path / "file.sh"
     target.write_text("echo x\n")
-    current = target.stat()
+    target.chmod(0o644)
+    before = target.stat()
+    monkeypatch.setattr(os, "chown", _refuse_chown)
 
-    def fake_chown(path, uid, gid):
-        raise PermissionError("operation not permitted")
+    preserved = apply_ownership_and_mode(
+        target, before.st_uid + 1, before.st_gid, 0o755
+    )
 
-    monkeypatch.setattr(os, "chown", fake_chown)
+    after = target.stat()
+    assert preserved is False
+    assert (after.st_uid, after.st_gid) == (before.st_uid, before.st_gid)
+    assert stat.S_IMODE(after.st_mode) == 0o755
 
-    with pytest.raises(PermissionError, match=str(target)):
-        apply_ownership_and_mode(target, current.st_uid + 1, current.st_gid, 0o644)
+
+def test_a_baseline_of_another_group_is_copied_with_one_warning(
+    tmp_path, monkeypatch
+) -> None:
+    """A non-root user cannot give a copy a group they are not a member of."""
+    source = tmp_path / "baseline"
+    (source / "light").mkdir(parents=True)
+    armed = source / "light" / "on_fit_start.sh"
+    armed.write_text("#!/usr/bin/env bash\necho armed\n")
+    armed.chmod(0o755)
+    real_lstat = os.lstat
+
+    def lstat_of_another_group(path, *args, **kwargs):
+        st = real_lstat(path, *args, **kwargs)
+        if not str(path).startswith(str(source)):
+            return st
+        extra = {name: getattr(st, name) for name in ("st_mtime_ns", "st_ctime_ns")}
+        return os.stat_result((*st[:5], st.st_gid + 1, *st[6:10]), extra)
+
+    monkeypatch.setattr(os, "lstat", lstat_of_another_group)
+    monkeypatch.setattr(os, "chown", _refuse_chown)
+    warnings: list[str] = []
+    sink_id = logger.add(warnings.append, level="WARNING")
+    try:
+        live_dir = bootstrap_hooks_tree(
+            tmp_path / "run", source, session_id="s-16", log=logger
+        ).live_dir
+    finally:
+        logger.remove(sink_id)
+
+    copied = live_dir / "light" / "on_fit_start.sh"
+    assert copied.read_text() == armed.read_text()
+    assert stat.S_IMODE(copied.stat().st_mode) == 0o755
+    ownership_warnings = [w for w in warnings if "ownership" in w]
+    assert len(ownership_warnings) == 1
+    assert "light/on_fit_start.sh" in ownership_warnings[0]

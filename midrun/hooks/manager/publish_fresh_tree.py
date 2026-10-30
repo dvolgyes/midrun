@@ -44,7 +44,6 @@ def publish_fresh_tree(
 
     Raises:
         HooksBootstrapError: The copy or the rename failed.
-        PermissionError: The ownership of a copied entry cannot be preserved.
     """
     marker_path = base_dir / MARKER_NAME
     staging_dir = Path(tempfile.mkdtemp(dir=base_dir, prefix=".hooks-staging-"))
@@ -57,6 +56,7 @@ def publish_fresh_tree(
         found_slots: set[tuple[str, str]] = set()
         unknown_paths: list[str] = []
         dir_records: list[tuple[Path, int, int, int]] = []
+        unowned_paths: list[Path] = []
 
         if resolved_source is not None:
             copy_source_tree(
@@ -66,6 +66,7 @@ def publish_fresh_tree(
                 found_slots=found_slots,
                 unknown_paths=unknown_paths,
                 dir_records=dir_records,
+                unowned_paths=unowned_paths,
             )
             top_st = os.lstat(resolved_source)
             dir_records.append(
@@ -97,7 +98,16 @@ def publish_fresh_tree(
         }
         write_json_file(staging_dir / PROVENANCE_NAME, record)
 
-        finalize_directory_modes(dir_records)
+        unowned_paths += finalize_directory_modes(dir_records)
+        if unowned_paths:
+            log.warning(
+                "hooks: cannot preserve the source ownership of {} copied entr(y/ies); "
+                "they keep the run user's owner and group, with the source mode: {}",
+                len(unowned_paths),
+                ", ".join(
+                    sorted(str(p.relative_to(staging_dir)) for p in unowned_paths)
+                ),
+            )
 
         try:
             staging_dir.rename(live_dir)

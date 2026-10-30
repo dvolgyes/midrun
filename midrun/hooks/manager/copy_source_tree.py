@@ -20,21 +20,20 @@ def copy_source_tree(
     found_slots: set[tuple[str, str]],
     unknown_paths: list[str],
     dir_records: list[tuple[Path, int, int, int]],
+    unowned_paths: list[Path],
 ) -> None:
     """Copies `src_dir` into `dst_dir` recursively, in name order.
 
     Collects into the keyword arguments: the callback slots that the baseline
-    fills, the `light/` and `heavy/` files that match no callback, and each
-    copied directory with its source ownership and mode. The caller applies
-    the directory ownership and modes after the copy.
+    fills, the `light/` and `heavy/` files that match no callback, each
+    copied directory with its source ownership and mode, and the copied files
+    whose source ownership could not be preserved. The caller applies the
+    directory ownership and modes after the copy.
 
     Raises:
         HooksBootstrapError: An entry is unsafe, or a file changed while it was copied.
-        PermissionError: The ownership of a copied file cannot be preserved.
     """
-    with os.scandir(src_dir) as it:
-        entries = sorted(it, key=lambda e: e.name)
-    for entry in entries:
+    for entry in sorted(os.scandir(src_dir), key=lambda e: e.name):
         st = os.lstat(entry.path)
         entry_path = Path(entry.path)
         reject_unsafe_source_entry(entry_path, st)
@@ -49,6 +48,7 @@ def copy_source_tree(
                 found_slots=found_slots,
                 unknown_paths=unknown_paths,
                 dir_records=dir_records,
+                unowned_paths=unowned_paths,
             )
             dir_records.append(
                 (dst_path, st.st_uid, st.st_gid, stat_module.S_IMODE(st.st_mode))
@@ -61,9 +61,10 @@ def copy_source_tree(
                     f"hooks_source_dir file {entry.path} changed while being copied; "
                     "do not edit the baseline during initialization"
                 )
-            apply_ownership_and_mode(
+            if not apply_ownership_and_mode(
                 dst_path, st.st_uid, st.st_gid, stat_module.S_IMODE(st.st_mode)
-            )
+            ):
+                unowned_paths.append(dst_path)
             if len(child_rel) == 2 and child_rel[0] in MODALITIES:
                 stem = child_rel[1][:-3] if child_rel[1].endswith(".sh") else ""
                 if stem in CALLBACK_NAMES:
