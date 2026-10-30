@@ -286,6 +286,9 @@ class _ServiceGuardMethods:
     callback stops Midrun's services there, also when the hooks adapter is not
     attached, so no REST server, FUSE mount, or debug server outlives a failed run.
 
+    This callback also owns the logging session of each stage `_run`, so that the
+    run log and the Lightning logging bridge do not depend on `hooks_enabled`.
+
     Attributes:
         runtime: The model's `MidrunRuntime`.
     """
@@ -296,9 +299,22 @@ class _ServiceGuardMethods:
         super().__init__()
         self.runtime = runtime
 
+    def setup(self, trainer: object, pl_module: object, stage: str) -> None:
+        """Opens the logging session, unless the hooks adapter's `setup` opened it."""
+        del stage
+        self.runtime.open_logging_session(trainer, pl_module)
+
+    def teardown(self, trainer: object, pl_module: object, stage: str) -> None:
+        """Closes the logging session."""
+        del trainer, pl_module, stage
+        self.runtime.close_logging_session()
+
     def on_exception(
         self, trainer: object, pl_module: object, exception: BaseException
     ) -> None:
-        """Stops Midrun's services and records the run status as `failed`."""
+        """Stops Midrun's services, records the status `failed`, closes the logging session."""
         del trainer, pl_module, exception
-        self.runtime.stop_after_failure()
+        try:
+            self.runtime.stop_after_failure()
+        finally:
+            self.runtime.close_logging_session()

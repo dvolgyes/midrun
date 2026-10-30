@@ -214,13 +214,12 @@ first, so the two are not a single simultaneous snapshot.
 reused across `fit()` → `validate()` → `test()` → `predict()`) alongside whatever your own `configure_callbacks()`
 override returns via `super()`. Nothing about your model's or Trainer's own callbacks is removed or replaced.
 
-The hooks session (the live `hooks/` tree plus the `midrun.log` / `midrun-rank-N.log` Loguru bridge) is owned entirely
-by the adapter's own `setup`/`teardown` callback methods, not the composed model's — Lightning calls the adapter's
-`setup(trainer, pl_module, stage)` before any other callback method for a stage's `fit`/`validate`/`test`/`predict`
-call, and always pairs it with a matching `teardown` afterward. Rank and world size come directly from
-`trainer.global_rank` / `trainer.world_size` at that point, not from any later Midrun-internal rank-gathering step. A
-resumed run (e.g. `fit()` followed by a separate `test()` call against the same model) detects the existing marker and
-reuses the same live tree and session id rather than reseeding.
+The hooks session (the live `hooks/` tree) is owned entirely by the adapter's own `setup`/`teardown` callback methods,
+not the composed model's — Lightning calls the adapter's `setup(trainer, pl_module, stage)` before any other callback
+method for a stage's `fit`/`validate`/`test`/`predict` call, and always pairs it with a matching `teardown` afterward.
+Rank and world size come directly from `trainer.global_rank` / `trainer.world_size` at that point, not from any later
+Midrun-internal rank-gathering step. A resumed run (e.g. `fit()` followed by a separate `test()` call against the same
+model) detects the existing marker and reuses the same live tree and session id rather than reseeding.
 
 Because the session's lifetime is bound exactly to one stage's `setup`/`teardown` pair, a hook that fires with no stage
 active at all — for example a standalone `Trainer.save_checkpoint()` call made after `fit()` has already returned —
@@ -231,6 +230,12 @@ on `fit()` itself).
 On an uncaught exception, Lightning skips both the model's and the callback's own `teardown` entirely — so the adapter's
 `on_exception` dispatches the `on_exception` light/heavy hooks itself and then finalizes the session directly, in a
 `finally`, before the original exception propagates.
+
+The logging session (the `midrun.log` / `midrun-rank-N.log` run log and the Lightning logging bridge) does not depend on
+`hooks_enabled`. Midrun's service guard callback, which `configure_callbacks()` always appends after the hooks adapter,
+closes it in its `teardown` and in its `on_exception`. The first Midrun callback `setup` of the stage opens it: the
+adapter's when hooks are enabled, because the hooks tree logs through it, else the service guard's. The `all` value of
+`hooks_rank_policy` selects the per-rank file name also when hooks are disabled.
 
 ## Operator walkthrough
 

@@ -91,8 +91,11 @@ class MidrunConfig:
             output streamed to the log.
         intercept_lightning_logging: Bridge `lightning.pytorch`/`pytorch_lightning`/
             `lightning.fabric`'s standard-library logging into Loguru for this run.
+            Independent of `hooks_enabled`.
         run_log_enabled: Attach a Loguru file sink (`midrun.log`, or
-            `midrun-rank-N.log` under an `all` rank policy) in the run directory.
+            `midrun-rank-N.log` under an `all` `hooks_rank_policy`) in the run
+            directory. Independent of `hooks_enabled`; the rank policy selects the
+            file name also when hooks are disabled.
     """
 
     enabled: bool = True

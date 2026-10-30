@@ -58,6 +58,7 @@ from midrun.runtime.pipeline_pressure import PipelinePressureTracker
 from midrun.runtime.profiler import ProfilerRun
 from midrun.runtime.rank_sync import RankSync
 from midrun.runtime.record_bad_batch import record_bad_batch
+from midrun.runtime.start_logging_session import start_logging_session
 from midrun.runtime.start_rest_server import start_rest_server
 from midrun.runtime.state.exception_breakpoint_info import ExceptionBreakpointInfo
 from midrun.runtime.state.initial_snapshot import initial_snapshot
@@ -335,14 +336,38 @@ class MidrunRuntime:
 
     # ---- lifecycle hooks --------------------------------------------------------
 
+    def open_logging_session(self, trainer: Any, pl_module: Any) -> LoggingSession:
+        """Opens this stage `_run`'s logging session, unless it is open, and returns it.
+
+        Idempotent. The first Midrun callback `setup` of the `_run` opens it: the hooks
+        adapter's, which needs its logger, else the service guard's. The service guard
+        closes it with `close_logging_session`.
+        """
+        if self._logging_session is None:
+            # Set before the bridge or the file can fail, so that the close finds it.
+            self._logging_session = LoggingSession(new_hooks_session_id())
+            start_logging_session(
+                self._logging_session,
+                self.config,
+                default_base_dir(pl_module, self.run_id),
+                trainer.global_rank,
+            )
+        return self._logging_session
+
+    def close_logging_session(self) -> None:
+        """Closes the logging session, if one is open. Idempotent."""
+        if self._logging_session is not None:
+            self._logging_session.close()
+            self._logging_session = None
+
     def ensure_hook_session(self, trainer: Any, pl_module: Any) -> None:
-        """Bootstraps this run's hooks tree and logging bridge for one stage `_run`.
+        """Bootstraps this run's hooks tree for one stage `_run`.
 
         Idempotent -- a no-op if a session from this same stage is already open.
         Called only from the hooks adapter's own `setup(trainer, pl_module, stage)`,
         which Lightning always calls before any other callback method for that
         `_run` and always pairs with a matching `teardown` (barring an uncaught
-        exception, handled separately by `finalize_hooks_and_logging`). A hook that
+        exception, handled separately by `close_hook_session`). A hook that
         fires with no stage active at all (e.g. a standalone `Trainer.save_checkpoint`
         call outside `fit`/`validate`/`test`/`predict`) finds no session and is a
         silent no-op in `dispatch_hook` -- there is no run for it to belong to.
@@ -354,21 +379,9 @@ class MidrunRuntime:
         """
         if self._hook_session is not None:
             return
+        logging_session = self.open_logging_session(trainer, pl_module)
+        session_id = logging_session.session_id
         base_dir = default_base_dir(pl_module, self.run_id)
-        session_id = new_hooks_session_id()
-        logging_session = LoggingSession(session_id)
-        # Set before the bootstrap can fail, so on_exception's finalize closes the bridge.
-        self._logging_session = logging_session
-        if self.config.intercept_lightning_logging:
-            logging_session.install()
-        if self.config.run_log_enabled:
-            rank = trainer.global_rank
-            filename = (
-                f"midrun-rank-{rank}.log"
-                if self.config.hooks_rank_policy == "all"
-                else "midrun.log"
-            )
-            logging_session.attach_run_file(base_dir / filename)
         log = logging_session.bind()
         shell = self.config.hooks_shell
         if shell is None:
@@ -428,8 +441,8 @@ class MidrunRuntime:
             arguments=arguments,
         )
 
-    def finalize_hooks_and_logging(self) -> None:
-        """Closes the hooks session and logging bridge, if either is currently open.
+    def close_hook_session(self) -> None:
+        """Closes the hooks session, if one is open.
 
         Idempotent. Called from the hooks adapter's own `teardown` on the normal
         path, and from its `on_exception` on the failure path, since Lightning skips
@@ -438,9 +451,6 @@ class MidrunRuntime:
         if self._hook_session is not None:
             self._hook_session.close()
             self._hook_session = None
-        if self._logging_session is not None:
-            self._logging_session.close()
-            self._logging_session = None
 
     # ---- safe points ----------------------------------------------------------
 
