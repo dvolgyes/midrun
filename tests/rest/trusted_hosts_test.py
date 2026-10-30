@@ -84,3 +84,17 @@ def test_empty_midrun_whitelist_ip_adds_nothing(value: str) -> None:
 def test_invalid_midrun_whitelist_ip_is_rejected(value: str) -> None:
     with pytest.raises(ValueError, match="MIDRUN_WHITELIST_IP"):
         trusted_hosts("127.0.0.1", (), {"MIDRUN_WHITELIST_IP": value}, ())
+
+
+def test_midrun_whitelist_ip_takes_comma_separated_addresses() -> None:
+    hosts = trusted_hosts(
+        "127.0.0.1", (), {"MIDRUN_WHITELIST_IP": "203.0.113.9, 2001:db8::9,"}, ()
+    )
+    assert {"203.0.113.9", "[2001:db8::9]"} <= set(hosts)
+
+
+def test_one_invalid_address_in_midrun_whitelist_ip_is_rejected() -> None:
+    with pytest.raises(ValueError, match="'evil.example'"):
+        trusted_hosts(
+            "127.0.0.1", (), {"MIDRUN_WHITELIST_IP": "203.0.113.9,evil.example"}, ()
+        )

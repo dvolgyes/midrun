@@ -131,10 +131,11 @@ ssh -L 8090:127.0.0.1:8090 <training-host>
 The REST API accepts a request only when its `Host` header names this machine, so that a web page cannot read the API
 through DNS rebinding. Other names get status 400 (`Invalid host header`). The accepted names are `localhost`,
 `127.0.0.1`, `[::1]`, `rest_host` when it is not `0.0.0.0` or `::`, the host name and the fully qualified name of the
-machine, the server address in `SSH_CONNECTION` (the address that you connected to with SSH), and the IP address in the
-`MIDRUN_WHITELIST_IP` environment variable. To open the API under another name, for example through a reverse proxy, add
-the name to `rest_allowed_hosts`. The check reads the environment when REST starts. midrun does not start REST when
-`MIDRUN_WHITELIST_IP` is not one IPv4 or IPv6 address.
+machine, the server address in `SSH_CONNECTION` (the address that you connected to with SSH), and the IP addresses in
+the `MIDRUN_WHITELIST_IP` environment variable, separated by commas (for example `203.0.113.9,2001:db8::9`). To open the
+API under another name, for example through a reverse proxy, add the name to `rest_allowed_hosts`. The check reads the
+environment when REST starts. midrun does not start REST when an entry of `MIDRUN_WHITELIST_IP` is not an IPv4 or IPv6
+address.
 
 ## Control the run with REST
 

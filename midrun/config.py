@@ -37,7 +37,7 @@ class MidrunConfig:
             proxy's name. The API always accepts `localhost`, `127.0.0.1`, `[::1]`,
             `rest_host` when it is not a wildcard, the machine's host name and
             fully qualified name, the server address in `SSH_CONNECTION`, and the
-            IP address in the `MIDRUN_WHITELIST_IP` environment variable. It
+            IP addresses in the `MIDRUN_WHITELIST_IP` environment variable. It
             rejects other Host headers with status 400, so that a web page cannot
             read it through DNS rebinding.
         torch_debug_enabled: Start `torch.distributed.debug`'s HTTP server, when available.
