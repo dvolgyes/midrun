@@ -177,7 +177,10 @@ STATIC_FILES: dict[str, Callable[["MidrunRuntime"], bytes]] = {
         {name: asdict(value) for name, value in rt.tunable_hparams.items()}
     ),
     "/state/cuda-memory.json": lambda rt: encode_json(
-        {**asdict(rt.cuda_memory_history), **cheap_cuda_memory_stats()}
+        {
+            **asdict(rt.cuda_memory_history),
+            **cheap_cuda_memory_stats(rt.rank_info.device),
+        }
     ),
     "/state/profiler.json": lambda rt: encode_json(
         run.phase_state() if (run := rt.profiler_run) else {"state": "idle"}

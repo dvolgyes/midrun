@@ -124,6 +124,8 @@ class MidrunRuntime:
             point. Entries declared via the dict form also carry `min`/`max`/`label`.
         rank_sync: Control-plane collectives with the other ranks of a distributed
             run.
+        rank_info: This rank's `RankInfo`, with its training device, e.g. `cuda:1`.
+            Until `setup_environment`, the device is `cpu`.
         services: The REST, FUSE and torch debug servers and their handles.
         sessions: The logging session and hooks session of the current stage.
         model_info: The model's class, hparams and summary, as of the last fit start.
@@ -179,7 +181,7 @@ class MidrunRuntime:
         self.model_info: ModelInfo = ModelInfo()
 
         # Until `_gather_ranks` runs at setup, the runtime knows only its own rank.
-        self._local_rank_info: RankInfo = local_rank_info("cpu")
+        self.rank_info: RankInfo = local_rank_info("cpu")
         self.rank_sync = RankSync()
 
         self.pipeline: PipelinePressureTracker = PipelinePressureTracker(
@@ -594,7 +596,7 @@ class MidrunRuntime:
             record_bad_batch(
                 self.artifacts,
                 report,
-                rank=self._local_rank_info.global_rank,
+                rank=self.rank_info.global_rank,
                 epoch=trainer.current_epoch,
                 global_step=trainer.global_step,
                 batch_idx=batch_idx,
@@ -629,7 +631,7 @@ class MidrunRuntime:
         trainer = pl_module.trainer
         self.current_step.loss = loss
         self.current_step.exception = exc
-        rank = self._local_rank_info.global_rank
+        rank = self.rank_info.global_rank
         self.exception_hold = ExceptionBreakpointInfo(
             exception_type=type(exc).__name__,
             exception_message=str(exc),
@@ -756,7 +758,7 @@ class MidrunRuntime:
                 if child.pid is not None
             )
         )
-        local = self._local_rank_info
+        local = self.rank_info
         for published in self.state.read().ranks:
             if published.global_rank == local.global_rank:
                 if published.worker_pids == worker_pids:
@@ -785,10 +787,8 @@ class MidrunRuntime:
 
         initialized = dist.is_available() and dist.is_initialized()
         world_size = dist.get_world_size() if initialized else 1
-        self._local_rank_info = local_rank_info(
-            str(getattr(pl_module, "device", "cpu"))
-        )
-        ranks = tuple(self.rank_sync.all_gather(self._local_rank_info))
+        self.rank_info = local_rank_info(str(getattr(pl_module, "device", "cpu")))
+        ranks = tuple(self.rank_sync.all_gather(self.rank_info))
         self.state.update(world_size=world_size, ranks=ranks)
 
     # ---- service management ------------------------------------------------------

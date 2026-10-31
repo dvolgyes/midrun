@@ -31,7 +31,7 @@ pytestmark = pytest.mark.skipif(
 
 def test_cheap_stats_reports_real_allocator_counters() -> None:
     _ = torch.zeros(1, device="cuda")
-    stats = cheap_cuda_memory_stats()
+    stats = cheap_cuda_memory_stats("cuda:0")
     assert stats["available"] is True
     assert stats["free_bytes"] > 0
     assert stats["total_bytes"] > 0

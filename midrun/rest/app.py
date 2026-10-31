@@ -325,7 +325,7 @@ def build_app(runtime: "MidrunRuntime") -> FastAPI:
             snapshot_bytes = dump_cuda_memory_snapshot()
         except RuntimeError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        stats = cheap_cuda_memory_stats()
+        stats = cheap_cuda_memory_stats(runtime.rank_info.device)
         manifest = store.write_debug_capture(
             "cuda-memory",
             {
