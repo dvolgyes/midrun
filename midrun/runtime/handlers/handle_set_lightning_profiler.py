@@ -8,6 +8,7 @@ import torch
 from midrun.runtime.command_specs.command_runtime import CommandRuntime
 from midrun.runtime.commands.command import Command
 from midrun.runtime.events import SafePoint
+from midrun.runtime.require_steady_cpu_clock import require_steady_cpu_clock
 
 
 def handle_set_lightning_profiler(
@@ -37,9 +38,15 @@ def handle_set_lightning_profiler(
     profiler is set up as the Trainer sets up its own. Its log dir is the old
     profiler's `dirpath`, which the Trainer set from `trainer.log_dir`: this command
     runs on rank 0 only, and `trainer.log_dir` is a collective.
+
+    Raises:
+        RuntimeError: `pytorch` was selected, and the CPU clock that torch.profiler
+            reads differs between the CPUs of this thread. The old profiler stays.
     """
     del safe_point
     level = command.args["level"]
+    if level == "pytorch":
+        require_steady_cpu_clock("the pytorch Lightning profiler")
     profilers = runtime.backend.PL.profilers
     old = trainer.profiler
     stage = trainer.state.fn

@@ -1,15 +1,12 @@
 """Runs the `profile` command: arms a bounded torch.profiler run."""
 
-import platform
 from typing import Any
-
-from loguru import logger
 
 from midrun.runtime.command_specs.command_runtime import CommandRuntime
 from midrun.runtime.commands.command import Command
 from midrun.runtime.events import SafePoint
 from midrun.runtime.profiler import ProfilerRun
-from midrun.runtime.tsc_clock_warning import tsc_clock_warning
+from midrun.runtime.require_steady_cpu_clock import require_steady_cpu_clock
 
 
 def handle_profile(
@@ -26,6 +23,8 @@ def handle_profile(
 
     Raises:
         ValueError: A profiler run is already armed.
+        RuntimeError: The CPU clock that torch.profiler reads differs between the
+            CPUs of this thread.
     """
     del pl_module, trainer, safe_point
     if runtime.profiler_run is not None:
@@ -35,18 +34,13 @@ def handle_profile(
     level = command.args["level"]
     then_hold = command.args["then_hold"]
     run = ProfilerRun(command.id, warmup_steps, active_steps, level, then_hold)
-    clock_warning = tsc_clock_warning(platform.machine())
-    if clock_warning is not None:
-        logger.warning("midrun: profile {}: {}", command.id, clock_warning)
+    require_steady_cpu_clock("profile")
     run.start()
     runtime.profiler_run = run
-    result = {
+    return {
         "armed": True,
         "warmup_steps": warmup_steps,
         "active_steps": active_steps,
         "level": level,
         "then_hold": then_hold,
     }
-    if clock_warning is not None:
-        result["clock_warning"] = clock_warning
-    return result

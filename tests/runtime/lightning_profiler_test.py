@@ -168,3 +168,27 @@ def test_a_pytorch_profiler_that_never_recorded_can_be_replaced(
 
     assert cmd.status == "succeeded"
     assert type(trainer.profiler).__name__ == "PassThroughProfiler"
+
+
+def test_a_cpu_clock_that_differs_between_cpus_disables_only_the_pytorch_profiler(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse(feature: str) -> None:
+        raise RuntimeError(f"{feature} is disabled: the clocks differ")
+
+    monkeypatch.setattr(
+        "midrun.runtime.handlers.handle_set_lightning_profiler.require_steady_cpu_clock",
+        refuse,
+    )
+    runtime = _make_runtime(tmp_path)
+    trainer = _FakeTrainer()
+    _set_level(runtime, trainer, "simple")
+    simple = trainer.profiler
+
+    refused = _set_level(runtime, trainer, "pytorch")
+
+    assert refused.status == "failed"
+    assert "the pytorch Lightning profiler is disabled" in refused.error
+    assert trainer.profiler is simple
+    assert runtime.lightning_profiler_level == "simple"
+    assert _set_level(runtime, trainer, "advanced").status == "succeeded"

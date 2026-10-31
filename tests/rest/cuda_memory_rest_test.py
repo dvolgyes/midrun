@@ -101,3 +101,26 @@ def test_cuda_memory_snapshot_gives_a_url_for_its_files(tmp_path: Path) -> None:
     summary = client.get(f"{manifest['files_url']}/summary.json")
     assert summary.status_code == 200, summary.text
     assert isinstance(summary.json(), dict)
+
+
+def test_a_cpu_clock_that_differs_between_cpus_disables_the_history(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse(feature: str) -> None:
+        raise RuntimeError(f"{feature} is disabled: the clocks differ")
+
+    monkeypatch.setattr(
+        "midrun.runtime.cuda_memory.set_cuda_memory_history.require_steady_cpu_clock",
+        refuse,
+    )
+    client, runtime = _client(tmp_path)
+    try:
+        refused = client.get("/debug/cuda-memory/history", params={"enabled": "true"})
+        disabled = client.get("/debug/cuda-memory/history", params={"enabled": "false"})
+
+        assert refused.status_code == 400
+        assert "CUDA memory history is disabled" in refused.json()["detail"]
+        assert disabled.status_code == 200
+        assert runtime.cuda_memory_history.enabled is False
+    finally:
+        set_cuda_memory_history(False, max_entries=None)
