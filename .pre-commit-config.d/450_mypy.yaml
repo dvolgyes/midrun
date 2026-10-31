@@ -1,0 +1,8 @@
+---
+- repo: https://github.com/pre-commit/mirrors-mypy
+  rev: v2.3.1
+  hooks:
+    - id: mypy
+      exclude: ^(legacy/|tests/)
+      args: [--ignore-missing-imports, --strict, --python-executable=.venv/bin/python]
+      additional_dependencies: [types-requests, types-setuptools, pydantic, fastapi]
