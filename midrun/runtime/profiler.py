@@ -115,21 +115,34 @@ class ProfilerRun:
         recorded_steps = self.steps_done - 1 - self.warmup_steps
         if recorded_steps < self.active_steps:
             metadata |= {"truncated": True, "recorded_steps": recorded_steps}
-        artifact_store.write_debug_capture("profiler", self.finalize(), metadata)
+        files, finalize_metadata = self.finalize()
+        artifact_store.write_debug_capture(
+            "profiler", files, metadata | finalize_metadata
+        )
 
-    def finalize(self) -> dict[str, str | bytes]:
+    def finalize(self) -> tuple[dict[str, str | bytes], dict[str, Any]]:
         """Stops the profiler and returns its exported artifact contents.
 
+        A failed summary does not lose the trace: the capture keeps `trace.json`
+        and records the error as `summary_error`.
+
         Returns:
-            `{"trace.json": <chrome trace bytes>, "summary.txt": <key-averages text>}`.
+            `{"trace.json": <chrome trace bytes>, "summary.txt": <key-averages text>}`,
+            and the metadata to add to the capture's own.
         """
         self._prof.stop()
         with tempfile.TemporaryDirectory() as tmp_dir:
             trace_path = Path(tmp_dir) / "trace.json"
             self._prof.export_chrome_trace(str(trace_path))
             trace_bytes = trace_path.read_bytes()
-        summary_text = self._prof.key_averages().table()
-        return {"trace.json": trace_bytes, "summary.txt": summary_text}
+        try:
+            summary_text = self._prof.key_averages().table()
+        # pylint: disable-next=broad-exception-caught
+        except Exception as exc:  # noqa: BLE001 -- keep the trace; record the error
+            error = f"{type(exc).__name__}: {exc}"
+            logger.warning("midrun: profile {} summary failed: {}", self.id, error)
+            return {"trace.json": trace_bytes}, {"summary_error": error}
+        return {"trace.json": trace_bytes, "summary.txt": summary_text}, {}
 
     def phase_state(self) -> dict[str, Any]:
         """Live progress, for FUSE/status reporting."""

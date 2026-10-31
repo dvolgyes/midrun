@@ -85,10 +85,38 @@ def test_profiler_run_completes_after_warmup_plus_active_steps() -> None:
     assert run.step() is True
     _ = x @ x
 
-    files = run.finalize()
+    files, metadata = run.finalize()
     assert "trace.json" in files
     assert "summary.txt" in files
     assert len(files["trace.json"]) > 0
+    assert metadata == {}
+
+
+def test_a_failed_summary_still_saves_the_trace_and_records_the_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail_key_averages(*args: object, **kwargs: object) -> None:
+        raise RecursionError("maximum recursion depth exceeded")
+
+    monkeypatch.setattr(torch.profiler.profile, "key_averages", fail_key_averages)
+    store = ArtifactStore(tmp_path)
+    run = ProfilerRun(
+        "p1", warmup_steps=1, active_steps=1, level="basic", then_hold=False
+    )
+    run.start()
+    x = torch.randn(8, 8)
+    while not run.step():
+        _ = x @ x
+
+    run.save(store)
+
+    (capture_dir,) = (store.root / "debug").iterdir()
+    manifest = json.loads((capture_dir / "manifest.json").read_text())
+    assert manifest["metadata"]["summary_error"] == (
+        "RecursionError: maximum recursion depth exceeded"
+    )
+    assert "aten::mm" in _traced_op_names(capture_dir)
+    assert not (capture_dir / "summary.txt").exists()
 
 
 def test_profile_command_arms_immediately(tmp_path: Path) -> None:
