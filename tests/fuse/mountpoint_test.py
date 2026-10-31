@@ -59,6 +59,9 @@ def _mount_in_child(path: Path, fsname: str) -> subprocess.Popen[str]:
             _, stderr = proc.communicate(timeout=10)
             pytest.fail(f"child mount did not start: {stderr}")
         time.sleep(0.02)
+    # The mount shows before fusermount3 hands it to the child, and a kill in that
+    # window makes fusermount3 remove it. A served stat means the child has it.
+    path.stat()
     return proc
 
 
