@@ -16,6 +16,7 @@ from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
 from midrun.rest.app import build_app
 from midrun.runtime.artifacts import ArtifactStore
+from midrun.runtime.command_specs.allowed_during_hold import ALLOWED_DURING_HOLD
 from midrun.runtime.commands.parse_when import parse_when
 from midrun.runtime.events import SafePoint
 from midrun.runtime.runtime import MidrunRuntime
@@ -142,3 +143,23 @@ def test_a_batch_command_scheduled_at_a_batch_safe_point_is_accepted(
 
     assert response.status_code == 200, response.text
     assert response.json()["status"] == "queued"
+
+
+def test_save_current_batch_runs_in_a_hold_while_its_batch_is_in_flight(
+    tmp_path: Path,
+) -> None:
+    # The finite-check hold begins at train_batch_start, with the bad batch in flight.
+    runtime = _make_runtime(tmp_path)
+    model = _ready_model(runtime)
+    runtime.current_step.begin(
+        batch=torch.randn(3, 4), batch_idx=0, epoch=1, global_step=8, started_ns=0
+    )
+    runtime.gate.enter("hold_1", "train_batch_start", epoch=1, step=8)
+    command = runtime.command_queue.submit("save_current_batch", {}, parse_when("now"))
+
+    runtime._run_due_commands(
+        model, model.trainer, safe_point=None, allowed=ALLOWED_DURING_HOLD
+    )
+
+    finished = runtime.command_queue.get(command.id)
+    assert finished.status == "succeeded", finished.error

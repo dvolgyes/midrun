@@ -105,7 +105,9 @@ def test_cancel_of_a_command_that_is_not_a_hold_is_rejected(tmp_path: Path) -> N
 def test_holds_lists_the_commands_that_wait_while_held(tmp_path: Path) -> None:
     runtime = _runtime(tmp_path)
     client = TestClient(build_app(runtime), base_url="http://localhost")
-    command = runtime.command_queue.submit("save_current_batch", {}, parse_when("now"))
+    command = runtime.command_queue.submit(
+        "save_optimizer_summary", {}, parse_when("now")
+    )
     assert client.get("/holds").json()["waiting"] == []
 
     runtime.gate.enter("hold_1", "train_batch_end", epoch=0, step=0)

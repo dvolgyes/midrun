@@ -119,7 +119,7 @@ COMMAND_SPECS: Mapping[str, CommandSpec] = MappingProxyType(
             args=NoArgs,
             handler=handle_save_current_batch,
             all_ranks=False,
-            during_hold=False,
+            during_hold=True,
             during_exception=True,
             needs_batch=True,
         ),
