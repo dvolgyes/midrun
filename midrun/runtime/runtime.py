@@ -14,7 +14,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
-from typing import Any, NoReturn, SupportsIndex
+from typing import TYPE_CHECKING, Any, NoReturn, SupportsIndex
 
 import torch
 from loguru import logger
@@ -75,6 +75,9 @@ from midrun.runtime.state.state_store import StateStore
 from midrun.runtime.torchinfo_inspector.basic_summary_json import basic_summary_json
 from midrun.runtime.torchinfo_inspector.basic_summary_text import basic_summary_text
 from midrun.torch_debug.manager import TorchDebugManager
+
+if TYPE_CHECKING:
+    from lightning.pytorch import LightningModule, Trainer
 
 _KNOWN_SAFE_BACKWARD_STRATEGIES = frozenset(
     {"SingleDeviceStrategy", "DDPStrategy", "FSDPStrategy"}
@@ -264,7 +267,7 @@ class MidrunRuntime:
 
     # ---- Lightning lifecycle ------------------------------------------------
 
-    def setup_environment(self, pl_module: Any, stage: str) -> None:
+    def setup_environment(self, pl_module: "LightningModule", stage: str) -> None:
         """Starts Midrun's services. Idempotent; safe to call for every Lightning stage."""
         del stage
         with self._lock:
@@ -311,7 +314,7 @@ class MidrunRuntime:
 
         self.state.update(status="running")
 
-    def on_fit_start(self, pl_module: Any) -> None:
+    def on_fit_start(self, pl_module: "LightningModule") -> None:
         """Publishes the first full snapshot and tunable hparams once the Trainer is attached."""
         self.model_info = ModelInfo(
             class_name=type(pl_module).__name__,
@@ -323,7 +326,7 @@ class MidrunRuntime:
         self._refresh_tunable_hparams(pl_module, pl_module.trainer)
         self._publish(pl_module, status="held" if self.gate.is_held() else "running")
 
-    def teardown(self, pl_module: Any, stage: str) -> None:
+    def teardown(self, pl_module: "LightningModule", stage: str) -> None:
         """Stops Midrun's services. Idempotent; releases any dangling hold first."""
         del pl_module, stage
         self.current_step.clear()
@@ -366,7 +369,9 @@ class MidrunRuntime:
 
     # ---- lifecycle hooks --------------------------------------------------------
 
-    def open_logging_session(self, trainer: Any, pl_module: Any) -> LoggingSession:
+    def open_logging_session(
+        self, trainer: "Trainer", pl_module: "LightningModule"
+    ) -> LoggingSession:
         """Opens this stage `_run`'s logging session; see `StageSessions`."""
         return self.sessions.open_logging_session(trainer, pl_module)
 
@@ -374,13 +379,15 @@ class MidrunRuntime:
         """Closes the logging session, if one is open; see `StageSessions`."""
         self.sessions.close_logging_session()
 
-    def ensure_hook_session(self, trainer: Any, pl_module: Any) -> None:
+    def ensure_hook_session(
+        self, trainer: "Trainer", pl_module: "LightningModule"
+    ) -> None:
         """Bootstraps this run's hooks tree for one stage `_run`; see `StageSessions`."""
         self.sessions.ensure_hook_session(trainer, pl_module)
 
     def dispatch_hook(
         self,
-        trainer: Any,
+        trainer: "Trainer",
         hook: str,
         *,
         stage_override: str | None = None,
@@ -405,7 +412,10 @@ class MidrunRuntime:
     # ---- safe points ----------------------------------------------------------
 
     def process_safe_point(
-        self, pl_module: Any, safe_point: SafePoint, batch_idx: int | None = None
+        self,
+        pl_module: "LightningModule",
+        safe_point: SafePoint,
+        batch_idx: int | None = None,
     ) -> None:
         """Publishes state, executes due commands, and blocks here if a hold is active.
 
@@ -424,7 +434,9 @@ class MidrunRuntime:
         if held:
             self._hold_loop(pl_module, trainer)
 
-    def _refresh_tunable_hparams(self, pl_module: Any, trainer: Any) -> None:
+    def _refresh_tunable_hparams(
+        self, pl_module: "LightningModule", trainer: "Trainer"
+    ) -> None:
         """Rebuilds `tunable_hparams` from each registered knob's current value.
 
         Reassigns the whole dict rather than mutating it in place, matching
@@ -449,7 +461,7 @@ class MidrunRuntime:
                     )
         self._tunable_hparams = fresh
 
-    def _hold_loop(self, pl_module: Any, trainer: Any) -> None:
+    def _hold_loop(self, pl_module: "LightningModule", trainer: "Trainer") -> None:
         """Blocks every rank while rank 0's gate is held.
 
         Rank 0 sends its hold state about ten times a second, so the other ranks wait
@@ -467,8 +479,8 @@ class MidrunRuntime:
 
     def _run_due_commands(
         self,
-        pl_module: Any,
-        trainer: Any,
+        pl_module: "LightningModule",
+        trainer: "Trainer",
         safe_point: SafePoint | None,
         allowed: frozenset[str] | None,
     ) -> bool:
@@ -505,7 +517,9 @@ class MidrunRuntime:
 
     # ---- per-batch hooks ----------------------------------------------------------
 
-    def begin_train_batch(self, pl_module: Any, batch: Any, batch_idx: int) -> None:
+    def begin_train_batch(
+        self, pl_module: "LightningModule", batch: Any, batch_idx: int
+    ) -> None:
         """Records batch-start timing/state. Called from `on_train_batch_start`.
 
         Enters a cooperative hold directly (bypassing the command queue, like
@@ -535,7 +549,7 @@ class MidrunRuntime:
         """Records the post-backward timestamp. Called from `on_after_backward`."""
         self.pipeline.after_backward(time.perf_counter_ns())
 
-    def finish_train_batch(self, pl_module: Any) -> None:
+    def finish_train_batch(self, pl_module: "LightningModule") -> None:
         """Finalizes this batch's pipeline-pressure sample and clears `current_step`.
 
         Called from `on_train_batch_end`, after safe-point processing, in a `finally`
@@ -546,7 +560,7 @@ class MidrunRuntime:
         self._advance_profiler(pl_module)
         self.current_step.clear()
 
-    def _advance_profiler(self, pl_module: Any) -> None:
+    def _advance_profiler(self, pl_module: "LightningModule") -> None:
         """Steps the active `ProfilerRun`, if any, finalizing it once due.
 
         Runs inside the hot per-batch hook path, not a command handler, so this is a
@@ -586,8 +600,8 @@ class MidrunRuntime:
 
     def _handle_bad_batch(
         self,
-        pl_module: Any,
-        trainer: Any,
+        pl_module: "LightningModule",
+        trainer: "Trainer",
         batch_idx: int,
         report: FiniteCheckReport | None,
     ) -> None:
@@ -614,7 +628,7 @@ class MidrunRuntime:
     # ---- exception breakpoint ------------------------------------------------------
 
     def handle_backward_exception(
-        self, pl_module: Any, loss: Any, exc: Exception
+        self, pl_module: "LightningModule", loss: Any, exc: Exception
     ) -> None:
         """Freezes the failing batch/loss and holds for inspection before re-raising.
 
@@ -652,7 +666,9 @@ class MidrunRuntime:
             self.current_step.clear()
         self._publish(pl_module, status="running")
 
-    def _exception_hold_loop(self, pl_module: Any, trainer: Any) -> None:
+    def _exception_hold_loop(
+        self, pl_module: "LightningModule", trainer: "Trainer"
+    ) -> None:
         # Only rank 0 holds here, so this loop runs its commands without a collective.
         while self.exception_hold is not None:
             for command in self._due_commands(
@@ -667,7 +683,7 @@ class MidrunRuntime:
                 break
             self.gate.wait_for_control_event(timeout=0.1)
 
-    def _detect_backward_interception(self, pl_module: Any) -> None:
+    def _detect_backward_interception(self, pl_module: "LightningModule") -> None:
         """Probes whether the active strategy is known to route backward through
         `LightningModule.backward()`, via an explicit allowlist (not runtime
         bypass-detection, which is unreliable).
@@ -694,7 +710,7 @@ class MidrunRuntime:
     # ---- state publication ------------------------------------------------------
 
     def _publish(
-        self, pl_module: Any, status: str, batch_idx: int | None = None
+        self, pl_module: "LightningModule", status: str, batch_idx: int | None = None
     ) -> None:
         trainer = pl_module.trainer
         # Lightning computes these properties on each access; read them once.
@@ -782,7 +798,7 @@ class MidrunRuntime:
             local if info.global_rank == local.global_rank else info for info in ranks
         )
 
-    def _gather_ranks(self, pl_module: Any) -> None:
+    def _gather_ranks(self, pl_module: "LightningModule") -> None:
         import torch.distributed as dist
 
         initialized = dist.is_available() and dist.is_initialized()

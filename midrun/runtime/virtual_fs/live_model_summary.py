@@ -1,6 +1,6 @@
 """The content of model/summary-live.txt."""
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from midrun.runtime.run_on_in_flight_batch import run_on_in_flight_batch
 from midrun.runtime.torchinfo_inspector.torchinfo_rich_summary import (
@@ -10,6 +10,8 @@ from midrun.runtime.virtual_fs.encode_text import encode_text
 from midrun.runtime.virtual_fs.live_capture_timeout import LIVE_CAPTURE_TIMEOUT_S
 
 if TYPE_CHECKING:
+    from lightning.pytorch import LightningModule
+
     from midrun.runtime.runtime import MidrunRuntime
 
 
@@ -24,7 +26,7 @@ def live_model_summary(rt: "MidrunRuntime") -> bytes:
             sharded.
     """
 
-    def compute(pl_module: Any) -> str:
+    def compute(pl_module: "LightningModule") -> str:
         return run_on_in_flight_batch(
             lambda target: torchinfo_rich_summary(pl_module, target)["summary.txt"],
             rt,

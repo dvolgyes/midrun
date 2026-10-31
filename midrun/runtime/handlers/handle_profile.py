@@ -1,6 +1,6 @@
 """Runs the `profile` command: arms a bounded torch.profiler run."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from midrun.runtime.command_specs.command_runtime import CommandRuntime
 from midrun.runtime.commands.command import Command
@@ -8,11 +8,14 @@ from midrun.runtime.events import SafePoint
 from midrun.runtime.profiler import ProfilerRun
 from midrun.runtime.require_steady_cpu_clock import require_steady_cpu_clock
 
+if TYPE_CHECKING:
+    from lightning.pytorch import LightningModule, Trainer
+
 
 def handle_profile(
     runtime: CommandRuntime,
-    pl_module: Any,
-    trainer: Any,
+    pl_module: "LightningModule",
+    trainer: "Trainer",
     command: Command,
     safe_point: SafePoint | None,
 ) -> dict[str, Any]:

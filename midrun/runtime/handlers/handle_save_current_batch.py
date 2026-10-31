@@ -1,6 +1,6 @@
 """Runs the `save_current_batch` command."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from lightning_utilities.core.apply_func import apply_to_collection
 
@@ -8,11 +8,14 @@ from midrun.runtime.command_specs.command_runtime import CommandRuntime
 from midrun.runtime.commands.command import Command
 from midrun.runtime.events import SafePoint
 
+if TYPE_CHECKING:
+    from lightning.pytorch import LightningModule, Trainer
+
 
 def handle_save_current_batch(
     runtime: CommandRuntime,
-    pl_module: Any,
-    trainer: Any,
+    pl_module: "LightningModule",
+    trainer: "Trainer",
     command: Command,
     safe_point: SafePoint | None,
 ) -> dict[str, Any]:

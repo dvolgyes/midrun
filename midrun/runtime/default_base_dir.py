@@ -3,12 +3,15 @@
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from lightning.pytorch import LightningModule
 
 _UNSAFE_CHARACTERS = re.compile(r"[^A-Za-z0-9._-]")
 
 
-def default_base_dir(pl_module: Any, run_id: str) -> Path:
+def default_base_dir(pl_module: "LightningModule", run_id: str) -> Path:
     """Resolves the default directory for Midrun's run files.
 
     The directory holds `hooks/`, `procfs/`, `artifacts/`, `midrun.log` and the hooks

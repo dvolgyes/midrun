@@ -1,6 +1,6 @@
 """Runs the `save_optimizer_summary` command."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from midrun.encode_json import encode_json
 from midrun.runtime.command_specs.command_runtime import CommandRuntime
@@ -10,11 +10,14 @@ from midrun.runtime.handlers.optimizer_summary_payload import (
     optimizer_summary_payload,
 )
 
+if TYPE_CHECKING:
+    from lightning.pytorch import LightningModule, Trainer
+
 
 def handle_save_optimizer_summary(
     runtime: CommandRuntime,
-    pl_module: Any,
-    trainer: Any,
+    pl_module: "LightningModule",
+    trainer: "Trainer",
     command: Command,
     safe_point: SafePoint | None,
 ) -> dict[str, Any]:

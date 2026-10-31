@@ -6,11 +6,16 @@ both namespaces' installed `Callback` API and fails on drift, but production cod
 here never discovers a method that way.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
 from midrun.lightning_backend import LightningBackend
+
+if TYPE_CHECKING:
+    from lightning.pytorch import Trainer
+
+    from midrun.mixin import MidrunMixin
 
 
 class _HookMethods:
@@ -31,7 +36,7 @@ class _HookMethods:
     the stage trains with no session, so every dispatch is a no-op.
     """
 
-    def setup(self, trainer: Any, pl_module: Any, stage: str) -> None:
+    def setup(self, trainer: "Trainer", pl_module: "MidrunMixin", stage: str) -> None:
         runtime = pl_module.midrun
         try:
             runtime.ensure_hook_session(trainer, pl_module)
@@ -44,38 +49,44 @@ class _HookMethods:
             )
         _dispatch(trainer, pl_module, "setup", stage_override=stage)
 
-    def teardown(self, trainer: Any, pl_module: Any, stage: str) -> None:
+    def teardown(
+        self, trainer: "Trainer", pl_module: "MidrunMixin", stage: str
+    ) -> None:
         try:
             _dispatch(trainer, pl_module, "teardown", stage_override=stage)
         finally:
             pl_module.midrun.close_hook_session()
 
-    def on_fit_start(self, trainer: Any, pl_module: Any) -> None:
+    def on_fit_start(self, trainer: "Trainer", pl_module: "MidrunMixin") -> None:
         _dispatch(trainer, pl_module, "on_fit_start")
 
-    def on_fit_end(self, trainer: Any, pl_module: Any) -> None:
+    def on_fit_end(self, trainer: "Trainer", pl_module: "MidrunMixin") -> None:
         _dispatch(trainer, pl_module, "on_fit_end")
 
-    def on_sanity_check_start(self, trainer: Any, pl_module: Any) -> None:
+    def on_sanity_check_start(
+        self, trainer: "Trainer", pl_module: "MidrunMixin"
+    ) -> None:
         _dispatch(trainer, pl_module, "on_sanity_check_start")
 
-    def on_sanity_check_end(self, trainer: Any, pl_module: Any) -> None:
+    def on_sanity_check_end(self, trainer: "Trainer", pl_module: "MidrunMixin") -> None:
         _dispatch(trainer, pl_module, "on_sanity_check_end")
 
-    def on_train_start(self, trainer: Any, pl_module: Any) -> None:
+    def on_train_start(self, trainer: "Trainer", pl_module: "MidrunMixin") -> None:
         _dispatch(trainer, pl_module, "on_train_start")
 
-    def on_train_end(self, trainer: Any, pl_module: Any) -> None:
+    def on_train_end(self, trainer: "Trainer", pl_module: "MidrunMixin") -> None:
         _dispatch(trainer, pl_module, "on_train_end")
 
-    def on_train_epoch_start(self, trainer: Any, pl_module: Any) -> None:
+    def on_train_epoch_start(
+        self, trainer: "Trainer", pl_module: "MidrunMixin"
+    ) -> None:
         _dispatch(trainer, pl_module, "on_train_epoch_start")
 
-    def on_train_epoch_end(self, trainer: Any, pl_module: Any) -> None:
+    def on_train_epoch_end(self, trainer: "Trainer", pl_module: "MidrunMixin") -> None:
         _dispatch(trainer, pl_module, "on_train_epoch_end")
 
     def on_train_batch_start(
-        self, trainer: Any, pl_module: Any, batch: Any, batch_idx: int
+        self, trainer: "Trainer", pl_module: "MidrunMixin", batch: Any, batch_idx: int
     ) -> None:
         _dispatch(
             trainer,
@@ -86,7 +97,12 @@ class _HookMethods:
         )
 
     def on_train_batch_end(
-        self, trainer: Any, pl_module: Any, outputs: Any, batch: Any, batch_idx: int
+        self,
+        trainer: "Trainer",
+        pl_module: "MidrunMixin",
+        outputs: Any,
+        batch: Any,
+        batch_idx: int,
     ) -> None:
         _dispatch(
             trainer,
@@ -96,22 +112,26 @@ class _HookMethods:
             batch_idx=batch_idx,
         )
 
-    def on_validation_start(self, trainer: Any, pl_module: Any) -> None:
+    def on_validation_start(self, trainer: "Trainer", pl_module: "MidrunMixin") -> None:
         _dispatch(trainer, pl_module, "on_validation_start")
 
-    def on_validation_end(self, trainer: Any, pl_module: Any) -> None:
+    def on_validation_end(self, trainer: "Trainer", pl_module: "MidrunMixin") -> None:
         _dispatch(trainer, pl_module, "on_validation_end")
 
-    def on_validation_epoch_start(self, trainer: Any, pl_module: Any) -> None:
+    def on_validation_epoch_start(
+        self, trainer: "Trainer", pl_module: "MidrunMixin"
+    ) -> None:
         _dispatch(trainer, pl_module, "on_validation_epoch_start")
 
-    def on_validation_epoch_end(self, trainer: Any, pl_module: Any) -> None:
+    def on_validation_epoch_end(
+        self, trainer: "Trainer", pl_module: "MidrunMixin"
+    ) -> None:
         _dispatch(trainer, pl_module, "on_validation_epoch_end")
 
     def on_validation_batch_start(
         self,
-        trainer: Any,
-        pl_module: Any,
+        trainer: "Trainer",
+        pl_module: "MidrunMixin",
         batch: Any,
         batch_idx: int,
         dataloader_idx: int = 0,
@@ -127,8 +147,8 @@ class _HookMethods:
 
     def on_validation_batch_end(
         self,
-        trainer: Any,
-        pl_module: Any,
+        trainer: "Trainer",
+        pl_module: "MidrunMixin",
         outputs: Any,
         batch: Any,
         batch_idx: int,
@@ -143,22 +163,22 @@ class _HookMethods:
             dataloader_idx=dataloader_idx,
         )
 
-    def on_test_start(self, trainer: Any, pl_module: Any) -> None:
+    def on_test_start(self, trainer: "Trainer", pl_module: "MidrunMixin") -> None:
         _dispatch(trainer, pl_module, "on_test_start")
 
-    def on_test_end(self, trainer: Any, pl_module: Any) -> None:
+    def on_test_end(self, trainer: "Trainer", pl_module: "MidrunMixin") -> None:
         _dispatch(trainer, pl_module, "on_test_end")
 
-    def on_test_epoch_start(self, trainer: Any, pl_module: Any) -> None:
+    def on_test_epoch_start(self, trainer: "Trainer", pl_module: "MidrunMixin") -> None:
         _dispatch(trainer, pl_module, "on_test_epoch_start")
 
-    def on_test_epoch_end(self, trainer: Any, pl_module: Any) -> None:
+    def on_test_epoch_end(self, trainer: "Trainer", pl_module: "MidrunMixin") -> None:
         _dispatch(trainer, pl_module, "on_test_epoch_end")
 
     def on_test_batch_start(
         self,
-        trainer: Any,
-        pl_module: Any,
+        trainer: "Trainer",
+        pl_module: "MidrunMixin",
         batch: Any,
         batch_idx: int,
         dataloader_idx: int = 0,
@@ -174,8 +194,8 @@ class _HookMethods:
 
     def on_test_batch_end(
         self,
-        trainer: Any,
-        pl_module: Any,
+        trainer: "Trainer",
+        pl_module: "MidrunMixin",
         outputs: Any,
         batch: Any,
         batch_idx: int,
@@ -190,22 +210,26 @@ class _HookMethods:
             dataloader_idx=dataloader_idx,
         )
 
-    def on_predict_start(self, trainer: Any, pl_module: Any) -> None:
+    def on_predict_start(self, trainer: "Trainer", pl_module: "MidrunMixin") -> None:
         _dispatch(trainer, pl_module, "on_predict_start")
 
-    def on_predict_end(self, trainer: Any, pl_module: Any) -> None:
+    def on_predict_end(self, trainer: "Trainer", pl_module: "MidrunMixin") -> None:
         _dispatch(trainer, pl_module, "on_predict_end")
 
-    def on_predict_epoch_start(self, trainer: Any, pl_module: Any) -> None:
+    def on_predict_epoch_start(
+        self, trainer: "Trainer", pl_module: "MidrunMixin"
+    ) -> None:
         _dispatch(trainer, pl_module, "on_predict_epoch_start")
 
-    def on_predict_epoch_end(self, trainer: Any, pl_module: Any) -> None:
+    def on_predict_epoch_end(
+        self, trainer: "Trainer", pl_module: "MidrunMixin"
+    ) -> None:
         _dispatch(trainer, pl_module, "on_predict_epoch_end")
 
     def on_predict_batch_start(
         self,
-        trainer: Any,
-        pl_module: Any,
+        trainer: "Trainer",
+        pl_module: "MidrunMixin",
         batch: Any,
         batch_idx: int,
         dataloader_idx: int = 0,
@@ -221,8 +245,8 @@ class _HookMethods:
 
     def on_predict_batch_end(
         self,
-        trainer: Any,
-        pl_module: Any,
+        trainer: "Trainer",
+        pl_module: "MidrunMixin",
         outputs: Any,
         batch: Any,
         batch_idx: int,
@@ -237,14 +261,16 @@ class _HookMethods:
             dataloader_idx=dataloader_idx,
         )
 
-    def on_before_backward(self, trainer: Any, pl_module: Any, loss: Any) -> None:
+    def on_before_backward(
+        self, trainer: "Trainer", pl_module: "MidrunMixin", loss: Any
+    ) -> None:
         _dispatch(trainer, pl_module, "on_before_backward", arguments={"loss": loss})
 
-    def on_after_backward(self, trainer: Any, pl_module: Any) -> None:
+    def on_after_backward(self, trainer: "Trainer", pl_module: "MidrunMixin") -> None:
         _dispatch(trainer, pl_module, "on_after_backward")
 
     def on_before_optimizer_step(
-        self, trainer: Any, pl_module: Any, optimizer: Any
+        self, trainer: "Trainer", pl_module: "MidrunMixin", optimizer: Any
     ) -> None:
         _dispatch(
             trainer,
@@ -253,7 +279,9 @@ class _HookMethods:
             arguments={"optimizer": optimizer},
         )
 
-    def on_before_zero_grad(self, trainer: Any, pl_module: Any, optimizer: Any) -> None:
+    def on_before_zero_grad(
+        self, trainer: "Trainer", pl_module: "MidrunMixin", optimizer: Any
+    ) -> None:
         _dispatch(
             trainer,
             pl_module,
@@ -262,7 +290,7 @@ class _HookMethods:
         )
 
     def on_save_checkpoint(
-        self, trainer: Any, pl_module: Any, checkpoint: dict[str, Any]
+        self, trainer: "Trainer", pl_module: "MidrunMixin", checkpoint: dict[str, Any]
     ) -> None:
         _dispatch(
             trainer,
@@ -272,7 +300,7 @@ class _HookMethods:
         )
 
     def on_load_checkpoint(
-        self, trainer: Any, pl_module: Any, checkpoint: dict[str, Any]
+        self, trainer: "Trainer", pl_module: "MidrunMixin", checkpoint: dict[str, Any]
     ) -> None:
         _dispatch(
             trainer,
@@ -282,7 +310,7 @@ class _HookMethods:
         )
 
     def on_exception(
-        self, trainer: Any, pl_module: Any, exception: BaseException
+        self, trainer: "Trainer", pl_module: "MidrunMixin", exception: BaseException
     ) -> None:
         try:
             _dispatch(
@@ -296,8 +324,8 @@ class _HookMethods:
 
 
 def _dispatch(
-    trainer: Any,
-    pl_module: Any,
+    trainer: "Trainer",
+    pl_module: "MidrunMixin",
     hook: str,
     *,
     stage_override: str | None = None,

@@ -1,6 +1,6 @@
 """Runs one due command and records its result in the command queue."""
 
-from typing import Any
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
@@ -9,11 +9,14 @@ from midrun.runtime.command_specs.command_specs import COMMAND_SPECS
 from midrun.runtime.commands.command import Command
 from midrun.runtime.events import SafePoint
 
+if TYPE_CHECKING:
+    from lightning.pytorch import LightningModule, Trainer
+
 
 def execute_command(
     runtime: CommandRuntime,
-    pl_module: Any,
-    trainer: Any,
+    pl_module: "LightningModule",
+    trainer: "Trainer",
     command: Command,
     safe_point: SafePoint | None,
 ) -> None:

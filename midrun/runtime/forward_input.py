@@ -8,10 +8,13 @@ live model-summary/graph FUSE/REST views) resolves the raw batch through here fi
 so the mismatch is fixed once rather than at each call site.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from lightning.pytorch import LightningModule
 
 
-def resolve(pl_module: Any, batch: Any) -> Any:
+def resolve(pl_module: "LightningModule", batch: Any) -> Any:
     """Returns what to pass to `pl_module.forward`, given a raw training batch.
 
     Calls `pl_module.midrun_forward_input(batch)` when the model defines it --

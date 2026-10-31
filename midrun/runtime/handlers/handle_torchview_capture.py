@@ -1,6 +1,6 @@
 """Runs the `torchview_capture` command."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from midrun.runtime.command_specs.command_runtime import CommandRuntime
 from midrun.runtime.commands.command import Command
@@ -8,11 +8,14 @@ from midrun.runtime.events import SafePoint
 from midrun.runtime.graph_inspectors.torchview_capture import torchview_capture
 from midrun.runtime.run_on_in_flight_batch import run_on_in_flight_batch
 
+if TYPE_CHECKING:
+    from lightning.pytorch import LightningModule, Trainer
+
 
 def handle_torchview_capture(
     runtime: CommandRuntime,
-    pl_module: Any,
-    trainer: Any,
+    pl_module: "LightningModule",
+    trainer: "Trainer",
     command: Command,
     safe_point: SafePoint | None,
 ) -> dict[str, Any]:

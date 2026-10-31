@@ -1,9 +1,12 @@
 """The static text summary of a model, with or without torchinfo."""
 
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from lightning.pytorch import LightningModule
 
 
-def basic_summary_text(pl_module: Any) -> str:
+def basic_summary_text(pl_module: "LightningModule") -> str:
     """A static, no-input module/param-tree summary; falls back to `str(pl_module)`.
 
     Never raises: this backs the always-computed `/model/summary.txt`, so an

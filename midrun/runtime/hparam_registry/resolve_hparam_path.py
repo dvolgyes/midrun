@@ -1,11 +1,16 @@
 """Resolves a dotted hparam path to its parent object and leaf name."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from midrun.runtime.hparam_registry.get_field import get_field
 
+if TYPE_CHECKING:
+    from lightning.pytorch import LightningModule, Trainer
 
-def resolve_hparam_path(pl_module: Any, trainer: Any, path: str) -> tuple[Any, str]:
+
+def resolve_hparam_path(
+    pl_module: "LightningModule", trainer: "Trainer", path: str
+) -> tuple[Any, str]:
     """Walks a dotted path to its parent object and leaf name.
 
     A `"trainer."` prefix roots the walk at `trainer`; otherwise it roots at

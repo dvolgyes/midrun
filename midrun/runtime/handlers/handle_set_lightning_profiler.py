@@ -1,7 +1,7 @@
 """Runs the `set_lightning_profiler` command."""
 
 import weakref
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import torch
 
@@ -10,11 +10,14 @@ from midrun.runtime.commands.command import Command
 from midrun.runtime.events import SafePoint
 from midrun.runtime.require_steady_cpu_clock import require_steady_cpu_clock
 
+if TYPE_CHECKING:
+    from lightning.pytorch import LightningModule, Trainer
+
 
 def handle_set_lightning_profiler(
     runtime: CommandRuntime,
-    pl_module: Any,
-    trainer: Any,
+    pl_module: "LightningModule",
+    trainer: "Trainer",
     command: Command,
     safe_point: SafePoint | None,
 ) -> dict[str, Any]:
@@ -48,7 +51,8 @@ def handle_set_lightning_profiler(
     if level == "pytorch":
         require_steady_cpu_clock("the pytorch Lightning profiler")
     profilers = runtime.backend.PL.profilers
-    old = trainer.profiler
+    # Lightning sets Trainer.profiler outside the class, so its type omits it.
+    old = trainer.profiler  # type: ignore[attr-defined]
     stage = trainer.state.fn
     if isinstance(old, profilers.PyTorchProfiler):
         torch_profiler = old.profiler
@@ -80,6 +84,6 @@ def handle_set_lightning_profiler(
         local_rank=trainer.local_rank if trainer.world_size > 1 else None,
         log_dir=old.dirpath,
     )
-    trainer.profiler = profiler
+    trainer.profiler = profiler  # type: ignore[attr-defined]
     runtime.lightning_profiler_level = level
     return {"level": level}

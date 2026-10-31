@@ -11,9 +11,12 @@ audited action.
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
+
+if TYPE_CHECKING:
+    from lightning.pytorch import LightningModule
 
 
 @dataclass
@@ -60,7 +63,7 @@ class LiveCaptureBroker:
             raise pending.error
         return pending.result
 
-    def serve(self, pl_module: Any) -> None:
+    def serve(self, pl_module: "LightningModule") -> None:
         """Runs and wakes every pending request. Call only from the training thread."""
         with self._lock:
             pending, self._pending = self._pending, []

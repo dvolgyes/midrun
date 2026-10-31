@@ -1,7 +1,7 @@
 """Runs the `snapshot` command: writes a state snapshot artifact."""
 
 from dataclasses import asdict
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from midrun.runtime.command_specs.command_runtime import CommandRuntime
 from midrun.runtime.commands.command import Command
@@ -11,11 +11,14 @@ from midrun.runtime.handlers.optimizer_summary_payload import (
 )
 from midrun.runtime.state.host_snapshot import host_snapshot
 
+if TYPE_CHECKING:
+    from lightning.pytorch import LightningModule, Trainer
+
 
 def handle_snapshot(
     runtime: CommandRuntime,
-    pl_module: Any,
-    trainer: Any,
+    pl_module: "LightningModule",
+    trainer: "Trainer",
     command: Command,
     safe_point: SafePoint | None,
 ) -> dict[str, Any]:

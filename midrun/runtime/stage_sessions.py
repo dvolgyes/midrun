@@ -2,7 +2,7 @@
 
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from midrun.config import MidrunConfig
 from midrun.hooks.manager.bootstrap_hooks_tree import bootstrap_hooks_tree
@@ -12,6 +12,9 @@ from midrun.runtime.default_base_dir import default_base_dir
 from midrun.runtime.new_hooks_session_id import new_hooks_session_id
 from midrun.runtime.start_logging_session import start_logging_session
 from midrun.runtime.trainer_stage_name import trainer_stage_name
+
+if TYPE_CHECKING:
+    from lightning.pytorch import LightningModule, Trainer
 
 
 class StageSessions:
@@ -35,7 +38,9 @@ class StageSessions:
         self.hook_session = None
         self.logging_session = None
 
-    def open_logging_session(self, trainer: Any, pl_module: Any) -> LoggingSession:
+    def open_logging_session(
+        self, trainer: "Trainer", pl_module: "LightningModule"
+    ) -> LoggingSession:
         """Opens this stage `_run`'s logging session, unless it is open, and returns it.
 
         Idempotent. The first Midrun callback `setup` of the `_run` opens it: the hooks
@@ -59,7 +64,9 @@ class StageSessions:
             self.logging_session.close()
             self.logging_session = None
 
-    def ensure_hook_session(self, trainer: Any, pl_module: Any) -> None:
+    def ensure_hook_session(
+        self, trainer: "Trainer", pl_module: "LightningModule"
+    ) -> None:
         """Bootstraps this run's hooks tree for one stage `_run`.
 
         Idempotent -- a no-op if a session from this same stage is already open.
@@ -113,7 +120,7 @@ class StageSessions:
 
     def dispatch_hook(
         self,
-        trainer: Any,
+        trainer: "Trainer",
         hook: str,
         *,
         stage_override: str | None = None,

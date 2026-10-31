@@ -1,12 +1,15 @@
 """Resolves a REST parameter selector to optimizer parameters."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import torch
 
+if TYPE_CHECKING:
+    from lightning.pytorch import LightningModule
+
 
 def resolve_optimizer_parameters(
-    pl_module: Any, optimizer: torch.optim.Optimizer, selector: Any
+    pl_module: "LightningModule", optimizer: torch.optim.Optimizer, selector: Any
 ) -> list[torch.nn.Parameter]:
     """Resolves a REST-supplied selector to concrete parameters inside `optimizer`.
 

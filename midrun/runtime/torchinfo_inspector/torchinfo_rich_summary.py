@@ -1,9 +1,12 @@
 """The torchinfo summary of a model, traced with a live batch."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from lightning.pytorch import LightningModule
 
 
-def torchinfo_rich_summary(pl_module: Any, batch: Any) -> dict[str, str]:
+def torchinfo_rich_summary(pl_module: "LightningModule", batch: Any) -> dict[str, str]:
     """A forward-traced summary using the live in-flight `batch` as input.
 
     Args:

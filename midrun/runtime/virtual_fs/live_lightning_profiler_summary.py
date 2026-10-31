@@ -2,12 +2,12 @@
 
 from typing import TYPE_CHECKING
 
-import torch
-
 from midrun.runtime.virtual_fs.encode_text import encode_text
 from midrun.runtime.virtual_fs.live_capture_timeout import LIVE_CAPTURE_TIMEOUT_S
 
 if TYPE_CHECKING:
+    from lightning.pytorch import LightningModule
+
     from midrun.runtime.runtime import MidrunRuntime
 
 _NOT_ENABLED = "lightning profiler not enabled"
@@ -27,7 +27,7 @@ def live_lightning_profiler_summary(rt: "MidrunRuntime") -> bytes:
     if rt.lightning_profiler is None:
         return encode_text(_NOT_ENABLED)
 
-    def compute(pl_module: torch.nn.Module) -> str:
+    def compute(pl_module: "LightningModule") -> str:
         """Returns the summary, and replaces a `PyTorchProfiler` that it ended."""
         # A command at the same safe point can change the profiler before this runs.
         profiler = rt.lightning_profiler
@@ -38,8 +38,8 @@ def live_lightning_profiler_summary(rt: "MidrunRuntime") -> bytes:
         if not isinstance(profiler, pytorch_profiler):
             return summary
         fresh = pytorch_profiler()
-        # nn.Module's attribute type does not know the LightningModule's trainer.
-        pl_module.trainer.profiler = fresh  # type: ignore[union-attr]
+        # Lightning sets Trainer.profiler outside the class, so its type omits it.
+        pl_module.trainer.profiler = fresh  # type: ignore[attr-defined]
         rt.lightning_profiler = fresh
         return (
             f"{summary}\n\nThis read ended the PyTorch profile and reset the profiler: "

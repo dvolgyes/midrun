@@ -35,6 +35,7 @@ from midrun.runtime.runtime import MidrunRuntime
 # hooks type-check. At run time the base is `object`, so that the mixin composes
 # with the LightningModule of either Lightning namespace.
 if TYPE_CHECKING:
+    from lightning.pytorch import LightningModule, Trainer
     from lightning.pytorch import LightningModule as _MixinBase
 else:
     _MixinBase = object
@@ -315,7 +316,9 @@ class _ServiceGuardMethods:
         super().__init__()
         self.runtime = runtime
 
-    def setup(self, trainer: object, pl_module: object, stage: str) -> None:
+    def setup(
+        self, trainer: "Trainer", pl_module: "LightningModule", stage: str
+    ) -> None:
         """Opens the logging session, unless the hooks adapter's `setup` opened it."""
         del stage
         self.runtime.open_logging_session(trainer, pl_module)

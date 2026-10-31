@@ -1,20 +1,21 @@
 """Runs an inspector on the forward input of the in-flight batch."""
 
 from collections.abc import Callable
-from typing import Any
-
-import torch
+from typing import TYPE_CHECKING, Any
 
 from midrun.runtime import forward_input
 from midrun.runtime.command_specs.command_runtime import CommandRuntime
 from midrun.runtime.inspector_forward import inspector_forward
+
+if TYPE_CHECKING:
+    from lightning.pytorch import LightningModule
 
 
 def run_on_in_flight_batch[T](
     inspect: Callable[[Any], T],
     runtime: CommandRuntime,
     trainer: object,
-    pl_module: torch.nn.Module,
+    pl_module: "LightningModule",
     what: str,
     *,
     needs_grad: bool = False,
