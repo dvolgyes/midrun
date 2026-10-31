@@ -370,7 +370,9 @@ def test_keyboard_interrupt_is_contained_then_reraised(
 ) -> None:
     script = _write_script(
         tmp_path,
-        "#!/usr/bin/env bash\nsleep 100 &\necho $! > child.pid\nwait\n",
+        # The rename makes child.pid appear with the whole pid in it.
+        "#!/usr/bin/env bash\nsleep 100 &\necho $! > child.pid.tmp\n"
+        "mv child.pid.tmp child.pid\nwait\n",
     )
     real_wait = subprocess.Popen.wait
     calls = {"n": 0}
