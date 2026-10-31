@@ -52,7 +52,7 @@ class HoldClient:
             raise HoldClientError(f"{method} {path} failed: {exc}") from exc
 
     def arm_hold(
-        self, when: Any = "now", reason: str = "", timeout_s: float = 5.0
+        self, when: object = "now", reason: str = "", timeout_s: float = 5.0
     ) -> dict[str, Any]:
         """Arms a hold; see `POST /holds` for the bounded-wait/`202`-fallback semantics."""
         return self._request(

@@ -11,7 +11,6 @@ is not free, even in the simple per-tensor form implemented here.
 """
 
 from dataclasses import dataclass
-from typing import Any
 
 import torch
 
@@ -67,7 +66,7 @@ class DataloaderFiniteGuard:
         self.checked_batches = 0
         self.failures = 0
 
-    def check(self, batch: Any) -> FiniteCheckReport | None:
+    def check(self, batch: object) -> FiniteCheckReport | None:
         """Returns a `FiniteCheckReport` if `batch` contains non-finite values, else `None`.
 
         No-ops (returns `None` without traversing `batch`) when `enabled` is False.

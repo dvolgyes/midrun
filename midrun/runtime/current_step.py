@@ -35,7 +35,12 @@ class CurrentStep:
     exception: BaseException | None = None
 
     def begin(
-        self, batch: Any, batch_idx: int, epoch: int, global_step: int, started_ns: int
+        self,
+        batch: object,
+        batch_idx: int,
+        epoch: int,
+        global_step: int,
+        started_ns: int,
     ) -> None:
         """Starts tracking a new batch, discarding any previous one's references."""
         self.epoch = epoch

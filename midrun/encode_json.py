@@ -1,11 +1,9 @@
 """Encodes a value as standard JSON, as the REST API does."""
 
-from typing import Any
-
 import pydantic_core
 
 
-def encode_json(value: Any) -> bytes:
+def encode_json(value: object) -> bytes:
     """Returns `value` as indented, standard JSON bytes, encoded as the REST API does.
 
     NaN and infinite floats encode as `null`, and dataclasses as objects. `str()`

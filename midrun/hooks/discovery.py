@@ -8,9 +8,12 @@ is rate-limited to once per logical epoch token so a high-frequency callback (e.
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from midrun.hooks.catalog import CALLBACK_NAMES, MODALITIES
+
+if TYPE_CHECKING:
+    from loguru import Logger
 
 
 class EpochScanState:  # pylint: disable=too-few-public-methods
@@ -26,7 +29,7 @@ class EpochScanState:  # pylint: disable=too-few-public-methods
         self._warned_paths: set[str] = set()
 
     def scan_if_due(
-        self, live_dir: Path, epoch_token: tuple[Any, ...], log: Any
+        self, live_dir: Path, epoch_token: tuple[Any, ...], log: "Logger"
     ) -> None:
         """Scans `light/` and `heavy/` once per distinct `epoch_token`.
 
@@ -41,7 +44,7 @@ class EpochScanState:  # pylint: disable=too-few-public-methods
         for modality in MODALITIES:
             self._scan_modality(live_dir / modality, modality, log)
 
-    def _scan_modality(self, modality_dir: Path, modality: str, log: Any) -> None:
+    def _scan_modality(self, modality_dir: Path, modality: str, log: "Logger") -> None:
         try:
             entries = os.scandir(modality_dir)
         except OSError:
@@ -50,7 +53,9 @@ class EpochScanState:  # pylint: disable=too-few-public-methods
             for entry in entries:
                 self._check_entry(entry, modality, log)
 
-    def _check_entry(self, entry: os.DirEntry[str], modality: str, log: Any) -> None:
+    def _check_entry(
+        self, entry: os.DirEntry[str], modality: str, log: "Logger"
+    ) -> None:
         if not entry.is_file(follow_symlinks=False):
             return
         stem = entry.name[: -len(".sh")] if entry.name.endswith(".sh") else ""

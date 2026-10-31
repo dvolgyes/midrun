@@ -1,7 +1,7 @@
 """Publishes or resumes the live hooks tree of a run."""
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
 from midrun.hooks.manager.hooks_bootstrap_error import HooksBootstrapError
 from midrun.hooks.manager.hooks_tree import HooksTree
@@ -12,13 +12,16 @@ from midrun.hooks.manager.resolve_hooks_source import resolve_hooks_source
 from midrun.hooks.manager.warn_on_catalogue_mismatch import warn_on_catalogue_mismatch
 from midrun.hooks.write_json_file import write_json_file
 
+if TYPE_CHECKING:
+    from loguru import Logger
+
 
 def bootstrap_hooks_tree(
     base_dir: Path,
     source_dir: Path | None,
     *,
     session_id: str,
-    log: Any,
+    log: "Logger",
 ) -> HooksTree:
     """Ensures `base_dir/hooks` exists, seeded/copied as needed, and returns it.
 
@@ -104,7 +107,7 @@ def bootstrap_hooks_tree(
     return _adopt_live_tree(live_dir, marker_path, log)
 
 
-def _adopt_live_tree(live_dir: Path, marker_path: Path, log: Any) -> HooksTree:
+def _adopt_live_tree(live_dir: Path, marker_path: Path, log: "Logger") -> HooksTree:
     """Resumes an existing live tree from its provenance record, restoring the marker.
 
     Warns, as a resume from the marker does, when the record holds another

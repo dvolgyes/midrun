@@ -2,13 +2,17 @@
 
 import shutil
 from collections.abc import Mapping
-from typing import Any
+
+import torch
 
 from midrun.runtime.graph_inspectors.torchviz_capture import torchviz_capture
 
 
 def torchviz_capture_live(
-    model: Any, forward_input: Any, show_attrs: bool = True, show_saved: bool = True
+    model: torch.nn.Module,
+    forward_input: object,
+    show_attrs: bool = True,
+    show_saved: bool = True,
 ) -> dict[str, str | bytes]:
     """Runs a fresh forward pass and renders its (still-intact) autograd graph.
 

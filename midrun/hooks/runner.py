@@ -14,9 +14,13 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
 from midrun.hooks.bounded_drain import BoundedDrain
+
+if TYPE_CHECKING:
+    from loguru import Logger
+
 
 _GRACE_PERIOD_S = 5.0
 _DRAIN_DEADLINE_S = 1.0
@@ -58,7 +62,7 @@ def run_script(
     setpriv: Path | None,
     timeout_s: float | None,
     max_output_bytes: int,
-    log: Any,
+    log: "Logger",
 ) -> ExecutionResult:
     """Runs `shell script *argv_extra` in its own process group and waits for it.
 
@@ -188,7 +192,7 @@ def _contain_after_exit(
     return all(finished)
 
 
-def _terminate_group(process: subprocess.Popen[bytes], log: Any) -> None:
+def _terminate_group(process: subprocess.Popen[bytes], log: "Logger") -> None:
     """Sends SIGTERM to the child's process group, escalating to SIGKILL after a grace period."""
     pgid = process.pid
     try:

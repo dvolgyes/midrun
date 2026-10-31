@@ -1,13 +1,16 @@
 """Warns when a reused hooks tree was made for another hook catalogue."""
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from midrun.hooks.catalog import CATALOGUE_VERSION
 
+if TYPE_CHECKING:
+    from loguru import Logger
+
 
 def warn_on_catalogue_mismatch(
-    record: dict[str, Any], record_path: Path, live_dir: Path, log: Any
+    record: dict[str, Any], record_path: Path, live_dir: Path, log: "Logger"
 ) -> None:
     """Logs one warning when `record` holds a catalogue version other than this Midrun's.
 

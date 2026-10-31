@@ -1,7 +1,7 @@
 """Describes callback arguments as a bounded, JSON-safe structure."""
 
 import math
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any
 
 import torch
@@ -34,7 +34,7 @@ def describe_arguments(
     return described, state.truncated, reason
 
 
-def _describe(value: Any, state: TraversalState, *, depth: int) -> Any:
+def _describe(value: object, state: TraversalState, *, depth: int) -> object:
     state.nodes_left -= 1
     if isinstance(value, torch.Tensor):
         return {
@@ -74,8 +74,13 @@ def _describe(value: Any, state: TraversalState, *, depth: int) -> Any:
 
 
 def _describe_items(
-    items: Any, state: TraversalState, *, depth: int, object_id: int, is_mapping: bool
-) -> Any:
+    items: Iterable[tuple[object, object]],
+    state: TraversalState,
+    *,
+    depth: int,
+    object_id: int,
+    is_mapping: bool,
+) -> object:
     state.seen.add(object_id)
     described: list[tuple[Any, Any]] = []
     omitted = 0

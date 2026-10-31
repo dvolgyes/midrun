@@ -1,10 +1,9 @@
 """Reads one path segment as an attribute or a mapping key."""
 
 from collections.abc import Mapping
-from typing import Any
 
 
-def get_field(obj: Any, key: str) -> Any:
+def get_field(obj: object, key: str) -> object:
     """Reads `obj[key]` when `obj` is a `Mapping` (e.g. a dict segment of a config
     tree) with that key, else `obj.<key>`.
     The key is tried first, so a key such as `values` or `update` does not

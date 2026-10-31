@@ -1,7 +1,5 @@
 """Describes the current value of a tunable hparam."""
 
-from typing import Any
-
 import torch
 
 from midrun.runtime.hparam_registry.hparam_value import HparamValue
@@ -9,7 +7,7 @@ from midrun.runtime.hparam_registry.hparam_value import HparamValue
 MAX_INLINE_TENSOR_ELEMENTS = 4096
 
 
-def describe_hparam(value: Any, *, read_tensor: bool = True) -> HparamValue:
+def describe_hparam(value: object, *, read_tensor: bool = True) -> HparamValue:
     """Reports a tunable hparam's current value, type, and (for tensors) dtype/device/shape.
 
     With `read_tensor` False, a tensor's value stays None: the call then does not copy

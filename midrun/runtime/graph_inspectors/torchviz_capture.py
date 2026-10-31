@@ -1,13 +1,17 @@
 """Renders an autograd graph with torchviz."""
 
 import shutil
-from typing import Any
+
+import torch
 
 from midrun.runtime.graph_inspectors.render_graph import render_graph
 
 
 def torchviz_capture(
-    model: Any, output: Any, show_attrs: bool = True, show_saved: bool = True
+    model: torch.nn.Module,
+    output: torch.Tensor,
+    show_attrs: bool = True,
+    show_saved: bool = True,
 ) -> dict[str, str | bytes]:
     """Renders the autograd graph rooted at `output`.
 

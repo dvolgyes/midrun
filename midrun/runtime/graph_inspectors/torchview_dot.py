@@ -1,11 +1,16 @@
 """The DOT source of the architecture graph of a model, from torchview."""
 
-from typing import Any
+from collections.abc import Mapping, Sequence
+
+import torch
 
 from midrun.runtime.graph_inspectors.torchview_device import torchview_device
 
 
-def torchview_dot(model: Any, batch: Any) -> str:
+def torchview_dot(
+    model: torch.nn.Module,
+    batch: torch.Tensor | Sequence[object] | Mapping[str, object],
+) -> str:
     """Returns the DOT source for the model's architecture graph traced against `batch`.
 
     Never renders, so unlike `torchview_capture` this needs only the `torchview`

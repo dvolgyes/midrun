@@ -1,9 +1,8 @@
 """Writes a disabled example script for each callback slot that the baseline does not fill."""
 
 from pathlib import Path
-from typing import Any
 
-from midrun.hooks.catalog import CALLBACKS, MODALITIES
+from midrun.hooks.catalog import CALLBACKS, MODALITIES, CallbackSpec
 from midrun.hooks.manager.load_hooks_template import load_hooks_template
 
 _SHEBANG = "#!/usr/bin/env bash\n"
@@ -23,7 +22,7 @@ def seed_missing_slots(staging_dir: Path, found_slots: set[tuple[str, str]]) -> 
             script_path.chmod(0o644)
 
 
-def _render(template_text: str, spec: Any) -> str:
+def _render(template_text: str, spec: CallbackSpec) -> str:
     return (
         template_text.replace("@@NAME@@", spec.name)
         .replace("@@GROUP@@", spec.group)

@@ -11,7 +11,7 @@ audited action.
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from loguru import logger
 
@@ -34,7 +34,7 @@ class LiveCaptureBroker:
         self._lock = threading.Lock()
         self._pending: list[_PendingCapture] = []
 
-    def request(self, fn: Callable[[Any], Any], timeout: float) -> Any:
+    def request[T](self, fn: Callable[["LightningModule"], T], timeout: float) -> T:
         """Blocks until `fn(pl_module)` runs on the training thread, or `timeout` elapses.
 
         Args:
@@ -61,7 +61,8 @@ class LiveCaptureBroker:
             )
         if pending.error is not None:
             raise pending.error
-        return pending.result
+        # `serve` stored the result of `fn` here.
+        return cast("T", pending.result)
 
     def serve(self, pl_module: "LightningModule") -> None:
         """Runs and wakes every pending request. Call only from the training thread."""

@@ -8,6 +8,7 @@ here never discovers a method that way.
 
 from typing import TYPE_CHECKING, Any
 
+import torch
 from loguru import logger
 
 from midrun.lightning_backend import LightningBackend
@@ -86,7 +87,11 @@ class _HookMethods:
         _dispatch(trainer, pl_module, "on_train_epoch_end")
 
     def on_train_batch_start(
-        self, trainer: "Trainer", pl_module: "MidrunMixin", batch: Any, batch_idx: int
+        self,
+        trainer: "Trainer",
+        pl_module: "MidrunMixin",
+        batch: object,
+        batch_idx: int,
     ) -> None:
         _dispatch(
             trainer,
@@ -100,8 +105,8 @@ class _HookMethods:
         self,
         trainer: "Trainer",
         pl_module: "MidrunMixin",
-        outputs: Any,
-        batch: Any,
+        outputs: object,
+        batch: object,
         batch_idx: int,
     ) -> None:
         _dispatch(
@@ -132,7 +137,7 @@ class _HookMethods:
         self,
         trainer: "Trainer",
         pl_module: "MidrunMixin",
-        batch: Any,
+        batch: object,
         batch_idx: int,
         dataloader_idx: int = 0,
     ) -> None:
@@ -149,8 +154,8 @@ class _HookMethods:
         self,
         trainer: "Trainer",
         pl_module: "MidrunMixin",
-        outputs: Any,
-        batch: Any,
+        outputs: object,
+        batch: object,
         batch_idx: int,
         dataloader_idx: int = 0,
     ) -> None:
@@ -179,7 +184,7 @@ class _HookMethods:
         self,
         trainer: "Trainer",
         pl_module: "MidrunMixin",
-        batch: Any,
+        batch: object,
         batch_idx: int,
         dataloader_idx: int = 0,
     ) -> None:
@@ -196,8 +201,8 @@ class _HookMethods:
         self,
         trainer: "Trainer",
         pl_module: "MidrunMixin",
-        outputs: Any,
-        batch: Any,
+        outputs: object,
+        batch: object,
         batch_idx: int,
         dataloader_idx: int = 0,
     ) -> None:
@@ -230,7 +235,7 @@ class _HookMethods:
         self,
         trainer: "Trainer",
         pl_module: "MidrunMixin",
-        batch: Any,
+        batch: object,
         batch_idx: int,
         dataloader_idx: int = 0,
     ) -> None:
@@ -247,8 +252,8 @@ class _HookMethods:
         self,
         trainer: "Trainer",
         pl_module: "MidrunMixin",
-        outputs: Any,
-        batch: Any,
+        outputs: object,
+        batch: object,
         batch_idx: int,
         dataloader_idx: int = 0,
     ) -> None:
@@ -262,7 +267,7 @@ class _HookMethods:
         )
 
     def on_before_backward(
-        self, trainer: "Trainer", pl_module: "MidrunMixin", loss: Any
+        self, trainer: "Trainer", pl_module: "MidrunMixin", loss: torch.Tensor
     ) -> None:
         _dispatch(trainer, pl_module, "on_before_backward", arguments={"loss": loss})
 
@@ -270,7 +275,10 @@ class _HookMethods:
         _dispatch(trainer, pl_module, "on_after_backward")
 
     def on_before_optimizer_step(
-        self, trainer: "Trainer", pl_module: "MidrunMixin", optimizer: Any
+        self,
+        trainer: "Trainer",
+        pl_module: "MidrunMixin",
+        optimizer: torch.optim.Optimizer,
     ) -> None:
         _dispatch(
             trainer,
@@ -280,7 +288,10 @@ class _HookMethods:
         )
 
     def on_before_zero_grad(
-        self, trainer: "Trainer", pl_module: "MidrunMixin", optimizer: Any
+        self,
+        trainer: "Trainer",
+        pl_module: "MidrunMixin",
+        optimizer: torch.optim.Optimizer,
     ) -> None:
         _dispatch(
             trainer,

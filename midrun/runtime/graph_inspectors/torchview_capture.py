@@ -1,13 +1,18 @@
 """Renders the architecture graph of a model with torchview."""
 
 import shutil
-from typing import Any
+from collections.abc import Mapping, Sequence
+
+import torch
 
 from midrun.runtime.graph_inspectors.render_graph import render_graph
 from midrun.runtime.graph_inspectors.torchview_device import torchview_device
 
 
-def torchview_capture(model: Any, batch: Any) -> dict[str, str | bytes]:
+def torchview_capture(
+    model: torch.nn.Module,
+    batch: torch.Tensor | Sequence[object] | Mapping[str, object],
+) -> dict[str, str | bytes]:
     """Renders the model's architecture graph traced against `batch`.
 
     Raises:

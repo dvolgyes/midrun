@@ -1,12 +1,18 @@
 """The torchinfo summary of a model, traced with a live batch."""
 
-from typing import TYPE_CHECKING, Any
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING
+
+import torch
 
 if TYPE_CHECKING:
     from lightning.pytorch import LightningModule
 
 
-def torchinfo_rich_summary(pl_module: "LightningModule", batch: Any) -> dict[str, str]:
+def torchinfo_rich_summary(
+    pl_module: "LightningModule",
+    batch: torch.Tensor | Sequence[object] | Mapping[str, object],
+) -> dict[str, str]:
     """A forward-traced summary using the live in-flight `batch` as input.
 
     Args:

@@ -2,7 +2,6 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
 
 import torch
 
@@ -20,7 +19,7 @@ class BatchTensorRef:
     tensor: torch.Tensor
 
 
-def iter_batch_tensors(batch: Any, path: str = "batch") -> list[BatchTensorRef]:
+def iter_batch_tensors(batch: object, path: str = "batch") -> list[BatchTensorRef]:
     """Traverses `batch`, yielding every reachable floating/complex tensor.
 
     Supports `Tensor`, `Mapping`, `list`, `tuple` (including namedtuples). Integer and

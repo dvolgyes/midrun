@@ -18,6 +18,7 @@ generates on its own; see the README's "Lifecycle shell hooks" section.
 import os
 import time
 from pathlib import Path
+from typing import ClassVar
 
 import click
 import lightning.pytorch as pl
@@ -64,10 +65,11 @@ class PlaygroundModel(MidrunMixin, pl.LightningModule):
     the live run through midrun's REST API and FUSE mount.
 
     Attributes:
+        midrun_tunable_hparams: The step delay, which midrun can change in a live run.
         net: Small linear classifier over flattened 16x16 RGB inputs.
     """
 
-    midrun_tunable_hparams = {
+    midrun_tunable_hparams: ClassVar[dict[str, dict[str, float | str]]] = {
         "hparams.step_delay": {"min": 0.0, "max": 5.0, "label": "Step delay (s)"},
     }
 
@@ -78,7 +80,7 @@ class PlaygroundModel(MidrunMixin, pl.LightningModule):
         hooks_source_dir: Path | None = None,
     ) -> None:
         super().__init__(rest_port=REST_PORT, hooks_source_dir=hooks_source_dir)
-        self.save_hyperparameters(ignore=["hooks_source_dir"])
+        self.save_hyperparameters({"lr": lr, "step_delay": step_delay})
         self.net = nn.Sequential(
             nn.Flatten(), nn.Linear(3 * 16 * 16, 32), nn.ReLU(), nn.Linear(32, 10)
         )

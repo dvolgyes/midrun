@@ -9,10 +9,11 @@ supported -- see the implementation plan for why.
 
 import tempfile
 from pathlib import Path
-from typing import Any
+
+import torch
 
 
-def torchlens_capture(model: Any, batch: Any) -> dict[str, str | bytes]:
+def torchlens_capture(model: torch.nn.Module, batch: object) -> dict[str, str | bytes]:
     """Traces one forward pass and returns a summary and a rendered graph.
 
     Args:

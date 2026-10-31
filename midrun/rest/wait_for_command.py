@@ -24,6 +24,9 @@ async def wait_for_command(
     engage." A command still `queued` when this returns hasn't reached its safe point
     yet -- e.g. a `train_epoch_end` hold armed mid-epoch -- and stays pollable via
     `GET /commands/{id}` or `GET /holds`.
+
+    Raises:
+        RuntimeError: The queue forgot `command_id` while this waited.
     """
     deadline = time.monotonic() + timeout_s
     command = runtime.command_queue.get(command_id)
@@ -34,7 +37,8 @@ async def wait_for_command(
     ):
         await asyncio.sleep(poll_interval_s)
         command = runtime.command_queue.get(command_id)
-    assert command is not None, (
-        f"command {command_id!r} vanished from the queue while waiting"
-    )
+    if command is None:
+        raise RuntimeError(
+            f"command {command_id!r} vanished from the queue while waiting"
+        )
     return command

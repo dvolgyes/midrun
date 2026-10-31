@@ -33,7 +33,7 @@ def collect_tensor_leaves(
 
 
 def _collect_leaves(
-    value: Any,
+    value: object,
     path: str,
     state: TraversalState,
     leaves: list[TensorLeaf],

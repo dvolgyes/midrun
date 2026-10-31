@@ -518,7 +518,7 @@ class MidrunRuntime:
     # ---- per-batch hooks ----------------------------------------------------------
 
     def begin_train_batch(
-        self, pl_module: "LightningModule", batch: Any, batch_idx: int
+        self, pl_module: "LightningModule", batch: object, batch_idx: int
     ) -> None:
         """Records batch-start timing/state. Called from `on_train_batch_start`.
 
@@ -540,7 +540,7 @@ class MidrunRuntime:
             if self.rank_sync.any_rank(report is not None):
                 self._handle_bad_batch(pl_module, trainer, batch_idx, report)
 
-    def before_backward(self, loss: Any) -> None:
+    def before_backward(self, loss: torch.Tensor) -> None:
         """Records the loss and pre-backward timestamp. Called from `on_before_backward`."""
         self.current_step.loss = loss
         self.pipeline.before_backward(time.perf_counter_ns())
@@ -628,7 +628,7 @@ class MidrunRuntime:
     # ---- exception breakpoint ------------------------------------------------------
 
     def handle_backward_exception(
-        self, pl_module: "LightningModule", loss: Any, exc: Exception
+        self, pl_module: "LightningModule", loss: torch.Tensor, exc: Exception
     ) -> None:
         """Freezes the failing batch/loss and holds for inspection before re-raising.
 

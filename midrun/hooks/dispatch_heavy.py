@@ -8,7 +8,7 @@ real Trainer.
 
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from midrun.hooks.capture_failed_result import capture_failed_result
 from midrun.hooks.create_invocation_dir import create_invocation_dir
@@ -23,6 +23,9 @@ from midrun.hooks.payload.prepare_heavy_export import prepare_heavy_export
 from midrun.hooks.resolve_enabled_script import resolve_enabled_script
 from midrun.hooks.runner import ExecutionResult, run_script
 from midrun.hooks.write_json_file import write_json_file
+
+if TYPE_CHECKING:
+    from loguru import Logger
 
 
 def dispatch_heavy(
@@ -40,7 +43,7 @@ def dispatch_heavy(
     max_export_bytes: int,
     max_output_bytes: int,
     tmp_root: Path,
-    log: Any,
+    log: "Logger",
 ) -> ExecutionResult | None:
     """Builds `manifest.json` plus `.npy` tensors and runs the heavy hook, if enabled.
 

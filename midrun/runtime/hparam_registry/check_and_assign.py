@@ -1,7 +1,7 @@
 """Checks a new tunable-hparam value and assigns it."""
 
 from dataclasses import replace
-from typing import Any, cast
+from typing import cast
 
 import torch
 
@@ -15,7 +15,7 @@ from midrun.runtime.hparam_registry.validate_bounds import validate_bounds
 
 
 def check_and_assign(
-    spec: TunableHparamSpec, parent: Any, leaf: str, new_value: object
+    spec: TunableHparamSpec, parent: object, leaf: str, new_value: object
 ) -> HparamValue:
     """Checks `new_value` against `parent.<leaf>`'s current type and bounds, then assigns it.
 

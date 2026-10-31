@@ -6,7 +6,7 @@ import socket
 import stat as stat_module
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
 from midrun.hooks.catalog import CATALOGUE_VERSION
 from midrun.hooks.manager.copy_source_tree import copy_source_tree
@@ -23,13 +23,16 @@ from midrun.hooks.manager.seed_missing_slots import seed_missing_slots
 from midrun.hooks.manager.write_readme_if_absent import write_readme_if_absent
 from midrun.hooks.write_json_file import write_json_file
 
+if TYPE_CHECKING:
+    from loguru import Logger
+
 
 def publish_fresh_tree(
     base_dir: Path,
     live_dir: Path,
     resolved_source: Path | None,
     session_id: str,
-    log: Any,
+    log: "Logger",
 ) -> bool:
     """Builds a new hooks tree in a staging directory, then renames it to `live_dir`.
 

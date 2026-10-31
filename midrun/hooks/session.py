@@ -9,7 +9,7 @@ without constructing either.
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from midrun.hooks.catalog import CALLBACK_BY_NAME
 from midrun.hooks.discovery import EpochScanState
@@ -18,6 +18,9 @@ from midrun.hooks.dispatch_light import dispatch_light
 from midrun.hooks.payload.new_hook_id import new_hook_id
 from midrun.hooks.payload.occurrence_context import OccurrenceContext
 from midrun.hooks.runner import ExecutionResult
+
+if TYPE_CHECKING:
+    from loguru import Logger
 
 
 @dataclass(frozen=True)
@@ -65,7 +68,7 @@ class HookSession:
         max_metadata_depth: int,
         max_export_bytes: int,
         max_output_bytes: int,
-        log: Any,
+        log: "Logger",
     ) -> None:
         self.live_dir = live_dir
         self.session_id = session_id

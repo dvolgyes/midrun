@@ -23,6 +23,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import torch
+
 from midrun.build_runtime import build_runtime
 from midrun.config import MidrunConfig
 from midrun.detect_lightning_backend_from_mro import detect_lightning_backend_from_mro
@@ -37,6 +39,7 @@ from midrun.runtime.runtime import MidrunRuntime
 if TYPE_CHECKING:
     from lightning.pytorch import LightningModule, Trainer
     from lightning.pytorch import LightningModule as _MixinBase
+    from lightning.pytorch.utilities.types import STEP_OUTPUT
 else:
     _MixinBase = object
 
@@ -59,7 +62,7 @@ class MidrunMixin(_MixinBase):
     __midrun_hooks_callback_class__: type
     __midrun_service_guard_class__: type
 
-    def __init_subclass__(cls, **kwargs: Any) -> None:
+    def __init_subclass__(cls, **kwargs: object) -> None:
         """Detects the Lightning backend and builds this subclass's hooks callback class."""
         super().__init_subclass__(**kwargs)
         cls.__midrun_lightning_backend__ = detect_lightning_backend_from_mro(
@@ -76,7 +79,7 @@ class MidrunMixin(_MixinBase):
 
     def __init__(
         self,
-        *args: Any,
+        *args: object,
         midrun_enabled: bool = True,
         fuse_enabled: bool = True,
         fuse_mountpoint: Path | str | None = None,
@@ -108,7 +111,7 @@ class MidrunMixin(_MixinBase):
         hooks_max_output_bytes: int = 64 * 1024,
         intercept_lightning_logging: bool = True,
         run_log_enabled: bool = True,
-        **kwargs: Any,
+        **kwargs: object,
     ) -> None:
         config = MidrunConfig(
             enabled=midrun_enabled,
@@ -183,20 +186,20 @@ class MidrunMixin(_MixinBase):
             finally:
                 super().teardown(stage)
 
-    def on_train_batch_start(self, batch: Any, batch_idx: int) -> int | None:
+    def on_train_batch_start(self, batch: object, batch_idx: int) -> int | None:
         """Lightning's `on_train_batch_start` hook; forwards to `MidrunRuntime`."""
         result: int | None = super().on_train_batch_start(batch, batch_idx)
         if self._midrun.config.enabled:
             self._midrun.begin_train_batch(self, batch, batch_idx)
         return result
 
-    def on_before_backward(self, loss: Any) -> None:
+    def on_before_backward(self, loss: torch.Tensor) -> None:
         """Lightning's `on_before_backward` hook; forwards to `MidrunRuntime`."""
         super().on_before_backward(loss)
         if self._midrun.config.enabled:
             self._midrun.before_backward(loss)
 
-    def backward(self, loss: Any, *args: Any, **kwargs: Any) -> None:
+    def backward(self, loss: torch.Tensor, *args: object, **kwargs: object) -> None:
         """Lightning's `backward` hook; reports an exception here to `MidrunRuntime`."""
         try:
             super().backward(loss, *args, **kwargs)
@@ -211,7 +214,9 @@ class MidrunMixin(_MixinBase):
         if self._midrun.config.enabled:
             self._midrun.after_backward()
 
-    def on_train_batch_end(self, outputs: Any, batch: Any, batch_idx: int) -> None:
+    def on_train_batch_end(
+        self, outputs: "STEP_OUTPUT", batch: object, batch_idx: int
+    ) -> None:
         """Lightning's `on_train_batch_end` hook; forwards to `MidrunRuntime`."""
         try:
             super().on_train_batch_end(outputs, batch, batch_idx)
@@ -235,7 +240,7 @@ class MidrunMixin(_MixinBase):
         if self._midrun.config.enabled:
             self._midrun.process_safe_point(self, SafePoint.VALIDATION_EPOCH_END)
 
-    def on_before_optimizer_step(self, optimizer: Any) -> None:
+    def on_before_optimizer_step(self, optimizer: torch.optim.Optimizer) -> None:
         """Lightning's `on_before_optimizer_step` hook; forwards to `MidrunRuntime`."""
         super().on_before_optimizer_step(optimizer)
         if self._midrun.config.enabled:
@@ -285,7 +290,7 @@ class MidrunMixin(_MixinBase):
             )
 
 
-def _normalize_callbacks(value: Any) -> list[Any]:
+def _normalize_callbacks(value: object) -> list[Any]:
     """Coerces a `configure_callbacks()` return value to a fresh, appendable list."""
     if value is None:
         return []

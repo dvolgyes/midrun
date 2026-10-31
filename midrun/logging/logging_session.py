@@ -1,13 +1,16 @@
 """The standard-logging bridge and Loguru run-file sink of one training run."""
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
 from midrun.logging.loguru_bridge_handler import LoguruBridgeHandler
 from midrun.logging.resolve_std_logger import resolve_std_logger
 from midrun.logging.saved_logger_state import SavedLoggerState
+
+if TYPE_CHECKING:
+    from loguru import Logger
 
 BRIDGED_LOGGERS: tuple[str, ...] = (
     "lightning.pytorch",
@@ -115,7 +118,7 @@ class LoggingSession:
             backtrace=False,
         )
 
-    def bind(self) -> Any:
+    def bind(self) -> "Logger":
         """Returns a Loguru logger bound to this session's id.
 
         The run file (`attach_run_file`) records Midrun's bare module-level

@@ -2,7 +2,11 @@
 
 import codecs
 import threading
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from loguru import Logger
+
 
 _READ_CHUNK_SIZE = 4096
 
@@ -20,7 +24,7 @@ class BoundedDrain:
     _decoder: codecs.IncrementalDecoder
     _partial_line: str
 
-    def __init__(self, stream: Any, *, tag: str, max_bytes: int, log: Any) -> None:
+    def __init__(self, stream: Any, *, tag: str, max_bytes: int, log: "Logger") -> None:
         self._stream = stream
         self._tag = tag
         self._max_bytes = max_bytes

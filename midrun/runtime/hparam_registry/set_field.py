@@ -1,10 +1,9 @@
 """Writes one path segment as an attribute or a mapping key."""
 
 from collections.abc import MutableMapping
-from typing import Any
 
 
-def set_field(obj: Any, key: str, value: Any) -> None:
+def set_field(obj: object, key: str, value: object) -> None:
     """Writes `obj[key] = value` when `obj` is a `MutableMapping` with that key,
     else `obj.<key> = value`, falling back to `obj[key] = value` for a
     `MutableMapping` `obj` lacking that attribute. Mirrors `get_field`'s

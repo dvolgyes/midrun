@@ -92,7 +92,7 @@ URL in status until then.
 
 
 STATIC_FILES: dict[str, Callable[["MidrunRuntime"], bytes]] = {
-    "/README.md": lambda rt: encode_text(README),
+    "/README.md": lambda _rt: encode_text(README),
     "/meta/run-id": lambda rt: encode_text(rt.run_id),
     "/meta/started-at": lambda rt: encode_text(str(rt.started_at)),
     "/meta/versions.json": lambda rt: encode_json(
@@ -170,7 +170,7 @@ STATIC_FILES: dict[str, Callable[["MidrunRuntime"], bytes]] = {
     "/model/hparams.json": lambda rt: encode_json(rt.model_info.hparams),
     "/model/summary.txt": lambda rt: encode_text(rt.model_info.summary),
     "/model/summary.json": lambda rt: encode_json(rt.model_info.summary_json),
-    "/model/inspectors.json": lambda rt: encode_json(
+    "/model/inspectors.json": lambda _rt: encode_json(
         inspectors_registry.availability_snapshot()
     ),
     "/model/tunable-hparams.json": lambda rt: encode_json(
@@ -188,8 +188,8 @@ STATIC_FILES: dict[str, Callable[["MidrunRuntime"], bytes]] = {
     "/state/lightning-profiler.json": lambda rt: encode_json(
         {"level": rt.lightning_profiler_level}
     ),
-    "/debug/README.md": lambda rt: encode_text(DEBUG_README),
-    "/debug/pytorch/README.md": lambda rt: encode_text(DEBUG_README),
+    "/debug/README.md": lambda _rt: encode_text(DEBUG_README),
+    "/debug/pytorch/README.md": lambda _rt: encode_text(DEBUG_README),
     "/debug/pytorch/status": lambda rt: encode_json(
         {"enabled": rt.torch_debug.started, "url": rt.state.read().torch_debug_url}
     ),

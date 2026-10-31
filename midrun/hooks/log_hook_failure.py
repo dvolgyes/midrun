@@ -1,10 +1,13 @@
 """Logs one failed hook script run with its full context."""
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
 from midrun.hooks.payload.occurrence_context import OccurrenceContext
 from midrun.hooks.runner import ExecutionResult
+
+if TYPE_CHECKING:
+    from loguru import Logger
 
 
 def log_hook_failure(
@@ -14,7 +17,7 @@ def log_hook_failure(
     occurrence_id: str,
     invocation_id: str,
     result: ExecutionResult,
-    log: Any,
+    log: "Logger",
 ) -> None:
     """Logs `result` as an error, with the script, occurrence, rank, and output tails."""
     log.error(

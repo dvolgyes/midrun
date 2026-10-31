@@ -2,10 +2,13 @@
 
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import graphviz
 
 
-def render_graph(visual_graph: Any) -> dict[str, str | bytes]:
+def render_graph(visual_graph: "graphviz.Digraph") -> dict[str, str | bytes]:
     """Renders a `graphviz` graph and returns its SVG bytes and DOT source.
 
     Returns:
