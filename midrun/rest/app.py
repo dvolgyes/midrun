@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -25,6 +25,7 @@ from midrun.rest.attachment_static_files import AttachmentStaticFiles
 from midrun.rest.checkpoint_entries import checkpoint_entries
 from midrun.rest.command_dict import command_dict
 from midrun.rest.parse_when_or_422 import parse_when_or_422
+from midrun.rest.prefers_html import prefers_html
 from midrun.rest.reject_invalid_request import reject_invalid_request
 from midrun.rest.reject_refused_command import reject_refused_command
 from midrun.rest.require_artifact_store import require_artifact_store
@@ -34,6 +35,7 @@ from midrun.rest.schemas.debug_capture_in import DebugCaptureIn
 from midrun.rest.schemas.hold_in import HoldIn
 from midrun.rest.schemas.snapshot_in import SnapshotIn
 from midrun.rest.trusted_hosts import trusted_hosts
+from midrun.rest.virtual_dir_page import virtual_dir_page
 from midrun.rest.wait_for_command import wait_for_command
 from midrun.runtime import inspectors_registry
 from midrun.runtime.command_args.validate_command_args import InvalidCommandError
@@ -358,14 +360,26 @@ def build_app(runtime: "MidrunRuntime") -> FastAPI:
         return inspectors_registry.availability_snapshot()
 
     @app.get("/files/{path:path}")
-    def get_file(path: str) -> Response:
+    def get_file(path: str, request: Request) -> Response:
         virtual_path = "/" + path
         if is_virtual_dir(runtime, virtual_path):
+            shown = virtual_path.rstrip("/") or "/"
+            entries = list_virtual_dir(runtime, virtual_path)
+            # A browser gets a page of links; curl and scripts get JSON.
+            if prefers_html(request.headers.get("accept", "")):
+                children = [
+                    (name, is_virtual_dir(runtime, f"{shown.rstrip('/')}/{name}"))
+                    for name in entries
+                ]
+                return HTMLResponse(
+                    virtual_dir_page(shown, children),
+                    headers={
+                        "Vary": "Accept",
+                        "Content-Security-Policy": "default-src 'none'",
+                    },
+                )
             return JSONResponse(
-                {
-                    "path": virtual_path.rstrip("/") or "/",
-                    "entries": list_virtual_dir(runtime, virtual_path),
-                }
+                {"path": shown, "entries": entries}, headers={"Vary": "Accept"}
             )
         try:
             content = virtual_file_content(runtime, virtual_path)

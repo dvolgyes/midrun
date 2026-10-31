@@ -100,3 +100,52 @@ def test_get_file_other_failure_maps_to_500(monkeypatch: pytest.MonkeyPatch) -> 
     response = client.get("/files/model/summary-live.txt")
 
     assert response.status_code == 500
+
+
+_BROWSER_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+
+
+def test_get_file_directory_is_a_linked_page_for_a_browser() -> None:
+    client, _runtime = _client()
+
+    response = client.get("/files/", headers={"Accept": _BROWSER_ACCEPT})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert response.headers["vary"] == "Accept"
+    assert "default-src 'none'" in response.headers["content-security-policy"]
+    assert '<a href="/files/model">model/</a>' in response.text
+    page = client.get("/files/model", headers={"Accept": _BROWSER_ACCEPT}).text
+    assert '<a href="/files/model/class">class</a>' in page
+    assert '<a href="/files/">' in page
+
+
+@pytest.mark.parametrize(
+    "accept",
+    [
+        "*/*",
+        "application/json",
+        "text/html;q=0.5, application/json",
+        "text/html;q=2",
+        "text/html;q=abc",
+    ],
+)
+def test_get_file_directory_stays_json_unless_html_is_preferred(accept: str) -> None:
+    client, _runtime = _client()
+
+    response = client.get("/files/model", headers={"Accept": accept})
+
+    assert response.json()["path"] == "/model"
+    assert response.headers["vary"] == "Accept"
+
+
+def test_get_file_directory_page_escapes_entry_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, _runtime = _client()
+    monkeypatch.setitem(LIVE_FILES, '/model/<b>"x&y', lambda rt: b"")
+
+    page = client.get("/files/model", headers={"Accept": _BROWSER_ACCEPT}).text
+
+    assert '<a href="/files/model/%3Cb%3E%22x%26y">&lt;b&gt;&quot;x&amp;y</a>' in page
+    assert "<b>" not in page
