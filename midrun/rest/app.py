@@ -41,6 +41,7 @@ from midrun.runtime.command_specs.allowed_during_exception import (
 )
 from midrun.runtime.command_specs.allowed_during_hold import ALLOWED_DURING_HOLD
 from midrun.runtime.command_specs.needs_batch import NEEDS_BATCH
+from midrun.runtime.command_specs.runnable_kinds import runnable_kinds
 from midrun.runtime.commands.parse_when import parse_when
 from midrun.runtime.events import SafePoint
 from midrun.runtime.commands.refused_command_error import RefusedCommandError
@@ -162,7 +163,8 @@ def build_app(runtime: "MidrunRuntime") -> FastAPI:
         commands = runtime.command_queue.list_all()
         active = runtime.gate.active_hold()
         exception = runtime.state.read().exception
-        # A hold runs only some kinds; the other queued commands wait for its end.
+        # A hold runs only some kinds, and no batch command while no batch is in
+        # flight; the other queued commands wait.
         # While an exception is held, the training thread runs only the exception
         # hold loop, so that loop's policy applies.
         allowed: frozenset[str] | None = None
@@ -170,6 +172,8 @@ def build_app(runtime: "MidrunRuntime") -> FastAPI:
             allowed = ALLOWED_DURING_EXCEPTION
         elif active is not None:
             allowed = ALLOWED_DURING_HOLD
+        if allowed is not None:
+            allowed = runnable_kinds(allowed, runtime.current_step.batch is not None)
         return {
             "holds": [command_dict(c) for c in commands if c.kind == "hold"],
             "active": asdict(active) if active else None,

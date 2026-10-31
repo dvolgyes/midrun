@@ -125,6 +125,22 @@ def test_holds_does_not_list_a_command_that_runs_during_the_hold(
     assert client.get("/holds").json()["waiting"] == []
 
 
+def test_holds_lists_a_batch_command_that_waits_for_the_next_batch(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime(tmp_path)
+    client = TestClient(build_app(runtime), base_url="http://localhost")
+    command = runtime.command_queue.submit("torchinfo_capture", {}, parse_when("now"))
+    runtime.gate.enter("hold_1", "train_epoch_end", epoch=0, step=0)
+
+    waiting = client.get("/holds").json()["waiting"]
+    assert [entry["id"] for entry in waiting] == [command.id]
+
+    runtime.current_step.begin(object(), 0, epoch=0, global_step=0, started_ns=0)
+
+    assert client.get("/holds").json()["waiting"] == []
+
+
 def test_holds_applies_the_exception_hold_policy_during_an_exception(
     tmp_path: Path,
 ) -> None:
@@ -141,6 +157,8 @@ def test_holds_applies_the_exception_hold_policy_during_an_exception(
         rank=0,
         started_at=0.0,
     )
+    # A backward exception happens while its batch is in flight.
+    runtime.current_step.begin(object(), 0, epoch=0, global_step=0, started_ns=0)
     runtime.state.update(exception=exception)
 
     waiting = client.get("/holds").json()["waiting"]
