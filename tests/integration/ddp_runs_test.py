@@ -26,6 +26,7 @@ Environment variables of the script:
     MIDRUN_TEST_TORCH_DEBUG_PORT: Optional, default 18600.
 """
 
+import contextlib
 import errno
 import json
 import os
@@ -51,6 +52,7 @@ from midrun import MidrunMixin
 
 _ENV = os.environ
 _FUSE_AVAILABLE = Path("/dev/fuse").exists() and shutil.which("fusermount3")
+_READY_TIMEOUT_S = 120
 
 
 class _FailingBackward(torch.autograd.Function):
@@ -79,6 +81,26 @@ class _FullDiskCheckpointIO(TorchCheckpointIO):
     ) -> None:
         del checkpoint, storage_options
         raise OSError(errno.ENOSPC, "No space left on device", str(path))
+
+
+class _ReadyRanksDdpStrategy(DDPStrategy):
+    """Starts the rendezvous only when every rank has reached it.
+
+    Rank 1 imports torch and Lightning after rank 0 starts it, which on a loaded
+    machine can take longer than the short process-group timeouts of these tests,
+    and the rendezvous waits only that long.
+    """
+
+    def setup_distributed(self) -> None:
+        self.set_world_ranks()
+        test_dir = Path(_ENV["MIDRUN_TEST_DIR"])
+        (test_dir / f"ready-rank{self.global_rank}").touch()
+        deadline = time.monotonic() + _READY_TIMEOUT_S
+        while time.monotonic() < deadline and not all(
+            (test_dir / f"ready-rank{rank}").exists() for rank in range(self.world_size)
+        ):
+            time.sleep(0.05)
+        super().setup_distributed()
 
 
 class _DdpModel(MidrunMixin, pl.LightningModule):
@@ -174,7 +196,7 @@ def main() -> None:
         default_root_dir=str(test_dir / "lightning"),
         accelerator="cpu",
         devices=2,
-        strategy=DDPStrategy(timeout=timeout),
+        strategy=_ReadyRanksDdpStrategy(timeout=timeout),
         max_epochs=-1,
         max_steps=int(_ENV.get("MIDRUN_TEST_MAX_STEPS", "-1")),
         max_time="00:00:02:00",
@@ -271,9 +293,11 @@ class _DdpRun:
             ) from None
 
     def kill(self) -> None:
-        if self.proc.poll() is None:
+        # Rank 1 can outlive rank 0, and a later run on the same MASTER_PORT would
+        # take it as its own rank 1, so the group is killed after rank 0 exits too.
+        with contextlib.suppress(ProcessLookupError):
             os.killpg(self.proc.pid, signal.SIGKILL)
-            self.proc.wait(timeout=10)
+        self.proc.wait(timeout=10)
         self._log.close()
 
 
@@ -362,7 +386,11 @@ def test_a_checkpoint_completes_on_every_rank(launch) -> None:
     )
     run.status(1)
     command_id = run.post("/checkpoints", {"label": "manual"})["id"]
-    run.wait_until(lambda: run.get(f"/commands/{command_id}")["status"] != "queued")
+    run.wait_until(
+        lambda: (
+            run.get(f"/commands/{command_id}")["status"] not in ("queued", "executing")
+        )
+    )
     command = run.get(f"/commands/{command_id}")
     assert command["status"] == "succeeded", command
     assert Path(command["result"]["checkpoint_path"]).is_file()
