@@ -3,6 +3,7 @@
 import json
 import threading
 import time
+import warnings
 from pathlib import Path
 
 import lightning.pytorch as PL
@@ -299,6 +300,22 @@ def test_run_end_before_a_profile_records_stops_it_and_warns(tmp_path: Path) -> 
     assert runtime.profiler_run is None
     assert not list((runtime.artifact_store.root / "debug").iterdir())
     assert any("nothing was saved" in message for message in warnings)
+
+
+def test_default_profile_runs_with_a_warmup(tmp_path: Path) -> None:
+    runtime = _make_runtime(tmp_path)
+    trainer = _FakeTrainer()
+    pl_module = _FakePLModule(trainer)
+    cmd = runtime.command_queue.submit("profile", {}, parse_when("now"))
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        execute_command(runtime, pl_module, trainer, cmd, safe_point=None)
+    runtime.profiler_run.stop()
+
+    assert runtime.command_queue.get(cmd.id).status == "succeeded"
+    assert runtime.profiler_run.warmup_steps >= 1
+    assert not [w for w in caught if "warmup" in str(w.message)]
 
 
 def test_failed_profiler_step_stops_the_profiler(

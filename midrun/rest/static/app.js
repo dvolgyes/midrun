@@ -735,7 +735,7 @@ function setupInspectorControls() {
   byId("profile-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const args = {
-      warmup_steps: Number(byId("profile-warmup").value || 0),
+      warmup_steps: Number(byId("profile-warmup").value || 1),
       active_steps: Number(byId("profile-active").value || 1),
       level: byId("profile-level").value,
       then_hold: byId("profile-then-hold").checked,

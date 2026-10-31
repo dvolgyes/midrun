@@ -94,7 +94,7 @@ def test_accepted_command_shows_its_args_with_defaults(tmp_path: Path) -> None:
 
     assert response.status_code == 200, response.text
     assert response.json()["args"] == {
-        "warmup_steps": 0,
+        "warmup_steps": 1,
         "active_steps": 3,
         "level": "basic",
         "then_hold": False,
