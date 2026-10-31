@@ -38,7 +38,8 @@ def live_lightning_profiler_summary(rt: "MidrunRuntime") -> bytes:
         if not isinstance(profiler, pytorch_profiler):
             return summary
         fresh = pytorch_profiler()
-        pl_module.trainer.profiler = fresh
+        # nn.Module's attribute type does not know the LightningModule's trainer.
+        pl_module.trainer.profiler = fresh  # type: ignore[union-attr]
         rt.lightning_profiler = fresh
         return (
             f"{summary}\n\nThis read ended the PyTorch profile and reset the profiler: "

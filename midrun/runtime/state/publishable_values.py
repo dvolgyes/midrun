@@ -51,7 +51,8 @@ def publishable_values(values: Sequence[object]) -> list[float | HostScalar | No
             )
             # A non-blocking copy from CUDA allocates pinned host memory.
             host = stacked.to("cpu", non_blocking=True)
-        ready = torch.cuda.Event()
+        # torch's Event.__new__ has no annotations.
+        ready = torch.cuda.Event()  # type: ignore[no-untyped-call]
         ready.record(torch.cuda.current_stream(stacked.device))
         for index, (position, _) in enumerate(members):
             published[position] = HostScalar(host, index, ready)

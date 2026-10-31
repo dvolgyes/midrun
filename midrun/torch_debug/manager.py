@@ -216,8 +216,10 @@ class TorchDebugManager:
                 # stop_debug_server() asserts that this process has the frontend, which
                 # only rank 0 has, so the other ranks stop their worker server directly.
                 # pylint: disable=protected-access
-                torch_debug._WORKER_SERVER.shutdown()
-                torch_debug._WORKER_SERVER = None
+                worker_server = torch_debug._WORKER_SERVER
+                if worker_server is not None:
+                    worker_server.shutdown()
+                    torch_debug._WORKER_SERVER = None
                 # pylint: enable=protected-access
         finally:
             self._started = False

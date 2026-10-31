@@ -66,7 +66,7 @@ def _build_trainer(
 @click.option(
     "-d",
     "--data-dir",
-    type=click.Path(path_type=Path),  # type: ignore[type-var]  # click's Path stub is AnyStr-only
+    type=click.Path(path_type=Path),
     default=DEFAULT_DATA_DIR,
     show_default=True,
     help="Directory to download/cache CIFAR-10 in.",
@@ -74,7 +74,7 @@ def _build_trainer(
 @click.option(
     "-o",
     "--log-dir",
-    type=click.Path(path_type=Path),  # type: ignore[type-var]  # click's Path stub is AnyStr-only
+    type=click.Path(path_type=Path),
     default=DEFAULT_LOG_DIR,
     show_default=True,
     help="TensorBoard log and checkpoint directory.",

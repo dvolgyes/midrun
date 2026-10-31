@@ -18,7 +18,9 @@ def cheap_cuda_memory_stats(device: str) -> dict[str, Any]:
             current device can be another GPU.
     """
     target = torch.device(device)
-    if target.type != "cuda" or not torch.cuda.is_initialized():
+    # torch's is_initialized has no annotations.
+    initialized: bool = torch.cuda.is_initialized()  # type: ignore[no-untyped-call]
+    if target.type != "cuda" or not initialized:
         return {"available": False}
     free_bytes, total_bytes = torch.cuda.mem_get_info(target)
     return {

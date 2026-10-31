@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from midrun.runtime.runtime import MidrunRuntime
 
 
-class MidrunFS(mfusepy.Operations):
+class MidrunFS(mfusepy.Operations):  # type: ignore[misc]  # mfusepy has no types
     """Read-only, direct-I/O mfusepy `Operations` backed by a `MidrunRuntime`."""
 
     use_ns = True

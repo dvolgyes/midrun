@@ -38,7 +38,11 @@ class RankSync:
             or dist.get_world_size() == 1
         ):
             return cls()
-        return cls(group=dist.new_group(backend="gloo"))
+        # The group has every rank, so this rank is a member of it.
+        group = dist.new_group(backend="gloo")
+        if not isinstance(group, dist.ProcessGroup):
+            raise RuntimeError("this rank is not a member of the Midrun control group")
+        return cls(group=group)
 
     def close(self) -> None:
         """Destroys the control group; the instance is then a single-process one.

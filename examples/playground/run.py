@@ -108,7 +108,7 @@ class PlaygroundModel(MidrunMixin, pl.LightningModule):
             The training loss to backpropagate.
         """
         del batch_idx
-        time.sleep(self.hparams.step_delay)
+        time.sleep(self.hparams["step_delay"])
         images, labels = batch
         loss = nn.functional.cross_entropy(self(images), labels)
         self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True)
@@ -120,7 +120,7 @@ class PlaygroundModel(MidrunMixin, pl.LightningModule):
         Returns:
             The optimizer.
         """
-        return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
+        return torch.optim.Adam(self.parameters(), lr=self.hparams["lr"])
 
 
 def _init_single_process_distributed() -> None:
@@ -149,7 +149,7 @@ def _teardown_single_process_distributed() -> None:
         dist.destroy_process_group()
 
 
-def _build_loader() -> DataLoader:
+def _build_loader() -> DataLoader[tuple[torch.Tensor, int]]:
     """Builds a small synthetic image-classification dataloader.
 
     Returns:
@@ -165,8 +165,7 @@ def _build_loader() -> DataLoader:
 @click.command()
 @click.option(
     "--hooks-source-dir",
-    # click's Path stub is AnyStr-only.
-    type=click.Path(path_type=Path, exists=True, file_okay=False),  # type: ignore[type-var]
+    type=click.Path(path_type=Path, exists=True, file_okay=False),
     default=None,
     help="Baseline hooks/ directory (light/, heavy/, supporting files) copied into "
     "this run's live hooks tree; see the README's 'Lifecycle shell hooks' section.",

@@ -16,5 +16,6 @@ def dump_cuda_memory_snapshot() -> bytes:
         raise RuntimeError("cuda_memory snapshot requires a CUDA device")
     with tempfile.TemporaryDirectory() as tmp_dir:
         path = Path(tmp_dir) / "snapshot.pickle"
-        torch.cuda.memory._dump_snapshot(str(path))
+        # torch's _dump_snapshot has no annotations.
+        torch.cuda.memory._dump_snapshot(str(path))  # type: ignore[no-untyped-call]
         return path.read_bytes()

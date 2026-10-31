@@ -1,7 +1,7 @@
 """Checks a new tunable-hparam value and assigns it."""
 
 from dataclasses import replace
-from typing import Any
+from typing import Any, cast
 
 import torch
 
@@ -38,7 +38,8 @@ def check_and_assign(
     if isinstance(current, torch.Tensor):
         # Without no_grad, an in-place copy into an `nn.Parameter` raises.
         with torch.no_grad():
-            current.copy_(value)
+            # typed_hparam_value returns a tensor for a tensor knob.
+            current.copy_(cast("torch.Tensor", value))
     else:
         set_field(parent, leaf, value)
     return replace(

@@ -57,7 +57,8 @@ def handle_set_lightning_profiler(
             and torch_profiler.profiler is None
         ):
             # It never recorded, and Lightning's teardown fails to read its events.
-            torch_profiler.__exit__(None, None, None)
+            # torch's profile.__exit__ has no annotations.
+            torch_profiler.__exit__(None, None, None)  # type: ignore[no-untyped-call]
             old.profiler = None
         old.teardown(stage=stage)
     if level == "off":
