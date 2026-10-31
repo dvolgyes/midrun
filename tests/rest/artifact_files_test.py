@@ -93,3 +93,19 @@ def test_artifact_files_mount_keeps_svg_type_for_the_dashboard_preview(
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("image/svg+xml")
     assert response.headers["content-security-policy"] == "sandbox"
+
+
+def test_get_checkpoints_lists_each_checkpoint_with_its_download_url(
+    tmp_path: Path,
+) -> None:
+    client, runtime = _client(tmp_path)
+    assert client.get("/checkpoints").json() == {"checkpoints": []}
+    path = runtime.artifacts.reserve_checkpoint_path("before-lr")
+    path.write_bytes(b"12345")
+
+    (entry,) = client.get("/checkpoints").json()["checkpoints"]
+
+    assert entry["name"] == path.name
+    assert entry["size_bytes"] == 5
+    assert entry["modified_at"] == path.stat().st_mtime
+    assert client.get(entry["url"]).content == b"12345"

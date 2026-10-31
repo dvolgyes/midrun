@@ -226,7 +226,8 @@ releases the run. After a stop has run, a new hold (`POST $URL/holds`, `POST $UR
 returns status 409 until the next `trainer.fit`, `validate` or `test` on the same model starts.
 
 Other routes: `/run`, `/metrics`, `/optimizers`, `/artifacts`, `/telemetry/pipeline`, `/inspectors`,
-`/debug/cuda-memory/snapshot`, `/files/<path>` (the same tree as `procfs/`).
+`/debug/cuda-memory/snapshot`, `/files/<path>` (the same tree as `procfs/`). `GET $URL/checkpoints` lists each
+checkpoint with its size, modification time and download URL. A checkpoint that is being saved shows its partial size.
 `GET $URL/debug/cuda-memory/history?enabled=true` starts to record the CUDA allocator history for the snapshots. Without
 `max_entries`, it keeps the last 100_000 entries.
 

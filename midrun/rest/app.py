@@ -22,6 +22,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from midrun.rest.argument_error import argument_error
 from midrun.rest.attachment_static_files import AttachmentStaticFiles
+from midrun.rest.checkpoint_entries import checkpoint_entries
 from midrun.rest.command_dict import command_dict
 from midrun.rest.parse_when_or_422 import parse_when_or_422
 from midrun.rest.reject_invalid_request import reject_invalid_request
@@ -260,6 +261,12 @@ def build_app(runtime: "MidrunRuntime") -> FastAPI:
         )
         runtime.gate.notify()
         return command_dict(command)
+
+    @app.get("/checkpoints")
+    def list_checkpoints() -> dict[str, Any]:
+        """Lists the saved checkpoints with their download URLs."""
+        root = require_artifact_store(runtime.artifacts).root
+        return {"checkpoints": checkpoint_entries(root / "checkpoints")}
 
     @app.post("/snapshots")
     def create_snapshot(body: SnapshotIn) -> dict[str, Any]:
