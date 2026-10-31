@@ -310,7 +310,7 @@ class MidrunRuntime:
         self.state.update(status="running")
 
     def on_fit_start(self, pl_module: Any) -> None:
-        """Publishes the first full-fidelity snapshot once the Trainer is attached."""
+        """Publishes the first full snapshot and tunable hparams once the Trainer is attached."""
         self.model_info = ModelInfo(
             class_name=type(pl_module).__name__,
             hparams=dict(getattr(pl_module, "hparams", {})),
@@ -318,6 +318,7 @@ class MidrunRuntime:
             summary_json=basic_summary_json(pl_module),
         )
         self.tunable_hparam_specs = collect_tunable_hparams(type(pl_module))
+        self._refresh_tunable_hparams(pl_module, pl_module.trainer)
         self._publish(pl_module, status="held" if self.gate.is_held() else "running")
 
     def teardown(self, pl_module: Any, stage: str) -> None:

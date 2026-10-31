@@ -62,6 +62,16 @@ def _ready_model(runtime: MidrunRuntime) -> _Model:
     return model
 
 
+def test_tunable_hparams_show_the_current_values_from_fit_start(
+    tmp_path: Path,
+) -> None:
+    runtime = _make_runtime(tmp_path)
+
+    _ready_model(runtime)
+
+    assert runtime.tunable_hparams["augmentation_strength"].value == 0.5
+
+
 def test_registered_hparam_updates_after_the_next_safe_point(tmp_path: Path) -> None:
     runtime = _make_runtime(tmp_path)
     model = _ready_model(runtime)
