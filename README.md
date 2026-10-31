@@ -359,6 +359,12 @@ description of each option.
   the run (cross-site request forgery), but the `Host` check stops it from reading the answers.
 - midrun starts its services in `setup` and stops them in `teardown`, so they exist only while `fit`, `validate`, `test`
   or `predict` runs.
+- `torch.profiler` times its events with the CPU time-stamp counter (TSC). On some machines the counters of the CPUs are
+  out of step, and the Linux kernel then removes `tsc` from its clocksources. On such a machine the times of a thread
+  that moves between CPUs are wrong, and the summary of a profile can fail. The capture then keeps `trace.json` and
+  records the error as `summary_error`. On x86 Linux without the `tsc` clocksource, the `profile` result and the capture
+  metadata contain a `clock_warning`. Run the training on CPUs whose counters agree, for example with `taskset`, or
+  update the firmware.
 
 ## Example
 

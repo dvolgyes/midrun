@@ -187,6 +187,34 @@ def test_finish_train_batch_advances_and_finalizes_profiler(tmp_path: Path) -> N
     assert len(debug_dirs) == 1
 
 
+def test_an_unstable_tsc_warning_is_in_the_result_and_the_capture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for module in ("midrun.runtime.handlers.handle_profile", "midrun.runtime.profiler"):
+        monkeypatch.setattr(
+            f"{module}.tsc_clock_warning", lambda machine: "the TSC is unstable"
+        )
+    runtime = _make_runtime(tmp_path)
+    trainer = _FakeTrainer()
+    pl_module = _FakePLModule(trainer)
+
+    cmd = runtime.command_queue.submit(
+        "profile",
+        {"warmup_steps": 1, "active_steps": 1, "level": "basic"},
+        parse_when("now"),
+    )
+    execute_command(runtime, pl_module, trainer, cmd, safe_point=None)
+    for batch_idx in range(3):
+        runtime.finish_train_batch(pl_module)
+        runtime.begin_train_batch(pl_module, batch={"x": 1}, batch_idx=batch_idx)
+    runtime.finish_train_batch(pl_module)
+
+    assert cmd.result["clock_warning"] == "the TSC is unstable"
+    (capture_dir,) = (runtime.artifacts.root / "debug").iterdir()
+    manifest = json.loads((capture_dir / "manifest.json").read_text())
+    assert manifest["metadata"]["clock_warning"] == "the TSC is unstable"
+
+
 def test_finish_train_batch_with_then_hold_enters_cooperative_hold(
     tmp_path: Path,
 ) -> None:

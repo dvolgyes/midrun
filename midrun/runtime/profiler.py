@@ -5,6 +5,7 @@ Plain, mutable, single-owner, training-thread-only state -- matching
 itself; no profiling logic is reimplemented here.
 """
 
+import platform
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,7 @@ import torch
 from loguru import logger
 
 from midrun.runtime.artifacts import ArtifactStore
+from midrun.runtime.tsc_clock_warning import tsc_clock_warning
 
 _LEVEL_KWARGS: dict[str, dict[str, Any]] = {
     "basic": {},
@@ -100,6 +102,7 @@ class ProfilerRun:
         A run cut short before its last active step, e.g. by the end of training, is
         saved with `truncated` and the number of full `recorded_steps` in its
         metadata. A run that recorded nothing yet is only stopped, with a warning.
+        A `clock_warning` in the metadata tells why the recorded times can be wrong.
         """
         if self.steps_done <= self.warmup_steps:
             self.stop()
@@ -115,6 +118,9 @@ class ProfilerRun:
         recorded_steps = self.steps_done - 1 - self.warmup_steps
         if recorded_steps < self.active_steps:
             metadata |= {"truncated": True, "recorded_steps": recorded_steps}
+        clock_warning = tsc_clock_warning(platform.machine())
+        if clock_warning is not None:
+            metadata["clock_warning"] = clock_warning
         files, finalize_metadata = self.finalize()
         artifact_store.write_debug_capture(
             "profiler", files, metadata | finalize_metadata
