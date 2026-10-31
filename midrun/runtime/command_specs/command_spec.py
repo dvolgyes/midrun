@@ -25,6 +25,8 @@ class CommandSpec:
         during_hold: A gate hold runs the command; otherwise it waits for the
             hold's end.
         during_exception: The exception hold runs the command.
+        needs_batch: The command reads the in-flight batch, so it stays queued
+            while no batch is in flight, as at an epoch end.
     """
 
     args: type[CommandArgsModel]
@@ -34,3 +36,4 @@ class CommandSpec:
     all_ranks: bool
     during_hold: bool
     during_exception: bool
+    needs_batch: bool

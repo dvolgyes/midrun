@@ -40,7 +40,9 @@ from midrun.runtime.command_specs.allowed_during_exception import (
     ALLOWED_DURING_EXCEPTION,
 )
 from midrun.runtime.command_specs.allowed_during_hold import ALLOWED_DURING_HOLD
+from midrun.runtime.command_specs.needs_batch import NEEDS_BATCH
 from midrun.runtime.commands.parse_when import parse_when
+from midrun.runtime.events import SafePoint
 from midrun.runtime.commands.refused_command_error import RefusedCommandError
 from midrun.runtime.cuda_memory.cheap_cuda_memory_stats import (
     cheap_cuda_memory_stats,
@@ -140,6 +142,17 @@ def build_app(runtime: "MidrunRuntime") -> FastAPI:
         if body.kind == "release_exception" and runtime.state.read().exception is None:
             raise HTTPException(status_code=409, detail="no exception hold is active")
         when = parse_when_or_422(body.execution.when, loc=("body", "execution", "when"))
+        if body.kind in NEEDS_BATCH and when.safe_point not in (
+            None,
+            SafePoint.TRAIN_BATCH_END,
+            SafePoint.BEFORE_OPTIMIZER_STEP,
+        ):
+            # Such a command would wait at this safe point forever.
+            raise argument_error(
+                ("body", "execution", "when"),
+                f"{body.kind} requires an in-flight batch, and "
+                f"{when.safe_point} has none",
+            )
         command = runtime.command_queue.submit(body.kind, body.args, when)
         runtime.gate.notify()
         return command_dict(command)

@@ -57,6 +57,7 @@ COMMAND_SPECS: Mapping[str, CommandSpec] = MappingProxyType(
             all_ranks=False,
             during_hold=False,
             during_exception=False,
+            needs_batch=False,
         ),
         "stop": CommandSpec(
             args=NoArgs,
@@ -64,6 +65,7 @@ COMMAND_SPECS: Mapping[str, CommandSpec] = MappingProxyType(
             all_ranks=True,
             during_hold=True,
             during_exception=False,
+            needs_batch=False,
         ),
         "checkpoint": CommandSpec(
             args=CheckpointArgs,
@@ -71,6 +73,7 @@ COMMAND_SPECS: Mapping[str, CommandSpec] = MappingProxyType(
             all_ranks=True,
             during_hold=True,
             during_exception=False,
+            needs_batch=False,
         ),
         "snapshot": CommandSpec(
             args=SnapshotArgs,
@@ -78,6 +81,7 @@ COMMAND_SPECS: Mapping[str, CommandSpec] = MappingProxyType(
             all_ranks=False,
             during_hold=True,
             during_exception=False,
+            needs_batch=False,
         ),
         "set_learning_rate": CommandSpec(
             args=SetLearningRateArgs,
@@ -85,6 +89,7 @@ COMMAND_SPECS: Mapping[str, CommandSpec] = MappingProxyType(
             all_ranks=True,
             during_hold=True,
             during_exception=False,
+            needs_batch=False,
         ),
         "reset_momentum": CommandSpec(
             args=ResetMomentumArgs,
@@ -92,6 +97,7 @@ COMMAND_SPECS: Mapping[str, CommandSpec] = MappingProxyType(
             all_ranks=True,
             during_hold=True,
             during_exception=False,
+            needs_batch=False,
         ),
         "set_dataloader_finite_check": CommandSpec(
             args=SetDataloaderFiniteCheckArgs,
@@ -99,6 +105,7 @@ COMMAND_SPECS: Mapping[str, CommandSpec] = MappingProxyType(
             all_ranks=True,
             during_hold=True,
             during_exception=False,
+            needs_batch=False,
         ),
         "set_hparam": CommandSpec(
             args=SetHparamArgs,
@@ -106,6 +113,7 @@ COMMAND_SPECS: Mapping[str, CommandSpec] = MappingProxyType(
             all_ranks=True,
             during_hold=True,
             during_exception=False,
+            needs_batch=False,
         ),
         "save_current_batch": CommandSpec(
             args=NoArgs,
@@ -113,6 +121,7 @@ COMMAND_SPECS: Mapping[str, CommandSpec] = MappingProxyType(
             all_ranks=False,
             during_hold=False,
             during_exception=True,
+            needs_batch=True,
         ),
         "save_current_loss": CommandSpec(
             args=NoArgs,
@@ -120,6 +129,7 @@ COMMAND_SPECS: Mapping[str, CommandSpec] = MappingProxyType(
             all_ranks=False,
             during_hold=False,
             during_exception=True,
+            needs_batch=True,
         ),
         "save_partial_gradients": CommandSpec(
             args=NoArgs,
@@ -127,6 +137,7 @@ COMMAND_SPECS: Mapping[str, CommandSpec] = MappingProxyType(
             all_ranks=False,
             during_hold=False,
             during_exception=True,
+            needs_batch=False,
         ),
         "save_optimizer_summary": CommandSpec(
             args=NoArgs,
@@ -134,6 +145,7 @@ COMMAND_SPECS: Mapping[str, CommandSpec] = MappingProxyType(
             all_ranks=False,
             during_hold=False,
             during_exception=True,
+            needs_batch=False,
         ),
         "release_exception": CommandSpec(
             args=NoArgs,
@@ -141,6 +153,7 @@ COMMAND_SPECS: Mapping[str, CommandSpec] = MappingProxyType(
             all_ranks=False,
             during_hold=False,
             during_exception=True,
+            needs_batch=False,
         ),
         "torchinfo_capture": CommandSpec(
             args=NoArgs,
@@ -148,6 +161,7 @@ COMMAND_SPECS: Mapping[str, CommandSpec] = MappingProxyType(
             all_ranks=False,
             during_hold=True,
             during_exception=False,
+            needs_batch=True,
         ),
         "profile": CommandSpec(
             args=ProfileArgs,
@@ -155,6 +169,7 @@ COMMAND_SPECS: Mapping[str, CommandSpec] = MappingProxyType(
             all_ranks=False,
             during_hold=True,
             during_exception=False,
+            needs_batch=False,
         ),
         "torchview_capture": CommandSpec(
             args=NoArgs,
@@ -162,6 +177,7 @@ COMMAND_SPECS: Mapping[str, CommandSpec] = MappingProxyType(
             all_ranks=False,
             during_hold=True,
             during_exception=False,
+            needs_batch=True,
         ),
         "torchviz_capture": CommandSpec(
             args=TorchvizCaptureArgs,
@@ -169,6 +185,7 @@ COMMAND_SPECS: Mapping[str, CommandSpec] = MappingProxyType(
             all_ranks=False,
             during_hold=True,
             during_exception=True,
+            needs_batch=True,
         ),
         "torchlens_capture": CommandSpec(
             args=NoArgs,
@@ -176,6 +193,7 @@ COMMAND_SPECS: Mapping[str, CommandSpec] = MappingProxyType(
             all_ranks=False,
             during_hold=True,
             during_exception=False,
+            needs_batch=True,
         ),
         "set_lightning_profiler": CommandSpec(
             args=SetLightningProfilerArgs,
@@ -183,6 +201,7 @@ COMMAND_SPECS: Mapping[str, CommandSpec] = MappingProxyType(
             all_ranks=False,
             during_hold=True,
             during_exception=False,
+            needs_batch=False,
         ),
     }
 )

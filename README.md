@@ -239,9 +239,12 @@ of midrun. A metric that is not a real scalar, such as a vector or a complex ten
 
 The four inspector commands and the live files `model/summary-live.txt` and `model/graph.dot` run one forward pass on
 the in-flight batch, on rank 0 only. In an exception hold, `torchviz_capture` draws the failed loss instead, without a
-forward pass. The forward pass runs in eval mode: dropout is off and batch norm uses its running statistics, so the
-result can differ from the training forward pass. Gradients are off, except for `torchviz_capture`, which needs the
-autograd graph. After the capture, each module gets back its training mode.
+forward pass. An epoch end has no in-flight batch, so an inspector command, `save_current_batch` or `save_current_loss`
+that is due there, or in a hold that began there, stays queued until the next batch. A `when` that names
+`train_epoch_end`, `validation_epoch_end` or `fit_end` for such a command gets status 422. The forward pass runs in eval
+mode: dropout is off and batch norm uses its running statistics, so the result can differ from the training forward
+pass. Gradients are off, except for `torchviz_capture`, which needs the autograd graph. After the capture, each module
+gets back its training mode.
 
 Under a strategy that shards the parameters (`FSDPStrategy`, `ModelParallelStrategy`, `DeepSpeedStrategy`), or when a
 parameter is a wrapper tensor such as a `DTensor`, a forward pass on rank 0 alone would wait for collectives that the

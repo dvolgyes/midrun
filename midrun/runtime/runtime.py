@@ -31,6 +31,7 @@ from midrun.runtime.command_specs.allowed_during_exception import (
 from midrun.runtime.command_specs.allowed_during_hold import ALLOWED_DURING_HOLD
 from midrun.runtime.command_specs.command_specs import COMMAND_SPECS
 from midrun.runtime.command_specs.execute_command import execute_command
+from midrun.runtime.command_specs.needs_batch import NEEDS_BATCH
 from midrun.runtime.commands.command import Command
 from midrun.runtime.commands.command_queue import CommandQueue
 from midrun.runtime.commands.next_id import next_id
@@ -496,6 +497,12 @@ class MidrunRuntime:
         global_step: int,
         allowed: frozenset[str] | None,
     ) -> tuple[Command, ...]:
+        # An epoch end, or a hold that began at one, has no batch: the commands
+        # that read it wait for the next batch.
+        if self.current_step.batch is None:
+            allowed = (frozenset(COMMAND_SPECS) if allowed is None else allowed) - (
+                NEEDS_BATCH
+            )
         return tuple(self.command_queue.due(safe_point, epoch, global_step, allowed))
 
     # ---- per-batch hooks ----------------------------------------------------------
