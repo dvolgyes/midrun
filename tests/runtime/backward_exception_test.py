@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 import torch
+from loguru import logger
 
 from midrun.build_runtime import build_runtime
 from midrun.config import MidrunConfig
@@ -376,3 +377,32 @@ def test_an_interrupted_exception_hold_ends_the_hold(
     assert runtime.exception_hold is None
     assert runtime.state.read().exception is None
     assert runtime.current_step.exception is None
+
+
+def test_the_exception_hold_logs_the_exception_and_its_end(tmp_path: Path) -> None:
+    runtime = _make_runtime(tmp_path)
+    trainer = _FakeTrainer()
+    pl_module = _FakePLModule(trainer)
+    messages: list[str] = []
+    sink_id = logger.add(messages.append, level="INFO", format="{level} {message}")
+    thread = threading.Thread(
+        target=runtime.handle_backward_exception,
+        args=(pl_module, torch.tensor(1.0), ValueError("injected boom")),
+    )
+    try:
+        thread.start()
+        _wait_until(lambda: runtime.state.read().status == "exception_held")
+        held = [m for m in messages if m.startswith("WARNING")]
+        assert any("ValueError" in m and "injected boom" in m for m in held), held
+
+        runtime.command_queue.submit("release_exception", {}, parse_when("now"))
+        runtime.gate.notify()
+        thread.join(timeout=5)
+    finally:
+        logger.remove(sink_id)
+        if thread.is_alive():
+            runtime.exception_hold = None
+            runtime.gate.notify()
+            thread.join(timeout=5)
+
+    assert any("exception hold ended" in m for m in messages), messages

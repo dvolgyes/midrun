@@ -37,9 +37,24 @@ def record_bad_batch(
         "tensors": [asdict(bad) for bad in report.bad_tensors],
     }
     try:
-        store.write_snapshot("anomaly_input_nonfinite", payload)
+        manifest = store.write_snapshot("anomaly_input_nonfinite", payload)
     # pylint: disable-next=broad-exception-caught
     except Exception as exc:  # noqa: BLE001 -- the hold that follows must still run
         logger.error(
             "midrun: rank {} could not record its non-finite batch: {}", rank, exc
         )
+        return
+    logger.warning(
+        "midrun: rank {} batch {} (epoch {}, global step {}) has non-finite values in {}; "
+        "snapshot {} records them",
+        rank,
+        batch_idx,
+        epoch,
+        global_step,
+        ", ".join(
+            f"{bad.path} ({bad.nan_count} NaN, {bad.posinf_count} +inf, "
+            f"{bad.neginf_count} -inf)"
+            for bad in report.bad_tensors
+        ),
+        manifest["id"],
+    )

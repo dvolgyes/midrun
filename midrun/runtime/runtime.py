@@ -616,11 +616,17 @@ class MidrunRuntime:
                 batch_idx=batch_idx,
             )
         if self._is_rank_zero:
+            hold_id = next_id("anomaly")
             self.gate.enter(
-                next_id("anomaly"),
+                hold_id,
                 "train_batch_start",
                 trainer.current_epoch,
                 trainer.global_step,
+            )
+            logger.warning(
+                "midrun: hold {} holds every rank at a non-finite batch; "
+                "POST /control/continue trains on it, POST /control/stop ends the run",
+                hold_id,
             )
         self._publish(pl_module, status="held", batch_idx=batch_idx)
         self._hold_loop(pl_module, trainer)
@@ -656,6 +662,15 @@ class MidrunRuntime:
             started_at=time.time(),
         )
         self._publish(pl_module, status="exception_held")
+        logger.warning(
+            "midrun: rank {} holds after a backward exception at epoch {}, "
+            "global step {}: {}: {}; the release_exception command raises it again",
+            rank,
+            trainer.current_epoch,
+            trainer.global_step,
+            type(exc).__name__,
+            exc,
+        )
         try:
             self._exception_hold_loop(pl_module, trainer)
         finally:
@@ -664,6 +679,9 @@ class MidrunRuntime:
             self.exception_hold = None
             self.state.update(exception=None)
             self.current_step.clear()
+            logger.info(
+                "midrun: exception hold ended; the backward exception propagates"
+            )
         self._publish(pl_module, status="running")
 
     def _exception_hold_loop(

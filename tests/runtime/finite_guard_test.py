@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 import torch
+from loguru import logger
 
 from midrun.build_runtime import build_runtime
 from midrun.config import MidrunConfig
@@ -210,3 +211,32 @@ def test_begin_train_batch_skips_check_entirely_when_guard_disabled(
 
     assert not runtime.gate.is_held()
     assert runtime.finite_guard.checked_batches == 0
+
+
+def test_a_bad_batch_hold_logs_the_bad_tensor_and_its_snapshot(tmp_path: Path) -> None:
+    runtime = _make_runtime(tmp_path, dataloader_finite_check_enabled=True)
+    trainer = _FakeTrainer()
+    pl_module = _FakePLModule(trainer)
+    warnings: list[str] = []
+    sink_id = logger.add(warnings.append, level="WARNING", format="{message}")
+    thread = threading.Thread(
+        target=runtime.begin_train_batch,
+        args=(pl_module, {"inputs": torch.tensor([float("nan"), 1.0])}, 0),
+    )
+    thread.start()
+    try:
+        deadline = time.monotonic() + 5
+        while not runtime.gate.is_held() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert runtime.gate.is_held()
+        hold_id = runtime.gate.active_hold().command_id
+    finally:
+        runtime.gate.release()
+        thread.join(timeout=5)
+        logger.remove(sink_id)
+
+    (snapshot_dir,) = (runtime.artifacts.root / "snapshots").iterdir()
+    assert any(
+        "inputs" in message and snapshot_dir.name in message for message in warnings
+    ), warnings
+    assert any(hold_id in message for message in warnings), warnings
