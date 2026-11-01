@@ -186,14 +186,37 @@ async function refreshRunStatus() {
   renderRunLocation(run.ranks?.[0]?.hostname, run.artifacts_path);
   byId("resume-btn").hidden = run.hold_state !== "held";
   byId("pause-btn").hidden = run.hold_state === "held";
+  return run;
+}
+
+/** Refreshes the run status until `settled(run)` is true or `timeoutMs` passes.
+ * A hold engages, and a release takes effect, on the training thread after the
+ * response to the request, so one refresh can still show the old state. */
+async function refreshRunStatusUntil(
+  settled,
+  timeoutMs = 10000,
+  intervalMs = 300,
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (!settled(await refreshRunStatus()) && Date.now() < deadline) {
+    await sleep(intervalMs);
+  }
 }
 
 function setupRunControls() {
   byId("pause-btn").addEventListener("click", () =>
-    runAction("/control/pause", "hold requested"),
+    runAction(
+      "/control/pause",
+      "hold requested",
+      (run) => run.hold_state === "held",
+    ),
   );
   byId("resume-btn").addEventListener("click", () =>
-    runAction("/control/continue", "resumed"),
+    runAction(
+      "/control/continue",
+      "resumed",
+      (run) => run.hold_state !== "held",
+    ),
   );
   byId("checkpoint-btn").addEventListener("click", () =>
     runAction(
@@ -213,15 +236,18 @@ function setupRunControls() {
   });
 }
 
-async function runAction(action, message) {
+/** Runs `action`, then refreshes the run status until `settled(run)` is true. */
+async function runAction(action, message, settled = () => true) {
+  let done = settled;
   try {
     if (typeof action === "string") await postJSON(action);
     else await action();
     setText("action-status", message);
   } catch (err) {
     setText("action-status", `error: ${err.message}`);
+    done = () => true;
   }
-  await refreshRunStatus().catch((err) => console.error(err));
+  await refreshRunStatusUntil(done).catch((err) => console.error(err));
 }
 
 // ---- model overview ---------------------------------------------------------
@@ -774,6 +800,7 @@ function setupInspectorControls() {
     } catch (err) {
       resultBox.textContent = `error: ${err.message}`;
     }
+    await refreshInspectorState().catch((err) => console.error(err));
   });
 
   byId("lightning-profiler-view-btn").addEventListener("click", async () => {
