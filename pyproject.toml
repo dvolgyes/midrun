@@ -1,6 +1,6 @@
 [project]
 name = "midrun"
-version = "0.1.0"
+version = "0.1.1"
 description = "Look inside a running PyTorch Lightning job and steer it: a REST API, a dashboard and a FUSE view"
 readme = "README.md"
 requires-python = ">=3.12"
