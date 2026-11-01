@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from midrun.rest.when_json import when_json
 from midrun.runtime.commands.command import Command
 
 
@@ -11,6 +12,7 @@ def command_dict(command: Command) -> dict[str, Any]:
         "id": command.id,
         "kind": command.kind,
         "args": command.args,
+        "when": when_json(command.when),
         "status": command.status,
         "result": command.result,
         "error": command.error,

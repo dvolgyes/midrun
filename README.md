@@ -169,10 +169,10 @@ curl -s -X POST $URL/control/continue              # release the hold
 curl -s -X POST $URL/control/stop                  # stop the training cleanly
 ```
 
-Each command returns an id. Use `GET $URL/commands/<id>` to see its status and result. The status is `queued`,
-`executing`, `succeeded`, `failed`, `cancelled` or `expired`. A command that is still queued when its stage stops
-becomes `expired`, with an error. midrun keeps the last 1000 finished commands, so `GET $URL/commands/<id>` returns
-status 404 for an older id.
+Each command returns an id. Use `GET $URL/commands/<id>` to see its status, result and `when` (in the form that
+`execution.when` accepts). The status is `queued`, `executing`, `succeeded`, `failed`, `cancelled` or `expired`. A
+command that is still queued when its stage stops becomes `expired`, with an error. midrun keeps the last 1000 finished
+commands, so `GET $URL/commands/<id>` returns status 404 for an older id.
 
 By default a command runs at the next point where it is safe. To run it later, add `execution.when`:
 

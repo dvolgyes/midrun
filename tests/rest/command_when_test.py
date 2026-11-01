@@ -97,3 +97,29 @@ def test_next_safe_point_waits_outside_a_hold_but_now_runs_inside_one() -> None:
     assert not next_safe_point.is_due(None, epoch=0, global_step=0)
     assert next_safe_point.is_due(SafePoint.TRAIN_BATCH_END, epoch=0, global_step=0)
     assert now.is_due(None, epoch=0, global_step=0)
+
+
+@pytest.mark.parametrize(
+    "when",
+    [
+        "now",
+        "next_safe_point",
+        {"safe_point": "train_batch_end"},
+        {"epoch": 2},
+        {"safe_point": "train_epoch_end", "epoch": 5},
+        {"global_step": 607},
+        {"safe_point": "validation_epoch_end", "global_step": 10},
+    ],
+)
+def test_a_command_shows_its_when_in_the_shape_that_submission_accepts(
+    tmp_path: Path, when: object
+) -> None:
+    _, client = _runtime_and_client(tmp_path)
+    accepted = client.post(
+        "/commands", json={"kind": "snapshot", "execution": {"when": when}}
+    )
+    assert accepted.status_code == 200, accepted.text
+
+    shown = client.get(f"/commands/{accepted.json()['id']}").json()["when"]
+
+    assert parse_when(shown) == parse_when(when)
