@@ -19,6 +19,8 @@ def handle_save_current_loss(
 ) -> dict[str, Any]:
     """Writes the in-flight loss with `torch.save` as a debug capture.
 
+    The loss is saved detached, so the file holds its value without the autograd graph.
+
     Raises:
         ValueError: No loss is in flight.
     """
@@ -30,7 +32,7 @@ def handle_save_current_loss(
     import torch
 
     buffer = io.BytesIO()
-    torch.save(runtime.current_step.loss, buffer)
+    torch.save(runtime.current_step.loss.detach(), buffer)
     return runtime.artifact_store.write_debug_capture(
         "current-loss", {"loss.pt": buffer.getvalue()}
     )

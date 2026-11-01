@@ -153,6 +153,25 @@ def test_save_current_batch_and_loss_during_exception_hold(tmp_path: Path) -> No
         thread.join(timeout=5)
 
 
+def test_save_current_loss_writes_the_value_without_its_autograd_graph(
+    tmp_path: Path,
+) -> None:
+    runtime = _make_runtime(tmp_path)
+    trainer = _FakeTrainer()
+    pl_module = _FakePLModule(trainer)
+    weight = torch.tensor(2.0, requires_grad=True)
+    runtime.current_step.loss = weight * 3.0
+
+    cmd = runtime.command_queue.submit("save_current_loss", {}, parse_when("now"))
+    execute_command(runtime, pl_module, trainer, cmd, safe_point=None)
+
+    assert cmd.status == "succeeded", cmd.error
+    saved_loss = torch.load(Path(cmd.result["path"]) / "loss.pt")
+    assert torch.equal(saved_loss, torch.tensor(6.0))
+    assert not saved_loss.requires_grad
+    assert saved_loss.grad_fn is None
+
+
 @pytest.mark.parametrize(
     ("kind", "missing"),
     [("save_current_batch", "batch"), ("save_current_loss", "loss")],
