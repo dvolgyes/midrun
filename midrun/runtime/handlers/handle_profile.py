@@ -38,7 +38,7 @@ def handle_profile(
     then_hold = command.args["then_hold"]
     run = ProfilerRun(command.id, warmup_steps, active_steps, level, then_hold)
     require_steady_cpu_clock("profile")
-    run.start()
+    run.start(runtime.rank_info.device)
     runtime.profiler_run = run
     return {
         "armed": True,

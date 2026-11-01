@@ -1,6 +1,8 @@
 """Behavioral tests for the bounded profiler run and its runtime integration."""
 
 import json
+import subprocess
+import sys
 import threading
 import time
 import warnings
@@ -73,7 +75,7 @@ def test_profiler_run_completes_after_warmup_plus_active_steps() -> None:
     run = ProfilerRun(
         "p1", warmup_steps=1, active_steps=2, level="basic", then_hold=False
     )
-    run.start()
+    run.start("cpu")
     x = torch.randn(8, 8)
     # Ends the batch in which the run started; it is not a counted step.
     assert run.step() is False
@@ -103,7 +105,7 @@ def test_a_failed_summary_still_saves_the_trace_and_records_the_error(
     run = ProfilerRun(
         "p1", warmup_steps=1, active_steps=1, level="basic", then_hold=False
     )
-    run.start()
+    run.start("cpu")
     x = torch.randn(8, 8)
     while not run.step():
         _ = x @ x
@@ -393,3 +395,62 @@ def test_failed_profiler_step_stops_the_profiler(
 
     assert runtime.profiler_run is None
     assert not torch.autograd.profiler._is_profiler_enabled
+
+
+# torch.profiler fixes the CUDA activity at the first profile of a process, so each
+# device case runs in a fresh process.
+_PROFILE_ON_A_RANK = """
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+import torch
+from midrun.build_runtime import build_runtime
+from midrun.config import MidrunConfig
+from midrun.load_backend import load_backend
+from midrun.runtime.artifacts import ArtifactStore
+from midrun.runtime.command_specs.execute_command import execute_command
+from midrun.runtime.commands.parse_when import parse_when
+from midrun.runtime.local_rank_info import local_rank_info
+
+store_dir, device = Path(sys.argv[1]), sys.argv[2]
+runtime = build_runtime(
+    MidrunConfig(rest_enabled=False, torch_debug_enabled=False, fuse_enabled=False),
+    load_backend("lightning.pytorch"),
+)
+runtime.artifacts = ArtifactStore(store_dir)
+runtime.rank_info = local_rank_info(device)
+trainer = SimpleNamespace(
+    callback_metrics={}, current_epoch=0, global_step=0, optimizers=[],
+    state=SimpleNamespace(stage=None),
+)
+cmd = runtime.command_queue.submit(
+    "profile", {"warmup_steps": 0, "active_steps": 1}, parse_when("now")
+)
+execute_command(runtime, SimpleNamespace(trainer=trainer), trainer, cmd, safe_point=None)
+x = torch.randn(64, 64, device=device)
+while not runtime.profiler_run.step():
+    _ = x @ x
+runtime.profiler_run.save(runtime.artifact_store)
+(capture_dir,) = (store_dir / "debug").iterdir()
+cuda_recorded = "CUDA total" in (capture_dir / "summary.txt").read_text()
+print(cmd.status, torch.cuda.is_initialized(), cuda_recorded)
+"""
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="requires a CUDA device")
+@pytest.mark.parametrize(
+    ("device", "cuda_used"), [("cpu", "False"), ("cuda:0", "True")]
+)
+def test_a_profile_records_cuda_activity_only_on_a_cuda_rank(
+    tmp_path: Path, device: str, cuda_used: str
+) -> None:
+    result = subprocess.run(  # noqa: S603 -- fixed command, test-owned script
+        [sys.executable, "-c", _PROFILE_ON_A_RANK, str(tmp_path), device],
+        capture_output=True,
+        check=True,
+        text=True,
+    )
+
+    # A CPU rank must not create a CUDA context; a CUDA rank must still see CUDA.
+    assert result.stdout.split() == ["succeeded", cuda_used, cuda_used]

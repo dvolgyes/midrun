@@ -60,10 +60,15 @@ class ProfilerRun:
         self.steps_done = 0
         self._prof: Any = None
 
-    def start(self) -> None:
-        """Builds and starts the underlying `torch.profiler.profile`."""
+    def start(self, device: str) -> None:
+        """Builds and starts the underlying `torch.profiler.profile`.
+
+        Args:
+            device: The rank's training device, e.g. `cuda:1`. Only a CUDA device
+                adds the CUDA activity, which creates a CUDA context.
+        """
         activities = [torch.profiler.ProfilerActivity.CPU]
-        if torch.cuda.is_available():
+        if torch.device(device).type == "cuda":
             activities.append(torch.profiler.ProfilerActivity.CUDA)
         sched = torch.profiler.schedule(
             wait=1, warmup=self.warmup_steps, active=self.active_steps, repeat=1

@@ -13,6 +13,7 @@ from midrun.runtime.hparam_registry.tunable_hparam_spec import TunableHparamSpec
 from midrun.runtime.profiler import ProfilerRun
 from midrun.runtime.rank_sync import RankSync
 from midrun.runtime.state.exception_breakpoint_info import ExceptionBreakpointInfo
+from midrun.runtime.state.rank_info import RankInfo
 from midrun.runtime.state.state_store import StateStore
 
 
@@ -31,6 +32,7 @@ class CommandRuntime(Protocol):
         current_step: Live batch/loss/exception for the in-flight training step.
         finite_guard: Opt-in dataloader-batch finite-value checker.
         rank_sync: Control-plane collectives with the other ranks.
+        rank_info: This rank's `RankInfo`, with its training device, e.g. `cuda:1`.
         profiler_run: The armed/active bounded `torch.profiler` run, if any.
         lightning_profiler: The Lightning profiler that `set_lightning_profiler`
             installed, if any.
@@ -47,6 +49,7 @@ class CommandRuntime(Protocol):
     current_step: CurrentStep
     finite_guard: DataloaderFiniteGuard
     rank_sync: RankSync
+    rank_info: RankInfo
     profiler_run: ProfilerRun | None
     lightning_profiler: Any | None
     lightning_profiler_level: str

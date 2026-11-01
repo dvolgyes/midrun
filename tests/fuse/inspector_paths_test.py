@@ -68,7 +68,7 @@ def test_state_profiler_json_reflects_active_run() -> None:
         "p1", warmup_steps=0, active_steps=2, level="basic", then_hold=False
     )
     runtime.profiler_run = run
-    run.start()
+    run.start("cpu")
     try:
         waiting = json.loads(virtual_file_content(runtime, "/state/profiler.json"))
         # The arming batch ends with the wait step.
