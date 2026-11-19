@@ -337,6 +337,12 @@ In `meta/ranks/` and `/run`, `worker_pids` refers to active multiprocessing chil
 zero refreshes its own list when it publishes state. The other ranks report empty lists gathered at setup, not live
 worker counts.
 
+In `model/hparams.json`, byte values that contain valid UTF-8 appear as text.
+
+Other byte values appear as `{"$midrun_bytes_hex": "ff02"}`, including values nested in dictionaries, lists, or tuples.
+
+For a byte value in this tagged form, `bytes.fromhex(value["$midrun_bytes_hex"])` recovers the original bytes.
+
 A path reports the size of its newest open handle; each handle keeps its own contents until it closes.
 
 `model/summary-live.txt`, `model/graph.dot` and `model/lightning-profiler-summary.txt` need a training safe point.

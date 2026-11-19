@@ -46,6 +46,36 @@ def test_get_file_json_content_type_for_json_path() -> None:
     assert response.headers["content-type"].startswith("application/json")
 
 
+def test_get_hparams_preserves_binary_values_and_readable_siblings() -> None:
+    client, runtime = _client()
+    digest = b"\xff\x02"
+    nested_digest = bytearray(b"\x80\x00")
+    runtime.model_info = ModelInfo(
+        hparams={
+            "dataset_digest": digest,
+            "label": "café".encode(),
+            "nested": [{"parts": (nested_digest, bytearray(b"readable"), False)}],
+            "batch_size": 32,
+            "unbounded": float("inf"),
+        }
+    )
+
+    response = client.get("/files/model/hparams.json")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body == {
+        "dataset_digest": {"$midrun_bytes_hex": "ff02"},
+        "label": "café",
+        "nested": [{"parts": [{"$midrun_bytes_hex": "8000"}, "readable", False]}],
+        "batch_size": 32,
+        "unbounded": None,
+    }
+    assert bytes.fromhex(body["dataset_digest"]["$midrun_bytes_hex"]) == digest
+    nested_hex = body["nested"][0]["parts"][0]["$midrun_bytes_hex"]
+    assert bytes.fromhex(nested_hex) == bytes(nested_digest)
+
+
 def test_get_file_on_virtual_directory_returns_json_listing() -> None:
     client, _runtime = _client()
 
