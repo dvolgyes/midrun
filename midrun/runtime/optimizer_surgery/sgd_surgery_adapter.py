@@ -38,23 +38,26 @@ class SGDSurgeryAdapter:
     ) -> Callable[[], dict[str, Any]]:
         """Plans to drop the momentum buffers of `parameters`.
 
+        A conditional gradient after a fused reset could recreate only some buffers.
+
         Raises:
-            ValueError: `parameters` holds only some of the buffered parameters of a
-                fused param group, whose step needs a buffer for all or none of them.
+            ValueError: The reset would drop a buffer from a fused param group with
+                more than one parameter.
         """
         del optimizers
         selected = set(parameters)
         for index, group in enumerate(optimizer.param_groups):
-            buffered = [
-                parameter
+            if not group.get("fused") or len(group["params"]) <= 1:
+                continue
+            if any(
+                parameter in selected
+                and optimizer.state.get(parameter, {}).get("momentum_buffer")
+                is not None
                 for parameter in group["params"]
-                if optimizer.state.get(parameter, {}).get("momentum_buffer") is not None
-            ]
-            dropped = [parameter for parameter in buffered if parameter in selected]
-            if group.get("fused") and 0 < len(dropped) < len(buffered):
+            ):
                 raise ValueError(
-                    f"param_group {index} is fused: reset_momentum must select all "
-                    "of its parameters or none"
+                    f"param_group {index} is fused and has multiple parameters: "
+                    "reset_momentum cannot remove its momentum buffers"
                 )
 
         return partial(_apply_reset, optimizer, parameters)

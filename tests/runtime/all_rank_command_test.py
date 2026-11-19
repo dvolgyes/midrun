@@ -56,7 +56,9 @@ def _run_all_rank_commands(rank: int, tmp_path: Path) -> None:
     )
     runtime = _runtime(tmp_path)
     model = _Module(2, 2)
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.1, momentum=0.9, fused=True)
+    optimizer = torch.optim.SGD(
+        model.parameters(), lr=0.1, momentum=0.9, fused=rank == 1
+    )
     model.bias.grad = torch.full_like(model.bias, rank + 1)
     if rank == 1:
         model.weight.grad = torch.ones_like(model.weight)

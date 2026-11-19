@@ -111,6 +111,35 @@ def test_sgd_adapter_drops_momentum_buffer() -> None:
     assert all("momentum_buffer" not in optimizer.state[p] for p in model.parameters())
 
 
+@pytest.mark.parametrize("initialized", [False, True])
+def test_sgd_adapter_preserves_safe_fused_resets(initialized: bool) -> None:
+    model = torch.nn.Linear(1, 1)
+    parameters = [model.weight] if initialized else list(model.parameters())
+    optimizer = torch.optim.SGD(
+        parameters, lr=0.1, momentum=0.9, dampening=0.5, fused=True
+    )
+    if initialized:
+        model.weight.grad = torch.ones_like(model.weight)
+        optimizer.step()
+        assert "momentum_buffer" in optimizer.state[model.weight]
+
+    apply = SGDSurgeryAdapter().prepare_reset_momentum(optimizer, parameters)
+
+    assert apply() == {
+        "semantic": "momentum_buffer_dropped",
+        "parameters_reset": int(initialized),
+    }
+    assert all("momentum_buffer" not in optimizer.state.get(p, {}) for p in parameters)
+    for parameter in parameters:
+        parameter.grad = torch.full_like(parameter, 2.0)
+    optimizer.step()
+    for parameter in parameters:
+        torch.testing.assert_close(
+            optimizer.state[parameter]["momentum_buffer"],
+            torch.full_like(parameter, 2.0),
+        )
+
+
 @pytest.mark.parametrize("family", [torch.optim.Adam, torch.optim.AdamW])
 def test_adam_reset_preserves_all_moments_on_inference_conflict(
     family: type[torch.optim.Adam | torch.optim.AdamW],
@@ -471,6 +500,59 @@ def test_reset_momentum_rejects_part_of_a_fused_sgd_group_without_mutating_state
     for p in model.parameters():
         assert torch.equal(optimizer.state[p]["momentum_buffer"], before[id(p)])
     _step(model, optimizer)
+
+
+@pytest.mark.parametrize("both_initialized", [False, True])
+def test_reset_momentum_rejects_whole_fused_sgd_group(both_initialized: bool) -> None:
+    model = torch.nn.Linear(1, 1)
+    control = torch.nn.Linear(1, 1)
+    control.load_state_dict(model.state_dict())
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.1, momentum=0.9, fused=True)
+    control_optimizer = torch.optim.SGD(
+        control.parameters(), lr=0.1, momentum=0.9, fused=True
+    )
+    for module, opt in ((model, optimizer), (control, control_optimizer)):
+        module.weight.grad = torch.ones_like(module.weight)
+        if both_initialized:
+            module.bias.grad = torch.ones_like(module.bias)
+        opt.step()
+    trainer = _FakeTrainer([optimizer])
+
+    command = _submit_and_run(
+        _make_runtime(),
+        _FakePLModule(trainer, model),
+        trainer,
+        "reset_momentum",
+        {"selector": {"param_group": 0}},
+    )
+
+    assert command.status == "failed"
+    assert command.error is not None and "fused" in command.error
+    for actual, expected in zip(model.parameters(), control.parameters(), strict=True):
+        actual_state = optimizer.state.get(actual, {})
+        expected_state = control_optimizer.state.get(expected, {})
+        assert actual_state.keys() == expected_state.keys()
+        if "momentum_buffer" in expected_state:
+            torch.testing.assert_close(
+                actual_state["momentum_buffer"], expected_state["momentum_buffer"]
+            )
+
+    for module, opt in ((model, optimizer), (control, control_optimizer)):
+        module.weight.grad = torch.full_like(module.weight, 2.0)
+        module.bias.grad = None
+        opt.step()
+        module.bias.grad = torch.full_like(module.bias, 3.0)
+        if not both_initialized:
+            module.weight.grad = None
+            opt.step()
+            module.weight.grad = torch.full_like(module.weight, 2.0)
+        opt.step()
+    for actual, expected in zip(model.parameters(), control.parameters(), strict=True):
+        torch.testing.assert_close(actual, expected)
+        torch.testing.assert_close(
+            optimizer.state[actual]["momentum_buffer"],
+            control_optimizer.state[expected]["momentum_buffer"],
+        )
 
 
 def test_set_learning_rate_updates_a_tensor_lr_in_place_and_reports_floats() -> None:

@@ -239,6 +239,12 @@ Outside inference mode, the command rejects an in-place reset of an inference te
 
 If a reset replaces a shared buffer, recapture any CUDA graph that used that buffer before replay.
 
+For fused SGD, `reset_momentum` rejects any reset that would remove a buffer from a group with multiple parameters.
+
+Even a whole-group reset can leave buffers missing if only some parameters get gradients on the next step.
+
+Single-parameter groups can still reset, and selecting no initialized buffers is a no-op.
+
 The `profile` command returns a separate `capture_id` that stays the same on write retries and for truncated traces.
 
 For the manifest, poll `GET $URL/artifacts/<capture_id>`, which returns 404 until publication.
