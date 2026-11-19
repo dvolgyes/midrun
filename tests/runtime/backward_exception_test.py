@@ -362,6 +362,32 @@ def test_release_exception_fails_without_an_exception_hold(tmp_path: Path) -> No
     assert "no exception hold" in cmd.error
 
 
+def test_only_first_release_ends_an_exception_hold(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = _make_runtime(tmp_path)
+    releases: list[Command] = []
+
+    def submit_releases(timeout: float) -> None:
+        del timeout
+        assert not releases, "neither release ended the hold"
+        assert runtime.state.read().status == "exception_held"
+        releases.extend(
+            runtime.command_queue.submit("release_exception", {}, parse_when("now"))
+            for _ in range(2)
+        )
+
+    monkeypatch.setattr(runtime.gate, "wait_for_control_event", submit_releases)
+    runtime.handle_backward_exception(
+        _FakePLModule(_FakeTrainer()), torch.tensor(1.0), ValueError("boom")
+    )
+
+    first, second = releases
+    assert first.status == "succeeded"
+    assert second.status == "failed"
+    assert second.error is not None and "no exception hold" in second.error
+
+
 def test_an_interrupted_exception_hold_ends_the_hold(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
