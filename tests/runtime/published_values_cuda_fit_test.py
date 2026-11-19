@@ -14,6 +14,7 @@ from torch.utils.data import DataLoader
 from midrun.mixin import MidrunMixin
 from midrun.rest.app import build_app
 from midrun.runtime.state.host_snapshot import host_snapshot
+from midrun.runtime.state.runtime_snapshot import RuntimeSnapshot
 
 pytestmark = pytest.mark.skipif(
     not torch.cuda.is_available(), reason="needs a CUDA device"
@@ -164,6 +165,49 @@ def test_read_values_equal_float_of_the_same_steps_metrics(
     for reference, read in model.compared:
         assert read == reference
         assert all(type(value) is float for value in read.values())
+
+
+class _FitEndModel(_Midrun):
+    before_teardown: RuntimeSnapshot
+    after_teardown: RuntimeSnapshot
+
+    def training_step(self, batch: int, batch_idx: int) -> torch.Tensor:
+        loss = super().training_step(batch, batch_idx)
+        self.log("with_graph", loss, on_step=True, enable_graph=True)
+        return loss
+
+    def on_train_epoch_end(self) -> None:
+        super().on_train_epoch_end()
+        self.before_teardown = host_snapshot(self.midrun.state.read())
+
+    def on_fit_end(self) -> None:
+        super().on_fit_end()
+        self.after_teardown = self.midrun.state.read()
+        self.midrun.capture_snapshot(self)
+
+
+class _ReplaceAtFitEnd(PL.Callback):
+    def on_fit_end(self, trainer: PL.Trainer, pl_module: PL.LightningModule) -> None:
+        assert trainer.callback_metrics["produced_at"].device.type == "cpu"
+        trainer.callback_metrics["produced_at"] = torch.tensor(9.0)
+
+
+def test_fit_end_retains_copied_metrics_but_recognizes_a_replacement(
+    tmp_path: Path,
+) -> None:
+    model = _FitEndModel()
+    _fit(model, tmp_path, 2, _ReplaceAtFitEnd())
+
+    before = model.before_teardown.metrics
+    after = model.after_teardown.metrics
+    repeated = model.midrun.state.read().metrics
+    for key in ("loss", "half", "with_graph"):
+        assert before[key].step == 1
+        assert repeated[key] == after[key] == before[key]
+    assert before["produced_at"].value == 1.0
+    assert (after["produced_at"].step, after["produced_at"].value) == (2, 9.0)
+    assert after["produced_at"].updated_at > before["produced_at"].updated_at
+    assert (repeated["produced_at"].step, repeated["produced_at"].value) == (2, 9.0)
 
 
 @pytest.mark.parametrize("trial", _TRIALS)

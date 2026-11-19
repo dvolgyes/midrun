@@ -327,6 +327,14 @@ This applies separately to the metrics published for each validation dataloader.
 
 Values placed directly in the callback dictionary without a Lightning producer use the publication time.
 
+This includes a callback that replaces a retained Lightning metric with a new, independently stored tensor.
+
+At fit end, Lightning copies retained CUDA metrics to the CPU.
+
+If the previous host copy is ready and the value is unchanged, Midrun retains the original observation.
+
+Midrun cannot distinguish an equal CPU replacement from Lightning's copy at that transfer.
+
 `/telemetry/pipeline` reports the optimizer step count **at batch end**. With gradient accumulation, consecutive batches
 can report the same `global_step`. The rolling summary uses nearest-rank percentiles without interpolation. In each
 phase, `mean_to_batch_ratio` replaces `fraction`: it divides mean phase time by mean in-batch time. The input gap occurs

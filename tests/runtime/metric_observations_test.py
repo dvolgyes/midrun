@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import lightning.pytorch as pl
+import pytest
 import torch
 from torch.utils.data import DataLoader
 from torchmetrics import Metric
@@ -103,6 +104,47 @@ def test_sparse_and_equal_logs_preserve_observation_times(tmp_path: Path) -> Non
     assert final["both"] == final["both_epoch"]
     assert final["both_epoch"].value == float(torch.tensor(14 / 3))
     assert final["both_epoch"].step == 3
+
+
+class _ReplaceOnEpochEnd(pl.Callback):
+    value: float
+
+    def __init__(self, value: float) -> None:
+        self.value = value
+
+    def on_train_epoch_end(
+        self, trainer: pl.Trainer, pl_module: pl.LightningModule
+    ) -> None:
+        trainer.callback_metrics["once"] = torch.tensor(self.value)
+
+
+@pytest.mark.parametrize("replacement", [4.0, 9.0])
+def test_callback_replacement_gets_new_observation(
+    tmp_path: Path, replacement: float
+) -> None:
+    model = _SparseModel(tmp_path)
+    trainer = pl.Trainer(
+        accelerator="cpu",
+        devices=1,
+        max_epochs=1,
+        logger=False,
+        enable_progress_bar=False,
+        enable_model_summary=False,
+        enable_checkpointing=False,
+        default_root_dir=tmp_path,
+        callbacks=[_ReplaceOnEpochEnd(replacement)],
+    )
+    trainer.fit(model, DataLoader(torch.tensor([2.0, 6.0]), batch_size=1))
+
+    first, last = (snapshot.metrics for snapshot in model.snapshots)
+    final = model.midrun.state.read().metrics
+    assert (first["once"].value, first["once"].step) == (4.0, 0)
+    assert last["once"] == first["once"]
+    assert (final["once"].value, final["once"].step) == (replacement, 2)
+    assert final["once"].updated_at > first["once"].updated_at
+    assert final["each"] == last["each"]
+    assert (final["raw"].value, final["raw"].step) == (last["raw"].value, 2)
+    assert final["raw"].updated_at > last["raw"].updated_at
 
 
 class _MultiLoaderModel(MidrunMixin, pl.LightningModule):

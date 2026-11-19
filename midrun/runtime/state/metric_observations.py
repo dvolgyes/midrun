@@ -1,18 +1,89 @@
 """Tracks the identity of the Lightning cache behind each published callback scalar."""
 
-from collections.abc import Collection, Mapping
-from typing import TYPE_CHECKING
+from collections.abc import Callable, Collection, Mapping
+from math import isnan
+from typing import TYPE_CHECKING, NamedTuple
 from weakref import ReferenceType, ref
 
 from torch import Tensor, strided
+
+from midrun.runtime.state.host_scalar import HostScalar
+from midrun.runtime.state.publishable_value import publishable_value
 
 if TYPE_CHECKING:
     from lightning.pytorch.trainer.connectors.logger_connector.result import (
         _ResultCollection,
     )
 
+    from midrun.runtime.state.scalar_metric import ScalarMetric
 
-type _Source = tuple[ReferenceType[object], int, bool, ReferenceType[Tensor]]
+
+class _Source(NamedTuple):
+    """Identifies one Lightning result update.
+
+    :ivar producer: Weak reference to the Lightning result metric.
+    :ivar update_count: Result metric update count at publication.
+    :ivar on_step: Whether Lightning used the step cache.
+    :ivar cache: Weak reference to the tensor before Lightning detached it.
+    """
+
+    producer: ReferenceType[object]
+    update_count: int
+    on_step: bool
+    cache: ReferenceType[Tensor]
+
+    def same_update(self, previous: "_Source") -> bool:
+        """Checks whether both sources identify the same Lightning update."""
+        return (
+            self.producer() is previous.producer()
+            and self.update_count == previous.update_count
+            and self.on_step == previous.on_step
+            and self.cache() is previous.cache()
+        )
+
+    def matches_view(self, value: object) -> bool:
+        """Checks whether the callback value is the cache or its detached view."""
+        cache = self.cache()
+        return cache is not None and (
+            cache is value
+            or (
+                isinstance(value, Tensor)
+                and cache.layout == value.layout == strided
+                and cache.is_set_to(value)
+            )
+        )
+
+
+class _Observation(NamedTuple):
+    """Pairs a Lightning source with a published callback tensor.
+
+    :ivar source: Lightning result update that produced the tensor.
+    :ivar callback: Weak reference to the published tensor.
+    """
+
+    source: _Source
+    callback: ReferenceType[Tensor]
+
+    def retains(self, value: Tensor) -> bool:
+        """Checks whether the callback still holds the same publication."""
+        return self.callback() is value or self.source.matches_view(value)
+
+    @staticmethod
+    def matches_teardown_copy(value: Tensor, previous: "ScalarMetric | None") -> bool:
+        """Matches a CUDA publication copied to CPU by Lightning fit teardown."""
+        if (
+            previous is None
+            or not isinstance(before := previous.value, HostScalar)
+            or value.device.type != "cpu"
+            or value.dtype != before.host.dtype
+        ):
+            return False
+        current = publishable_value(value)
+        ready: Callable[[], bool] = before.ready.query
+        if current is None or not ready():
+            return False
+        original = float(before.host[before.index])
+        return current == original or (isnan(current) and isnan(original))
 
 
 def _active_sources(trainer: object) -> dict[str, _Source]:
@@ -29,7 +100,7 @@ def _active_sources(trainer: object) -> dict[str, _Source]:
             continue
         cache = metric._forward_cache if on_step else metric._computed
         if isinstance(cache, Tensor):
-            source = (ref(metric), metric.update_count, on_step, ref(cache))
+            source = _Source(ref(metric), metric.update_count, on_step, ref(cache))
             for key in results._forked_name(metric, on_step):
                 sources[key] = source
     if on_step or results.training or results.dataloader_idx is not None:
@@ -61,16 +132,11 @@ def _retained_sources(
             or not isinstance(cache := metric._computed, Tensor)
         ):
             continue
-        source = (ref(metric), metric.update_count, False, ref(cache))
+        source = _Source(ref(metric), metric.update_count, False, ref(cache))
         for key in results._forked_name(metric, False):
             if key in active or (key in matches and matches[key][0] > loader_idx):
                 continue
-            value = published.get(key)
-            if cache is value or (
-                isinstance(value, Tensor)
-                and cache.layout == value.layout == strided
-                and cache.is_set_to(value)
-            ):
+            if source.matches_view(published.get(key)):
                 matches[key] = loader_idx, source
     return {key: source for key, (_, source) in matches.items()}
 
@@ -78,36 +144,56 @@ def _retained_sources(
 class MetricObservations:  # pylint: disable=too-few-public-methods
     """Tracks Lightning updates without keeping a metric or device tensor alive.
 
-    :ivar _sources: Last known producer and cache identity for each logged name.
+    :ivar _observations: Last Lightning source and callback tensor for each logged name.
     """
 
-    _sources: dict[str, _Source]
+    _observations: dict[str, _Observation]
 
     def __init__(self) -> None:
-        self._sources = {}
+        self._observations = {}
 
-    def fresh(self, trainer: object, keys: Collection[str]) -> set[str]:
+    def fresh(
+        self,
+        trainer: object,
+        published: Mapping[str, object],
+        previous: Mapping[str, "ScalarMetric"],
+    ) -> set[str]:
         """Returns newly observed keys; names never attributed to Lightning are always fresh.
 
-        Lightning 2.6 detaches the cached tensor on every callback_metrics read.
-        Follow the result and its update counter, not the detached tensor.
+        An active Lightning result can publish a new detached view on every read.
+        Follow the result and its update counter while it is active. Once it is
+        inactive, only the same callback tensor or a view of its cache is retained.
         At evaluation epoch end, the retained callback mapping identifies caches
         published earlier for individual dataloaders.
+        Before `on_fit_end`, Lightning copies the callback tensors to CPU.
+        The copy is indistinguishable from an equal replacement at that boundary.
         """
         sources = _active_sources(trainer)
+        module = getattr(trainer, "lightning_module", None)
+        after_teardown = getattr(module, "_current_fx_name", None) == "on_fit_end"
+        observations: dict[str, _Observation] = {}
         fresh: set[str] = set()
-        for key in keys:
+        for key, value in published.items():
             source = sources.get(key)
-            previous = self._sources.get(key)
-            if source is None and previous is not None:
-                sources[key] = previous
-            elif (
-                previous is None
-                or source is None
-                or source[0]() is not previous[0]()
-                or source[1:3] != previous[1:3]
-                or source[3]() is not previous[3]()
-            ):
+            prior = self._observations.get(key)
+            if not isinstance(value, Tensor):
                 fresh.add(key)
-        self._sources = sources
+                continue
+            if (
+                source is None
+                and prior is not None
+                and (
+                    prior.retains(value)
+                    or (
+                        after_teardown
+                        and prior.matches_teardown_copy(value, previous.get(key))
+                    )
+                )
+            ):
+                source = prior.source
+            if source is None or prior is None or not source.same_update(prior.source):
+                fresh.add(key)
+            if source is not None:
+                observations[key] = _Observation(source, ref(value))
+        self._observations = observations
         return fresh

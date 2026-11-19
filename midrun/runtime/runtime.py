@@ -839,8 +839,8 @@ class MidrunRuntime:
         global_step = trainer.global_step
         now = time.time()
         callback_metrics = trainer.callback_metrics
-        fresh = self._metric_observations.fresh(trainer, callback_metrics.keys())
         previous = self.state.read().metrics
+        fresh = self._metric_observations.fresh(trainer, callback_metrics, previous)
         lrs = [
             group["lr"]
             for optimizer in trainer.optimizers
