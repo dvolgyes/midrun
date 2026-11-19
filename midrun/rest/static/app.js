@@ -326,6 +326,8 @@ function renderInspectorAvailability(availability) {
 
 // ---- controls: learning rate / momentum / finite-check / tunable hparams ---
 
+const tunableHparamEdits = new Map();
+
 function setupControls() {
   byId("lr-form").addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -356,23 +358,24 @@ function setupControls() {
     if (!ok) event.target.checked = !enabled;
   });
 
+  let latestBatch = 0;
   byId("tunable-hparams-set-all-btn").addEventListener("click", async () => {
-    // Only edited rows are sent, so an unedited row does not overwrite a value
-    // that changed on the server since the last poll.
     const rows = Array.from(
       byId("tunable-hparams-list").querySelectorAll("[data-hparam-name]"),
-    ).filter(
-      (row) => row.querySelector("input, textarea")?.dataset.dirty === "1",
-    );
+    ).filter((row) => {
+      const edit = tunableHparamEdits.get(row.dataset.hparamName);
+      return edit.draft && !edit.submitting;
+    });
+    if (!rows.length) return;
+
+    const batch = ++latestBatch;
     const overallStatus = byId("tunable-hparams-set-all-status");
     overallStatus.textContent = "setting…";
-    const results = await Promise.all(
-      rows.map((row) => setTunableHparamFromRow(row)),
-    );
-    const succeeded = results.filter(Boolean).length;
-    overallStatus.textContent = results.length
-      ? `${succeeded}/${results.length} updated`
-      : "";
+    const results = await Promise.all(rows.map(setTunableHparamFromRow));
+    if (batch === latestBatch) {
+      const succeeded = results.filter(Boolean).length;
+      overallStatus.textContent = `${succeeded}/${results.length} updated`;
+    }
   });
 }
 
@@ -394,8 +397,9 @@ async function runControlCommand(kind, args, message) {
  * "Set all" button so every field can be edited before any of them is sent. */
 async function setTunableHparamFromRow(row) {
   const name = row.dataset.hparamName;
+  const edit = tunableHparamEdits.get(name);
+  const { draft, status } = edit;
   const input = row.querySelector("input, textarea");
-  const status = row.querySelector(".status-line");
   let value;
   try {
     value = readInputValue(input, row.dataset.hparamType);
@@ -403,19 +407,31 @@ async function setTunableHparamFromRow(row) {
     status.textContent = `invalid value: ${err.message}`;
     return false;
   }
+  edit.submitting = true;
   status.textContent = "setting…";
+  let command;
   try {
-    const result = await submitCommand("set_hparam", { name, value });
-    if (result.status === "succeeded") {
-      status.textContent = "updated";
-      delete input.dataset.dirty;
-      return true;
+    command = await postJSON("/commands", {
+      kind: "set_hparam",
+      args: { name, value },
+    });
+    const result = await pollCommand(command.id, Infinity);
+    const succeeded = result.status === "succeeded";
+    if (edit.draft === draft) {
+      status.textContent = succeeded ? "updated" : `failed: ${result.error}`;
+      if (succeeded) edit.draft = null;
     }
-    status.textContent = `failed: ${result.error}`;
-    return false;
+    return succeeded;
   } catch (err) {
-    status.textContent = `error: ${err.message}`;
+    if (edit.draft === draft) {
+      status.textContent = command
+        ? `error checking command ${command.id}: ${err.message}`
+        : `error: ${err.message}`;
+      if (command) edit.draft = null;
+    }
     return false;
+  } finally {
+    edit.submitting = false;
   }
 }
 
@@ -430,27 +446,10 @@ async function refreshControlsState() {
   byId("finite-check-toggle").checked = finiteCheck.enabled;
 }
 
-// A row's input is rebuilt from scratch on every poll (the container is fully
-// replaced), so an in-progress edit not yet sent via "Set all" would otherwise
-// be silently overwritten by the next poll's server value -- `dirty` (set on
-// the `input`/`change` events) marks a row whose edit must survive rebuilding.
-// Each row's status line (the outcome of its last "Set all") also survives.
 function renderTunableHparams(tunable) {
   const container = byId("tunable-hparams-list");
-  const pending = new Map();
-  const statuses = new Map();
-  for (const row of container.querySelectorAll("[data-hparam-name]")) {
-    statuses.set(
-      row.dataset.hparamName,
-      row.querySelector(".status-line").textContent,
-    );
-    const input = row.querySelector("input, textarea");
-    if (input?.dataset.dirty === "1") {
-      pending.set(row.dataset.hparamName, {
-        value: input.value,
-        checked: input.checked,
-      });
-    }
+  for (const name of tunableHparamEdits.keys()) {
+    if (!Object.hasOwn(tunable, name)) tunableHparamEdits.delete(name);
   }
   container.replaceChildren();
   const names = Object.keys(tunable);
@@ -463,32 +462,29 @@ function renderTunableHparams(tunable) {
     );
     return;
   }
-  for (const name of names)
-    container.append(
-      renderTunableHparamRow(
-        name,
-        tunable[name],
-        pending.get(name),
-        statuses.get(name),
-      ),
-    );
+  for (const name of names) {
+    container.append(renderTunableHparamRow(name, tunable[name]));
+  }
 }
 
-function renderTunableHparamRow(name, info, pending, statusText) {
-  const input = buildInputForType(info);
-  if (pending) {
-    if (info.type === "bool") input.checked = pending.checked;
-    else input.value = pending.value;
-    input.dataset.dirty = "1";
+function renderTunableHparamRow(name, info) {
+  let edit = tunableHparamEdits.get(name);
+  if (!edit) {
+    edit = {
+      draft: null,
+      submitting: false,
+      status: el("span", { className: "status-line" }),
+    };
+    tunableHparamEdits.set(name, edit);
   }
-  const markDirty = () => {
-    input.dataset.dirty = "1";
-  };
-  input.addEventListener("input", markDirty);
-  input.addEventListener("change", markDirty);
-  const status = el("span", {
-    className: "status-line",
-    textContent: statusText ?? "",
+  const { draft, status } = edit;
+  const input = buildInputForType(info);
+  const isBool = info.type === "bool";
+  const property = isBool ? "checked" : "value";
+  if (draft) input[property] = draft.value;
+  input.addEventListener("input", () => {
+    edit.draft = { value: input[property] };
+    status.textContent = "";
   });
   const row = el("div", { className: "tunable-row" }, [
     el("div", { className: "tunable-row-header" }, [

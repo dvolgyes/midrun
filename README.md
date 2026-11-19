@@ -131,6 +131,12 @@ updates it immediately.
 
 ![midrun dashboard](docs/images/dashboard.png)
 
+**Set all** sends only edited fields that do not already have a command pending.
+
+Refresh preserves unsent edits, even while an earlier submission is pending.
+
+Once an edit succeeds, **Set all** does not send it again.
+
 **Pause** holds the run at its next supported safe point, not necessarily before an optimizer step. While the run is
 held, you can save a checkpoint, change a learning rate or hyperparameter, and click **Resume**.
 
