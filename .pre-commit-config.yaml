@@ -123,14 +123,11 @@ repos:
         entry: uv run --with pylint pylint
         language: system
         types: [python]
+        # Ruff BLE001 checks broad catches; document intentional boundaries at the handler.
         args:
-          - --disable=too-many-arguments,too-many-locals,too-many-public-methods,too-many-positional-arguments,too-many-instance-attributes,protected-access,broad-exception-caught
+          - --disable=too-many-arguments,too-many-locals,too-many-public-methods,too-many-positional-arguments,too-many-instance-attributes,protected-access,broad-exception-caught,import-outside-toplevel
         exclude: ^tests/
         require_serial: true
-      - !!merge <<: *pylint
-        name: Pylint (broad exception handlers outside the command boundary)
-        args: [--disable=all, --enable=broad-exception-caught]
-        exclude: ^(?:tests/|midrun/runtime/command_specs/execute_command\.py$)
       - &pylint_limits
         # The following profiles run only the five checks delegated above.
         # Each source file gets exactly one profile. Tests retain their original exclusion.
@@ -238,34 +235,27 @@ repos:
     hooks:
       - id: py-review-rules
         exclude: >-
-          (?x) ^(?: legacy/ | tests/ | midrun/(?: mixin | hooks/lightning | runtime/(?: gate | commands/command_queue | command_specs/execute_command | handlers/handle_set_learning_rate | hparam_registry/typed_hparam_value | state/metric_observations ))\.py$ )
-        args: [--max-function-nesting-depth, '1']
+          (?x) ^(?: legacy/ | tests/ | midrun/(?: mixin | hooks/lightning | runtime/(?: commands/command_queue | hparam_registry/typed_hparam_value ))\.py$ )
+        # The combined construct cap must also allow two classes. Imports may be lazy or type-only.
+        args: [&prr_nesting --max-function-nesting-depth=1, &prr_classes --max-classes=2, &prr_constructs --max-constructs=2, &prr_imports --no-require-top-level-import]
       # tests/midrun_options_test.py checks the public constructor against the typed options.
       - id: py-review-rules
         name: py-review-rules (public mixin options)
         files: ^midrun/mixin\.py$
-        args: [--max-function-nesting-depth=1, --max-args=33, --max-bool-args=12, --max-methods=17]
+        args: [*prr_nesting, *prr_classes, *prr_constructs, *prr_imports, --max-args=33, --max-bool-args=12, --max-methods=17]
       # Lightning supplies dataloader_idx positionally; tests/hooks/lightning_contract_test.py checks its signatures.
       - id: py-review-rules
         name: py-review-rules (Lightning callback signatures)
         files: ^midrun/hooks/lightning\.py$
-        args: [--max-function-nesting-depth=1, --max-methods=39, --ignore=PRR026]
-      - id: py-review-rules
-        name: py-review-rules (gate and active hold)
-        files: ^midrun/runtime/gate\.py$
-        args: [--max-function-nesting-depth=1, --max-classes=2, --max-constructs=2]
+        args: [*prr_nesting, *prr_classes, *prr_constructs, *prr_imports, --max-methods=39, --ignore=PRR026]
       - id: py-review-rules
         name: py-review-rules (command queue)
         files: ^midrun/runtime/commands/command_queue\.py$
-        args: [--max-function-nesting-depth=1, --max-methods=17]
-      - id: py-review-rules
-        name: py-review-rules (Lightning type-only imports)
-        files: ^midrun/runtime/(?:command_specs/execute_command|handlers/handle_set_learning_rate|state/metric_observations)\.py$
-        args: [--max-function-nesting-depth=1, --ignore=PRR015]
+        args: [*prr_nesting, *prr_classes, *prr_constructs, *prr_imports, --max-methods=17]
       - id: py-review-rules
         name: py-review-rules (tensor value validation)
         files: ^midrun/runtime/hparam_registry/typed_hparam_value\.py$
-        args: [--max-function-nesting-depth=1, --max-local-helpers=6]
+        args: [*prr_nesting, *prr_classes, *prr_constructs, *prr_imports, --max-local-helpers=6]
 
   # Source: 300_mdformat.yaml [central]
   - repo: https://github.com/executablebooks/mdformat
