@@ -241,6 +241,8 @@ lists the other command IDs, and a release with any of those IDs releases the ru
 after the hold loop starts stays queued. After a stop has run, new hold commands are refused until the next stage
 starts.
 
+If an exception hold is interrupted, `/run` reports `stopping` with `exception` set to `null` before teardown.
+
 Releasing a stale hold ID returns HTTP 404 and leaves the replacement hold active.
 
 Other routes: `/run`, `/metrics`, `/optimizers`, `/artifacts`, `/telemetry/pipeline`, `/inspectors`,

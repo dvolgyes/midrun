@@ -747,24 +747,31 @@ class MidrunRuntime:
             rank=rank,
             started_at=time.time(),
         )
-        self._publish(pl_module, status="exception_held")
-        logger.warning(
-            "midrun: rank {} holds after a backward exception at epoch {}, "
-            "global step {}: {}: {}; the release_exception command raises it again",
-            rank,
-            trainer.current_epoch,
-            trainer.global_step,
-            type(exc).__name__,
-            exc,
-        )
+        exit_status = "stopping"
         try:
+            self._publish(pl_module, status="exception_held")
+            logger.warning(
+                "midrun: rank {} holds after a backward exception at epoch {}, "
+                "global step {}: {}: {}; the release_exception command raises it again",
+                rank,
+                trainer.current_epoch,
+                trainer.global_step,
+                type(exc).__name__,
+                exc,
+            )
             self._exception_hold_loop(pl_module, trainer)
+            exit_status = "running"
         finally:
             # An interrupt also ends the hold. The caller re-raises: drop the live
             # references, the traceback frames among them.
             self.exception_hold = None
-            self.state.update(exception=None)
             self.current_step.clear()
+            self.state.update(
+                status=exit_status,
+                exception=None,
+                batch_idx=None,
+                pending_commands=self.command_queue.queued_count,
+            )
             logger.info(
                 "midrun: exception hold ended; the backward exception propagates"
             )
@@ -782,9 +789,9 @@ class MidrunRuntime:
                 allowed=ALLOWED_DURING_EXCEPTION,
             ):
                 execute_command(self, pl_module, trainer, command, safe_point=None)
-            self._publish(pl_module, status="exception_held")
             if self.exception_hold is None:
                 break
+            self._publish(pl_module, status="exception_held")
             self.gate.wait_for_control_event(timeout=0.1)
 
     def _detect_backward_interception(self, pl_module: "LightningModule") -> None:

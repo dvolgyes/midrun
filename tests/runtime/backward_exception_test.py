@@ -388,8 +388,9 @@ def test_only_first_release_ends_an_exception_hold(
     assert second.error is not None and "no exception hold" in second.error
 
 
+@pytest.mark.parametrize("interrupt_at", ["warning", "wait"])
 def test_an_interrupted_exception_hold_ends_the_hold(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, interrupt_at: str
 ) -> None:
     runtime = _make_runtime(tmp_path)
     trainer = _FakeTrainer()
@@ -398,16 +399,32 @@ def test_an_interrupted_exception_hold_ends_the_hold(
         batch={"x": 1}, batch_idx=0, epoch=0, global_step=0, started_ns=0
     )
 
-    def _interrupt(timeout: float) -> None:
-        raise KeyboardInterrupt
+    interrupt = KeyboardInterrupt("end the hold")
 
-    monkeypatch.setattr(runtime.gate, "wait_for_control_event", _interrupt)
+    def interrupt_hold(*args: object, **kwargs: object) -> None:
+        snapshot = runtime.state.read()
+        assert snapshot.status == "exception_held"
+        assert snapshot.exception is not None
+        raise interrupt
 
-    with pytest.raises(KeyboardInterrupt):
-        runtime.handle_backward_exception(pl_module, "loss", ValueError("boom"))
+    if interrupt_at == "warning":
+        monkeypatch.setattr(logger, "warning", interrupt_hold)
+    else:
+        monkeypatch.setattr(runtime.gate, "wait_for_control_event", interrupt_hold)
 
+    with pytest.raises(KeyboardInterrupt) as raised:
+        runtime.handle_backward_exception(
+            pl_module, torch.tensor(1.0), ValueError("boom")
+        )
+
+    assert raised.value is interrupt
+    snapshot = runtime.state.read()
+    assert snapshot.status == "stopping"
+    assert snapshot.exception is None
+    assert snapshot.batch_idx is None
     assert runtime.exception_hold is None
-    assert runtime.state.read().exception is None
+    assert runtime.current_step.batch is None
+    assert runtime.current_step.loss is None
     assert runtime.current_step.exception is None
 
 
