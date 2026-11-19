@@ -390,7 +390,18 @@ def test_the_exception_hold_logs_the_exception_and_its_end(tmp_path: Path) -> No
     trainer = _FakeTrainer()
     pl_module = _FakePLModule(trainer)
     messages: list[str] = []
-    sink_id = logger.add(messages.append, level="INFO", format="{level} {message}")
+    warned = threading.Event()
+
+    def record(message: str) -> None:
+        messages.append(message)
+        if (
+            message.startswith("WARNING")
+            and "ValueError" in message
+            and "injected boom" in message
+        ):
+            warned.set()
+
+    sink_id = logger.add(record, level="INFO", format="{level} {message}")
     thread = threading.Thread(
         target=runtime.handle_backward_exception,
         args=(pl_module, torch.tensor(1.0), ValueError("injected boom")),
@@ -398,17 +409,17 @@ def test_the_exception_hold_logs_the_exception_and_its_end(tmp_path: Path) -> No
     try:
         thread.start()
         _wait_until(lambda: runtime.state.read().status == "exception_held")
-        held = [m for m in messages if m.startswith("WARNING")]
-        assert any("ValueError" in m and "injected boom" in m for m in held), held
+        assert warned.wait(timeout=5), messages
 
         runtime.command_queue.submit("release_exception", {}, parse_when("now"))
         runtime.gate.notify()
         thread.join(timeout=5)
+        assert not thread.is_alive(), "exception hold did not end after release"
     finally:
-        logger.remove(sink_id)
         if thread.is_alive():
             runtime.exception_hold = None
             runtime.gate.notify()
             thread.join(timeout=5)
+        logger.remove(sink_id)
 
     assert any("exception hold ended" in m for m in messages), messages
