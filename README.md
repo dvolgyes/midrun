@@ -255,6 +255,10 @@ ordinary CUDA scalar publication, midrun schedules a host copy and leaves the wa
 does not make all inspection asynchronous: finite checking and heavy hooks can make training wait for the device.
 Metrics that are not real scalars, such as vectors and complex tensors, are omitted.
 
+A retained Lightning metric keeps its step, epoch and timestamp until it is logged again, even with the same value.
+
+Values placed directly in the callback dictionary without a Lightning producer use the publication time.
+
 `/telemetry/pipeline` reports the optimizer step count **at batch end**. With gradient accumulation, consecutive batches
 can report the same `global_step`. The rolling summary uses nearest-rank percentiles without interpolation. In each
 phase, `mean_to_batch_ratio` replaces `fraction`: it divides mean phase time by mean in-batch time. The input gap occurs

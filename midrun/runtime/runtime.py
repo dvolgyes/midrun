@@ -69,6 +69,7 @@ from midrun.runtime.runtime_services import RuntimeServices
 from midrun.runtime.stage_sessions import StageSessions
 from midrun.runtime.state.exception_breakpoint_info import ExceptionBreakpointInfo
 from midrun.runtime.state.initial_snapshot import initial_snapshot
+from midrun.runtime.state.metric_observations import MetricObservations
 from midrun.runtime.state.publishable_values import publishable_values
 from midrun.runtime.state.rank_info import RankInfo
 from midrun.runtime.state.scalar_metric import ScalarMetric
@@ -105,6 +106,7 @@ class MidrunRuntime:
     :ivar run_id: Unique id for this training run.
     :ivar started_at: Unix timestamp this runtime object was constructed.
     :ivar state: Published `RuntimeSnapshot` store.
+    :ivar _metric_observations: Tracks when Lightning last updated each callback metric.
     :ivar command_queue: Submitted control-plane commands.
     :ivar gate: Cooperative hold gate.
     :ivar artifacts: Checkpoint/snapshot/debug-capture disk store; created once
@@ -153,6 +155,7 @@ class MidrunRuntime:
     run_id: str
     started_at: float
     state: StateStore
+    _metric_observations: MetricObservations
     command_queue: CommandQueue
     gate: RunGate
     artifacts: ArtifactStore | None
@@ -199,6 +202,7 @@ class MidrunRuntime:
         self.state = StateStore(
             initial_snapshot(self.run_id, backend.name, backend.version)
         )
+        self._metric_observations = MetricObservations()
         self.command_queue = CommandQueue(validate_command_args)
         self.gate = RunGate()
         self.artifacts = None
@@ -824,6 +828,8 @@ class MidrunRuntime:
         global_step = trainer.global_step
         now = time.time()
         callback_metrics = trainer.callback_metrics
+        fresh = self._metric_observations.fresh(trainer, callback_metrics.keys())
+        previous = self.state.read().metrics
         lrs = [
             group["lr"]
             for optimizer in trainer.optimizers
@@ -832,8 +838,10 @@ class MidrunRuntime:
         # A CUDA value goes to the host without a wait; only a reader waits for it.
         published = publishable_values([*callback_metrics.values(), *lrs])
         metrics = {
-            key: ScalarMetric(
-                value=value, epoch=epoch, step=global_step, updated_at=now
+            key: (
+                ScalarMetric(value=value, epoch=epoch, step=global_step, updated_at=now)
+                if key in fresh or key not in previous
+                else replace(previous[key], value=value)
             )
             for key, value in zip(callback_metrics, published, strict=False)
             if value is not None

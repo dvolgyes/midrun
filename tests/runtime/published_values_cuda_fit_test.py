@@ -31,11 +31,12 @@ class _Training:
         self.memory: list[int] = []
 
     def training_step(self, batch, batch_idx):
-        del batch, batch_idx
+        del batch
         loss = self.layer(torch.randn(16, 8, device=self.device)).pow(2).mean()
         self.loss_refs.append(weakref.ref(loss))
         self.log("loss", loss, on_step=True)
         self.log("half", loss / 2, on_step=True)
+        self.log("produced_at", loss.new_full((), batch_idx), on_step=True)
         return loss
 
     def configure_optimizers(self):
@@ -200,7 +201,9 @@ def test_a_reader_during_a_strict_sync_fit_sees_whole_monotone_states(
     for read in with_metrics:
         loss, half = read["metrics"]["loss"], read["metrics"]["half"]
         assert half["value"] == loss["value"] / 2
-        assert half["step"] == loss["step"] == read["global_step"]
+        produced = read["metrics"]["produced_at"]
+        assert half["step"] == loss["step"] == produced["step"] == produced["value"]
+        assert loss["step"] <= read["global_step"] <= loss["step"] + 1
         assert read["learning_rates"] == [0.125]
     generations = [read["generation"] for read in reads]
     steps = [read["global_step"] for read in reads]
