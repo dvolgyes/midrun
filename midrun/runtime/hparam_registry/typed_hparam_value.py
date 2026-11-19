@@ -123,8 +123,8 @@ def _changes_element_kind(tensor: torch.Tensor, current: torch.Tensor) -> bool:
 
 
 def _source_tensor(value: object, target: torch.dtype) -> torch.Tensor:
-    """Infer source elements without narrowing Python floats or wide unsigned integers."""
-    if not isinstance(value, list | tuple | int | float):
+    """Preserve Python number precision before conversion to the target dtype."""
+    if not isinstance(value, list | tuple | int | float | complex):
         return torch.as_tensor(value)
     array = np.asarray(value)
     if target == torch.uint64 and array.dtype.kind in {"f", "O"}:

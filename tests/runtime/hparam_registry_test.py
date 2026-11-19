@@ -375,6 +375,17 @@ def test_complex_assignment_rejects_nonfinite_components(
     assert model.weight.item() == 2 + 3j
 
 
+@pytest.mark.parametrize("value", [1.000000000001 + 0.12345678912345j, 1e80j])
+def test_complex128_preserves_native_scalar_precision(value: complex) -> None:
+    model = _Model()
+    model.weight = torch.zeros((), dtype=torch.complex128)
+
+    result = _assign(model, "weight", value)
+
+    assert model.weight.item() == value
+    assert result.value == value
+
+
 @pytest.mark.parametrize(("value", "expected"), [(2 + 3j, 2 + 3j), (2.5, 2.5 + 0j)])
 def test_tensor_assignment_preserves_complex_target(
     value: complex | float, expected: complex

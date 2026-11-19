@@ -370,7 +370,8 @@ If a current value is outside that range, the dashboard leaves its field blank f
 
 Use REST directly to set larger integers within the hyperparameter's own limits.
 
-Native complex sources are accepted only for complex tensor hyperparameters.
+Python complex scalars retain double precision until conversion and are accepted only for complex tensor
+hyperparameters.
 
 The real and imaginary parts must be finite both before and after conversion to the target dtype.
 
