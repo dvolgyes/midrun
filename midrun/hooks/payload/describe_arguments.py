@@ -2,7 +2,7 @@
 
 import math
 from collections.abc import Iterable, Mapping
-from typing import Any
+from typing import Any, cast
 
 import torch
 
@@ -27,50 +27,57 @@ def describe_arguments(
         `truncated` is True, in which case it names every bound that was hit.
     """
     state = TraversalState(max_items=max_items, max_depth=max_depth)
-    described = {
-        str(name): _describe(value, state, depth=0) for name, value in arguments.items()
-    }
+    described = _describe_items(
+        arguments.items(),
+        state,
+        depth=-1,
+        object_id=id(arguments),
+        is_mapping=True,
+        total=len(arguments),
+    )
     reason = "; ".join(sorted(state.reasons)) if state.truncated else None
-    return described, state.truncated, reason
+    return cast("dict[str, object]", described), state.truncated, reason
 
 
 def _describe(value: object, state: TraversalState, *, depth: int) -> object:
-    state.nodes_left -= 1
     if isinstance(value, torch.Tensor):
+        shape = None if value.is_nested else list(value.shape)
         return {
             "kind": "tensor",
-            "shape": list(value.shape),
+            "shape": shape,
             "dtype": str(value.dtype),
             "device": str(value.device),
             "requires_grad": value.requires_grad,
         }
     if value is None or isinstance(value, bool | int | float):
         if isinstance(value, float) and not math.isfinite(value):
-            # Standard JSON has no NaN/Infinity literal.
             value = {"kind": "float", "value": repr(float(value))}
         return value
     if isinstance(value, str):
-        if len(value) <= _MAX_STRING_LEN:
-            return value
-        state.truncated = True
-        state.reasons.add("string_length")
-        return value[:_MAX_STRING_LEN] + "...(truncated)"
+        if len(value) > _MAX_STRING_LEN:
+            state.truncated = True
+            state.reasons.add("string_length")
+            value = value[:_MAX_STRING_LEN] + "...(truncated)"
+        return value
     if depth >= state.max_depth:
         state.truncated = True
         state.reasons.add("max_depth")
         return {"kind": "truncated", "reason": "max_depth"}
     object_id = id(value)
     if object_id in state.seen:
-        return {"kind": "cycle"}
-    if isinstance(value, Mapping):
-        return _describe_items(
-            value.items(), state, depth=depth, object_id=object_id, is_mapping=True
+        value = {"kind": "cycle"}
+    elif isinstance(value, Mapping | list | tuple):
+        value = _describe_items(
+            value.items() if isinstance(value, Mapping) else enumerate(value),
+            state,
+            depth=depth,
+            object_id=object_id,
+            is_mapping=isinstance(value, Mapping),
+            total=len(value),
         )
-    if isinstance(value, list | tuple):
-        return _describe_items(
-            enumerate(value), state, depth=depth, object_id=object_id, is_mapping=False
-        )
-    return {"kind": "object", "type": type(value).__qualname__}
+    else:
+        value = {"kind": "object", "type": type(value).__qualname__}
+    return value
 
 
 def _describe_items(
@@ -80,27 +87,21 @@ def _describe_items(
     depth: int,
     object_id: int,
     is_mapping: bool,
-) -> object:
+    total: int,
+) -> dict[str, object] | list[object]:
     state.seen.add(object_id)
-    described: list[tuple[Any, Any]] = []
-    omitted = 0
-    for key, value in items:
-        if len(described) >= state.max_items or state.nodes_left <= 0:
-            omitted += 1
-            continue
-        described.append((key, _describe(value, state, depth=depth + 1)))
+    described = [
+        (key, _describe(value, state, depth=depth + 1))
+        for key, value in state.bounded_items(items, total)
+    ]
+    omitted = total - len(described)
     state.seen.discard(object_id)
-    if omitted:
-        state.truncated = True
-        state.reasons.add(
-            "max_items" if len(described) >= state.max_items else "max_nodes"
-        )
     if is_mapping:
-        result: dict[str, Any] = {str(key): value for key, value in described}
+        result = {str(key): value for key, value in described}
         if omitted:
             result["__truncated__"] = f"{omitted} more item(s) omitted"
         return result
-    result_list: list[Any] = [value for _key, value in described]
+    result_list = [value for _key, value in described]
     if omitted:
         result_list.append(
             {"kind": "truncated", "reason": f"{omitted} more item(s) omitted"}

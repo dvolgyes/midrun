@@ -116,6 +116,23 @@ def test_max_items_truncates_dict_and_marks_omitted_count() -> None:
     assert "max_items" in reason
 
 
+def test_mapping_visits_only_the_retained_entries() -> None:
+    class Counted(dict):
+        visits = 0
+
+        def items(self):
+            for entry in super().items():
+                self.visits += 1
+                yield entry
+
+    batch = Counted.fromkeys(range(10_000), 0)
+    described, _, _ = describe_arguments({"batch": batch}, max_items=3, max_depth=4)
+    assert batch.visits == 3
+    assert described["batch"]["__truncated__"] == "9997 more item(s) omitted"
+    collect_tensor_leaves({"batch": batch}, ("batch",), max_items=3, max_depth=4)
+    assert batch.visits == 6
+
+
 def test_max_items_truncates_list_and_appends_truncated_marker() -> None:
     arguments = {"batch": list(range(5))}
     described, truncated, reason = describe_arguments(

@@ -25,9 +25,9 @@ def collect_tensor_leaves(
     """
     state = TraversalState(max_items=max_items, max_depth=max_depth)
     leaves: list[TensorLeaf] = []
-    for name in tensor_arg_names:
-        if name in arguments:
-            _collect_leaves(arguments[name], name, state, leaves, depth=0)
+    roots = {name: arguments[name] for name in tensor_arg_names if name in arguments}
+    for name, value in state.bounded_items(roots.items(), len(roots)):
+        _collect_leaves(value, name, state, leaves, depth=0)
     reason = "; ".join(sorted(state.reasons)) if state.truncated else None
     return leaves, state.truncated, reason
 
@@ -54,11 +54,6 @@ def _collect_leaves(
         return
     items = value.items() if isinstance(value, Mapping) else enumerate(value)
     state.seen.add(object_id)
-    for index, (key, item) in enumerate(items):
-        if index >= state.max_items or state.nodes_left <= 0:
-            state.truncated = True
-            state.reasons.add("max_items" if index >= state.max_items else "max_nodes")
-            break
-        state.nodes_left -= 1
+    for key, item in state.bounded_items(items, len(value)):
         _collect_leaves(item, f"{path}/{key}", state, leaves, depth=depth + 1)
     state.seen.discard(object_id)
