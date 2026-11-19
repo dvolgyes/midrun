@@ -210,7 +210,7 @@ Instead of `epoch`, you can give `global_step`. Without `safe_point`, the condit
 | `set_learning_rate`, `reset_momentum` | Change optimizer state. |
 | `set_hparam` | Change a tunable hyperparameter (see below). |
 | `set_dataloader_finite_check` | Turn the NaN/Inf check of each batch on or off. |
-| `save_current_batch`, `save_current_loss`, `save_partial_gradients`, `save_optimizer_summary` | Save training data for offline debugging. |
+| `save_current_batch`, `save_current_loss`, `save_partial_gradients`, `save_optimizer_summary` | Save training data for offline debugging; a skipped batch is not an in-flight batch. |
 | `release_exception` | End the hold after a backward exception that midrun caught; the exception is then raised again. |
 | `torchinfo_capture`, `torchview_capture`, `torchviz_capture`, `torchlens_capture` | Capture a model summary or graph (optional extras). |
 | `profile`, `set_lightning_profiler` | Profile some training steps. |

@@ -188,7 +188,7 @@ class MidrunMixin(_MixinBase):
     def on_train_batch_start(self, batch: object, batch_idx: int) -> int | None:
         """Lightning's `on_train_batch_start` hook; forwards to `MidrunRuntime`."""
         result: int | None = super().on_train_batch_start(batch, batch_idx)
-        if self._midrun.config.enabled:
+        if result != -1 and self._midrun.config.enabled:
             self._midrun.begin_train_batch(self, batch, batch_idx)
         return result
 
@@ -231,6 +231,7 @@ class MidrunMixin(_MixinBase):
         """Lightning's `on_train_epoch_end` hook; forwards to `MidrunRuntime`."""
         super().on_train_epoch_end()
         if self._midrun.config.enabled:
+            self._midrun.current_step.clear()
             self._midrun.process_safe_point(self, SafePoint.TRAIN_EPOCH_END)
 
     def on_validation_epoch_end(self) -> None:

@@ -7,13 +7,16 @@ failing because the submission came just after an epoch's last batch.
 
 from pathlib import Path
 
+import lightning.pytorch as pl
 import pytest
 import torch
 from fastapi.testclient import TestClient
+from torch.utils.data import DataLoader
 
 from midrun.build_runtime import build_runtime
 from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
+from midrun.mixin import MidrunMixin
 from midrun.rest.app import build_app
 from midrun.runtime.artifacts import ArtifactStore
 from midrun.runtime.command_specs.allowed_during_hold import ALLOWED_DURING_HOLD
@@ -163,3 +166,69 @@ def test_save_current_batch_runs_in_a_hold_while_its_batch_is_in_flight(
 
     finished = runtime.command_queue.get(command.id)
     assert finished.status == "succeeded", finished.error
+
+
+class _SkipEpoch(pl.LightningModule):
+    skip_in_parent = True
+
+    def on_train_batch_start(self, batch: torch.Tensor, batch_idx: int) -> int | None:
+        return -1 if self.skip_in_parent and self.current_epoch == 0 else None
+
+
+class _CaptureModel(MidrunMixin, _SkipEpoch):
+    def __init__(self) -> None:
+        super().__init__(
+            rest_enabled=False,
+            fuse_enabled=False,
+            torch_debug_enabled=False,
+            hooks_enabled=False,
+            run_log_enabled=False,
+        )
+        self.weight = torch.nn.Parameter(torch.ones(()))
+        self.trained: list[float] = []
+
+    def train_dataloader(self) -> DataLoader:
+        return DataLoader(torch.tensor([float(self.current_epoch + 1)]))
+
+    def training_step(self, batch: torch.Tensor, batch_idx: int) -> torch.Tensor:
+        self.trained.append(batch.item())
+        return self.weight * batch.sum()
+
+    def configure_optimizers(self) -> torch.optim.Optimizer:
+        return torch.optim.SGD(self.parameters(), lr=0.1)
+
+
+class _SkipAfterSuper(_CaptureModel):
+    skip_in_parent = False
+
+    def on_train_batch_start(self, batch: torch.Tensor, batch_idx: int) -> int | None:
+        result = super().on_train_batch_start(batch, batch_idx)
+        return -1 if self.current_epoch == 0 else result
+
+
+@pytest.mark.parametrize("model_class", [_CaptureModel, _SkipAfterSuper])
+def test_capture_ignores_a_batch_skipped_by_lightning(
+    tmp_path: Path, model_class: type[_CaptureModel]
+) -> None:
+    model = model_class()
+    command = model.midrun.command_queue.submit(
+        "save_current_batch", {}, parse_when("next_safe_point")
+    )
+    trainer = pl.Trainer(
+        default_root_dir=tmp_path,
+        max_epochs=2,
+        reload_dataloaders_every_n_epochs=1,
+        accelerator="cpu",
+        devices=1,
+        logger=False,
+        enable_checkpointing=False,
+        enable_model_summary=False,
+        enable_progress_bar=False,
+    )
+    trainer.fit(model)
+
+    assert command.status == "succeeded", command.error
+    assert command.result is not None
+    batch = torch.load(Path(command.result["path"]) / "batch.pt", weights_only=True)
+    assert model.trained == [2.0]
+    assert batch.item() == model.trained[0]
