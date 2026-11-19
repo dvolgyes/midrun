@@ -1,5 +1,6 @@
 """The momentum reset for torch.optim.SGD."""
 
+from collections.abc import Sequence
 from typing import Any
 
 import torch
@@ -9,10 +10,15 @@ class SGDSurgeryAdapter:
     """`torch.optim.SGD`: drops the momentum buffer, letting SGD recreate it as needed."""
 
     def supports(self, optimizer: torch.optim.Optimizer) -> bool:
+        """Accepts optimizers with SGD's momentum buffer layout."""
         return isinstance(optimizer, torch.optim.SGD)
 
     def reset_momentum(
-        self, optimizer: torch.optim.Optimizer, parameters: list[torch.nn.Parameter]
+        self,
+        optimizer: torch.optim.Optimizer,
+        parameters: list[torch.nn.Parameter],
+        *,
+        optimizers: Sequence[torch.optim.Optimizer] = (),
     ) -> dict[str, Any]:
         """Drops the momentum buffers of `parameters`.
 
@@ -20,6 +26,7 @@ class SGDSurgeryAdapter:
             ValueError: `parameters` holds only some of the buffered parameters of a
                 fused param group, whose step needs a buffer for all or none of them.
         """
+        del optimizers
         selected = set(parameters)
         for index, group in enumerate(optimizer.param_groups):
             buffered = [

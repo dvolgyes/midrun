@@ -304,6 +304,57 @@ def test_reset_momentum_zeroes_adam_exp_avg_via_command() -> None:
         )
 
 
+@pytest.mark.parametrize("family", [torch.optim.Adam, torch.optim.AdamW])
+def test_reset_momentum_preserves_state_loaded_into_another_optimizer(
+    family: type[torch.optim.Adam],
+) -> None:
+    model = _Model()
+    target = family(model.a.parameters())
+    other = family(model.b.parameters())
+    _step(model.a, target)
+    other.load_state_dict(target.state_dict())
+    before = other.state[model.b.bias]["exp_avg"].clone()
+    assert before.count_nonzero() > 0
+    trainer = _FakeTrainer([target, other])
+
+    command = _submit_and_run(
+        _make_runtime(),
+        _FakePLModule(trainer, model),
+        trainer,
+        "reset_momentum",
+        {"optimizer": 0, "selector": {"parameter": "a.bias"}},
+    )
+
+    assert command.status == "succeeded", command.error
+    assert command.result["parameters_reset"] == 1
+    assert target.state[model.a.bias]["exp_avg"].count_nonzero() == 0
+    assert torch.equal(other.state[model.b.bias]["exp_avg"], before)
+
+
+def test_reset_momentum_preserves_overlapping_variance_and_sibling_views() -> None:
+    model = _Model()
+    optimizer = torch.optim.Adam(model.parameters())
+    _step(model, optimizer)
+    values = torch.tensor([1.0, 2.0, 3.0])
+    optimizer.state[model.a.bias]["exp_avg"] = values[:2]
+    optimizer.state[model.a.bias]["exp_avg_sq"] = values[1:]
+    optimizer.state[model.b.bias]["exp_avg"] = values[1:]
+    trainer = _FakeTrainer([optimizer])
+
+    command = _submit_and_run(
+        _make_runtime(),
+        _FakePLModule(trainer, model),
+        trainer,
+        "reset_momentum",
+        {"selector": {"parameter": "a.bias"}},
+    )
+
+    assert command.status == "succeeded", command.error
+    assert optimizer.state[model.a.bias]["exp_avg"].tolist() == [0.0, 0.0]
+    assert optimizer.state[model.a.bias]["exp_avg_sq"].tolist() == [2.0, 3.0]
+    assert optimizer.state[model.b.bias]["exp_avg"].tolist() == [2.0, 3.0]
+
+
 def test_reset_momentum_rejects_unsupported_optimizer_without_mutating_state() -> None:
     runtime = _make_runtime()
     model = torch.nn.Linear(2, 2)

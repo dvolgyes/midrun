@@ -215,6 +215,10 @@ Instead of `epoch`, you can give `global_step`. Without `safe_point`, the condit
 | `torchinfo_capture`, `torchview_capture`, `torchviz_capture`, `torchlens_capture` | Capture a model summary or graph (optional extras). |
 | `profile`, `set_lightning_profiler` | Profile some training steps. |
 
+For Adam and AdamW, `reset_momentum` clears only the selected first moments.
+
+If a reset replaces a shared buffer, recapture any CUDA graph that used that buffer before replay.
+
 If a completed `profile` cannot write its trace, `state/profiler.json` reports `pending_publication`.
 
 - The next batch end or stage teardown retries the write without recording more steps.

@@ -42,5 +42,7 @@ def handle_reset_momentum(
     parameters = resolve_optimizer_parameters(
         pl_module, optimizer, command.args["selector"]
     )
-    result = adapter.reset_momentum(optimizer, parameters)
+    result = adapter.reset_momentum(
+        optimizer, parameters, optimizers=trainer.optimizers
+    )
     return {"optimizer": optimizer_index, **result}
