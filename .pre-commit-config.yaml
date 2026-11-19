@@ -116,14 +116,52 @@ repos:
   # Source: 203_pylint.yaml [central]
   - repo: local
     hooks:
-      - id: pylint
+      - &pylint
+        # Keep cross-module checks in one invocation, including duplicate code and import cycles.
+        id: pylint
         name: Pylint
         entry: uv run --with pylint pylint
         language: system
         types: [python]
-        args: [--disable=too-many-arguments]
+        args:
+          - --disable=too-many-arguments,too-many-locals,too-many-public-methods,too-many-positional-arguments,too-many-instance-attributes,protected-access
         exclude: ^tests/
         require_serial: true
+      - &pylint_limits
+        # The following profiles run only the five checks delegated above.
+        # Each source file gets exactly one profile. Tests retain their original exclusion.
+        !!merge <<: *pylint
+        name: Pylint (public mixin options)
+        entry: >-
+          uv run --with pylint pylint --disable=all --enable=too-many-locals,too-many-public-methods,too-many-positional-arguments,too-many-instance-attributes,protected-access
+        files: ^midrun/mixin\.py$
+        args: [--max-locals=35]
+      - !!merge <<: *pylint_limits
+        name: Pylint (Lightning callback signatures)
+        files: ^midrun/hooks/lightning\.py$
+        args: [--max-public-methods=37, --max-positional-arguments=6]
+      - !!merge <<: *pylint_limits
+        name: Pylint (pipeline sample fields)
+        files: ^midrun/runtime/pipeline_pressure\.py$
+        args: [--max-attributes=8]
+      # Lightning 2.6: agree on preparation failures before strategy I/O (tests/integration/ddp_runs_test.py).
+      - !!merge <<: *pylint_limits
+        name: Pylint (checkpoint preparation)
+        files: ^midrun/runtime/handlers/handle_checkpoint\.py$
+        args:
+          - --exclude-protected=_asdict,_fields,_replace,_source,_make,os._exit,_checkpoint_connector
+      # Preserve the recorder's effective schedule (tests/fuse/live_lightning_profiler_summary_test.py).
+      - !!merge <<: *pylint_limits
+        name: Pylint (profiler recorder)
+        files: ^midrun/runtime/virtual_fs/live_lightning_profiler_summary\.py$
+        args:
+          - --exclude-protected=_asdict,_fields,_replace,_source,_make,os._exit,_schedule,_profiler_kwargs
+      - !!merge <<: *pylint_limits
+        name: Pylint (standard limits and protected access)
+        files: ''
+        exclude: >-
+          (?x) ^(?: tests/ | midrun/(?: mixin | hooks/lightning | runtime/(?:pipeline_pressure | handlers/handle_checkpoint | virtual_fs/live_lightning_profiler_summary))\.py$ )
+        args: []
 
   # Source: 205_autoflake.yaml [central]
   - repo: https://github.com/PyCQA/autoflake
@@ -190,8 +228,18 @@ repos:
     rev: 0.2.1
     hooks:
       - id: py-review-rules
-        exclude: ^(legacy/|tests/)
+        exclude: ^(legacy/|tests/|midrun/(mixin|hooks/lightning)\.py$)
         args: [--max-function-nesting-depth, '1']
+      # tests/midrun_options_test.py checks the public constructor against the typed options.
+      - id: py-review-rules
+        name: py-review-rules (public mixin options)
+        files: ^midrun/mixin\.py$
+        args: [--max-function-nesting-depth=1, --max-args=33, --max-bool-args=12, --max-methods=17]
+      # Lightning supplies dataloader_idx positionally; tests/hooks/lightning_contract_test.py checks its signatures.
+      - id: py-review-rules
+        name: py-review-rules (Lightning callback signatures)
+        files: ^midrun/hooks/lightning\.py$
+        args: [--max-function-nesting-depth=1, --max-methods=39, --ignore=PRR026]
 
   # Source: 300_mdformat.yaml [central]
   - repo: https://github.com/executablebooks/mdformat
@@ -216,6 +264,7 @@ repos:
     rev: v2.4.3
     hooks:
       - id: codespell
+        args: ['--ignore-regex=\bCommandIn\b']
 
   # Source: 307_rstcheck.yaml [central]
   - repo: https://github.com/rstcheck/rstcheck
