@@ -1,0 +1,29 @@
+---
+name: Build release archives
+"on": workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@94527f2e458b27549849d47d273a16bec83a01e9
+        with:
+          version: '0.13.9'
+      - name: Build and check from the selected commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_dir=$(mktemp -d)
+          output_dir=$(mktemp -d)
+          git archive "$GITHUB_SHA" | tar -x -C "$source_dir"
+          cd "$source_dir"
+          uv lock --check
+          uv build --out-dir "$output_dir"
+          uv run --script tools/check_release.py "$output_dir"
+          echo "Verified $(basename "$output_dir"/*.whl) and $(basename "$output_dir"/*.tar.gz) for $GITHUB_SHA"
