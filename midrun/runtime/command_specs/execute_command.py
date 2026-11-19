@@ -30,18 +30,17 @@ def execute_command(
     `BaseException` fails the command and propagates.
     Collective invocations wait for every handler before publishing its local result.
     """
-    # Skips a hold cancelled after `_due_commands` returned it. Only holds can be
-    # cancelled, and only rank 0 runs them, so no rank skips what the others run.
-    if not runtime.command_queue.mark_executing(command):
-        return
     # The queue validates the kind at submit, so every queued kind has a handler.
     handler = COMMAND_SPECS[command.kind].handler
     try:
         with (
             RankAgreement(runtime.rank_sync, command.kind)
             if collective
-            else nullcontext()
+            else nullcontext(),
+            runtime.gate.hold_transition() if command.kind == "hold" else nullcontext(),
         ):
+            if not runtime.command_queue.mark_executing(command):
+                return
             result = handler(runtime, pl_module, trainer, command, safe_point)
     except Exception as exc:  # noqa: BLE001 -- command boundary: untrusted REST input must not crash training
         error = str(exc)

@@ -260,12 +260,15 @@ After `release_exception` they never run, because the run then ends with the exc
 
 During an exception hold, `active` in `GET $URL/holds` is `null`, and `exception` shows the exception with the same
 fields as in `GET $URL/run`. Otherwise, `exception` is `null`. `release_exception` returns status 409 when no exception
-hold is active. `POST $URL/holds/<id>/cancel` cancels only a hold that is not active yet. `POST $URL/control/continue`
-releases the active hold, and also cancels a pause from `POST $URL/control/pause` that is not active yet; it lists the
-cancelled ids under `cancelled_holds`. Holds selected together at a safe point share one active hold. Its `joined_ids`
-lists the other command IDs, and a release with any of those IDs releases the run. A new hold submitted through `/holds`
-after the hold loop starts stays queued. After a stop has run, new hold commands are refused until the next stage
-starts.
+hold is active. `POST $URL/holds/<id>/cancel` cancels only a hold that is not active yet.
+
+`POST $URL/control/continue` releases any active hold and cancels any control pause still waiting to activate.
+
+The response lists the cancelled IDs under `cancelled_holds`.
+
+Holds selected together at a safe point share one active hold. Its `joined_ids` lists the other command IDs, and a
+release with any of those IDs releases the run. A new hold submitted through `/holds` after the hold loop starts stays
+queued. After a stop has run, new hold commands are refused until the next stage starts.
 
 If an exception hold is interrupted, `/run` reports `stopping` with `exception` set to `null` before teardown.
 

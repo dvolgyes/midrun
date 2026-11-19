@@ -92,29 +92,14 @@ def register_hold_routes(app: FastAPI, runtime: MidrunRuntime) -> None:
     @app.post("/control/pause")
     def control_pause() -> dict[str, Any]:
         """Requests a pause unless one is already active or queued."""
-        # A repeated pause queues nothing, so one continue always resumes the run.
-        active = runtime.gate.active_hold()
-        if active is not None:
-            return {"hold_id": active.command_id, "queued": False}
-        command, queued = runtime.command_queue.submit_once(
-            "hold", {"reason": "control/pause"}, parse_when("now")
-        )
-        runtime.gate.notify()
-        return {"hold_id": command.id, "queued": queued}
+        hold_id, queued = runtime.gate.request_pause(runtime.command_queue)
+        return {"hold_id": hold_id, "queued": queued}
 
     @app.post("/control/continue")
     def control_continue() -> dict[str, Any]:
         """Cancels pending pause requests and releases the active hold."""
-        # Cancels a pause that is not due yet before the release, so it cannot hold
-        # the run at the next safe point. Holds from /holds stay queued.
-        cancelled = [
-            command.id
-            for command in runtime.command_queue.list_all()
-            if (command.kind, command.args, command.when)
-            == ("hold", {"reason": "control/pause"}, parse_when("now"))
-            and runtime.command_queue.cancel(command.id)
-        ]
-        return {"released": runtime.gate.release(), "cancelled_holds": cancelled}
+        released, cancelled = runtime.gate.continue_run(runtime.command_queue)
+        return {"released": released, "cancelled_holds": cancelled}
 
     @app.post("/control/stop")
     def control_stop() -> dict[str, Any]:

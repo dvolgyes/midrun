@@ -7,8 +7,10 @@ run without a continue.
 import threading
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 
 import lightning.pytorch as PL
+import pytest
 import torch
 from fastapi.testclient import TestClient
 from torch.utils.data import DataLoader, TensorDataset
@@ -16,6 +18,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from midrun.mixin import MidrunMixin
 from midrun.rest.app import build_app
 from midrun.runtime.events import SafePoint
+from midrun.runtime.gate import ActiveHold
 
 
 class _EndlessModel(MidrunMixin, PL.LightningModule):
@@ -200,6 +203,75 @@ def test_a_continue_before_the_pause_is_due_cancels_the_pause() -> None:
     assert client.get(f"/commands/{later['id']}").json()["status"] == "queued"
     assert resumed == {"released": False, "cancelled_holds": [hold_id]}
     assert client.post("/control/pause").json()["queued"] is True
+
+
+def test_continue_racing_pause_activation_releases_the_pause(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = _EndlessModel().midrun
+    gate = runtime.gate
+    entered_dispatch = threading.Event()
+    allow_activation = threading.Event()
+    gate_lock = gate._lock
+    enter = gate.enter
+
+    class ObservedLock:
+        def __enter__(self) -> None:
+            if not gate_lock.acquire(blocking=False):
+                allow_activation.set()
+                assert gate_lock.acquire(timeout=10)
+
+        def __exit__(self, *_: object) -> None:
+            gate_lock.release()
+
+    def delayed_enter(
+        command_id: str, safe_point: str, epoch: int, step: int
+    ) -> ActiveHold:
+        entered_dispatch.set()
+        assert allow_activation.wait(timeout=10)
+        return enter(command_id, safe_point, epoch, step)
+
+    monkeypatch.setattr(gate, "_lock", ObservedLock())
+    monkeypatch.setattr(gate, "enter", delayed_enter)
+
+    with TestClient(build_app(runtime), base_url="http://localhost") as client:
+        hold_id = client.post("/control/pause").json()["hold_id"]
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            dispatched = executor.submit(
+                runtime._run_due_commands,
+                None,
+                _StepTrainer(),
+                SafePoint.TRAIN_BATCH_END,
+                None,
+            )
+            try:
+                assert entered_dispatch.wait(timeout=10)
+                resumed = client.post("/control/continue").json()
+            finally:
+                allow_activation.set()
+            dispatched.result(timeout=10)
+
+        assert resumed == {"released": True, "cancelled_holds": []}
+        assert client.get(f"/commands/{hold_id}").json()["status"] == "succeeded"
+        assert not gate.is_held()
+
+
+def test_continue_leaves_a_hold_with_the_same_reason_queued() -> None:
+    runtime = _EndlessModel().midrun
+    client = TestClient(build_app(runtime), base_url="http://localhost")
+    explicit = client.post("/holds", json={"reason": "control/pause", "timeout_s": 0})
+    explicit_id = explicit.json()["id"]
+    pause = client.post("/control/pause").json()
+    pause_id = pause["hold_id"]
+    assert pause["queued"]
+    assert pause_id != explicit_id
+
+    assert client.post("/control/continue").json() == {
+        "released": False,
+        "cancelled_holds": [pause_id],
+    }
+    assert client.get(f"/commands/{explicit_id}").json()["status"] == "queued"
+    assert client.get(f"/commands/{pause_id}").json()["status"] == "cancelled"
 
 
 def test_a_hold_after_an_executed_stop_is_refused(tmp_path) -> None:

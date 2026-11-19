@@ -10,19 +10,20 @@ import threading
 import time
 from dataclasses import dataclass, replace
 
+from midrun.runtime.commands.command_queue import CommandQueue
+
 
 @dataclass(frozen=True)
 class ActiveHold:
     """A hold currently blocking the training thread.
 
-    Attributes:
-        command_id: The `hold` command whose execution entered this hold.
-        safe_point: The safe point the hold was entered at.
-        epoch: Epoch at hold entry.
-        step: Global step at hold entry.
-        started_at: Unix timestamp of hold entry.
-        joined_ids: The later holds that became due while this hold was active. The
-            release of any of them, or of `command_id`, releases the run.
+    :ivar command_id: The `hold` command whose execution entered this hold.
+    :ivar safe_point: The safe point at which the hold was entered.
+    :ivar epoch: Epoch at hold entry.
+    :ivar step: Global step at hold entry.
+    :ivar started_at: Unix timestamp of hold entry.
+    :ivar joined_ids: The later holds that became due while this hold was active.
+        The release of any of them, or of `command_id`, releases the run.
     """
 
     command_id: str
@@ -34,13 +35,43 @@ class ActiveHold:
 
 
 class RunGate:
-    """Tracks the active hold and the events used to wait for/signal release."""
+    """Tracks the active hold and the events used to wait for/signal release.
+
+    :ivar _lock: Serializes gate state and control pause transitions.
+    :ivar _active_hold: The hold blocking training, if any.
+    :ivar _release_event: Signals that the active hold was released.
+    :ivar _control_event: Wakes the training thread when control state changes.
+    """
+
+    _lock: threading.RLock
+    _active_hold: ActiveHold | None
+    _release_event: threading.Event
+    _control_event: threading.Event
 
     def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._active_hold: ActiveHold | None = None
+        self._lock = threading.RLock()
+        self._active_hold = None
         self._release_event = threading.Event()
         self._control_event = threading.Event()
+
+    def hold_transition(self) -> threading.RLock:
+        """Serializes hold dispatch with pause and continue requests."""
+        return self._lock
+
+    def request_pause(self, queue: CommandQueue) -> tuple[str, bool]:
+        """Returns an active hold ID or arms a control pause."""
+        with self._lock:
+            if self._active_hold is not None:
+                return self._active_hold.command_id, False
+            command, queued = queue.submit_pause()
+        self.notify()
+        return command.id, queued
+
+    def continue_run(self, queue: CommandQueue) -> tuple[bool, list[str]]:
+        """Cancels a queued pause and releases the active hold atomically."""
+        with self._lock:
+            cancelled = queue.cancel_pause()
+            return self.release(), cancelled
 
     def enter(
         self, command_id: str, safe_point: str, epoch: int, step: int

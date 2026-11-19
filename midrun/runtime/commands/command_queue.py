@@ -10,6 +10,7 @@ from midrun.runtime.commands.command_refusals import CommandRefusals
 from midrun.runtime.commands.command_store import CommandStore
 from midrun.runtime.commands.command_when import CommandWhen
 from midrun.runtime.commands.next_id import next_id
+from midrun.runtime.commands.parse_when import parse_when
 from midrun.runtime.commands.refused_command_error import RefusedCommandError
 from midrun.runtime.events import SafePoint
 
@@ -28,11 +29,13 @@ class CommandQueue:
     :ivar _validate_args: Validates and normalizes arguments before admission.
     :ivar _lock: Serializes admission and command state transitions.
     :ivar _store: Queued, executing, and retained terminal commands.
+    :ivar _pause: The most recently submitted control pause, if not cleared.
     """
 
     _validate_args: Callable[[str, dict[str, Any]], dict[str, Any]]
     _lock: threading.Lock
     _store: CommandStore
+    _pause: Command | None
     refusals: CommandRefusals
     _closed: bool
 
@@ -42,6 +45,7 @@ class CommandQueue:
         self._validate_args = validate_args
         self._lock = threading.Lock()
         self._store = CommandStore()
+        self._pause = None
         self.refusals = CommandRefusals()
         self._closed = False
 
@@ -106,28 +110,15 @@ class CommandQueue:
             self._store.finish(command)
         return [command.id for command in ended]
 
-    def submit_once(
-        self, kind: str, args: dict[str, Any], when: CommandWhen
-    ) -> tuple[Command, bool]:
-        """Returns an equal command that is still queued or executing, else submits one.
-
-        Returns:
-            The command, and whether it was newly submitted.
-
-        Raises:
-            ValueError: `kind` or `args` is invalid.
-            RefusedCommandError: `kind` was refused.
-        """
-        args = self._validate_args(kind, args)
+    def submit_pause(self) -> tuple[Command, bool]:
+        """Returns the pending control pause or queues a new one."""
+        kind = "hold"
+        args = self._validate_args(kind, {"reason": "control/pause"})
+        when = parse_when("now")
         with self._lock:
             self._check_admission(kind)
-            for command in self._store.all():
-                if command.status in ("queued", "executing") and (
-                    command.kind,
-                    command.args,
-                    command.when,
-                ) == (kind, args, when):
-                    return command, False
+            if self._pause is not None and self._pause.status == "queued":
+                return self._pause, False
             command = Command(
                 id=next_id("cmd"),
                 kind=kind,
@@ -136,7 +127,17 @@ class CommandQueue:
                 created_at=time.time(),
             )
             self._store.add(command)
+            self._pause = command
         return command, True
+
+    def cancel_pause(self) -> list[str]:
+        """Cancels the pending control pause, without cancelling scheduled holds."""
+        with self._lock:
+            pause = self._pause
+            self._pause = None
+            if pause is None or not self._cancel(pause):
+                return []
+            return [pause.id]
 
     def get(self, command_id: str) -> Command | None:
         """Returns a command by id, or None if unknown or forgotten."""
@@ -190,11 +191,14 @@ class CommandQueue:
         """
         with self._lock:
             command = self._store.get(command_id)
-            if command is None or command.status != "queued":
-                return False
-            command.status = "cancelled"
-            self._store.finish(command)
-            return True
+            return command is not None and self._cancel(command)
+
+    def _cancel(self, command: Command) -> bool:
+        if command.status != "queued":
+            return False
+        command.status = "cancelled"
+        self._store.finish(command)
+        return True
 
     def mark_executing(self, command: Command) -> bool:
         """Transitions a command from `queued` to `executing`.
