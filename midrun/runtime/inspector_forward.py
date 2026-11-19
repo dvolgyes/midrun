@@ -59,7 +59,7 @@ def inspector_forward(
         needs_grad: Whether the body needs autograd to record the graph.
 
     Raises:
-        ValueError: The parameters of `model` are sharded.
+        ValueError: The parameters are sharded or an embedding can renormalize its weights.
     """
     reason = _sharding_reason(backend, trainer, model)
     if reason is not None:
@@ -69,7 +69,17 @@ def inspector_forward(
         )
     # Per module, as a model can keep a frozen part in eval mode while it trains.
     # `modules()` lists a parent before its children, so a child's own flag wins.
-    modes = [(module, module.training) for module in model.modules()]
+    modes = []
+    for module in model.modules():
+        if (
+            isinstance(module, torch.nn.Embedding | torch.nn.EmbeddingBag)
+            and module.max_norm is not None
+        ):
+            raise ValueError(
+                f"{what} refused: {type(module).__name__} with max_norm set "
+                "can change its weights during a forward pass"
+            )
+        modes.append((module, module.training))
     model.eval()
     try:
         with torch.enable_grad() if needs_grad else torch.no_grad():

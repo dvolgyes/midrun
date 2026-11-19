@@ -232,6 +232,32 @@ def test_capture_command_restores_train_mode_when_forward_raises(
     assert model.training
 
 
+@_NEEDS_DOT
+@pytest.mark.parametrize("layer", [torch.nn.Embedding, torch.nn.EmbeddingBag])
+@pytest.mark.parametrize("max_norm", [None, 0.0, 1.0])
+def test_graph_capture_preserves_embedding_weights(
+    tmp_path: Path,
+    layer: type[torch.nn.Embedding | torch.nn.EmbeddingBag],
+    max_norm: float | None,
+) -> None:
+    runtime = _make_runtime(tmp_path)
+    runtime.current_step.begin(torch.tensor([[0, 1]]), 0, 0, 0, 0)
+    embedding = layer(2, 2, max_norm=max_norm)
+    model = torch.nn.Sequential(embedding)
+    with torch.no_grad():
+        embedding.weight.fill_(3.0)
+    before = embedding.weight.detach().clone()
+
+    cmd = _run_command(runtime, model, _FakeTrainer(), "torchviz_capture")
+
+    assert torch.equal(embedding.weight, before)
+    if max_norm is None:
+        assert cmd.status == "succeeded", cmd.error
+    else:
+        assert cmd.status == "failed"
+        assert "max_norm" in cmd.error
+
+
 @pytest.mark.parametrize("strategy_class", [FSDPStrategy, ModelParallelStrategy])
 @pytest.mark.parametrize("kind", _COMMANDS)
 def test_capture_command_is_refused_under_a_sharding_strategy(

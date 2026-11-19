@@ -283,6 +283,9 @@ parameter is a wrapper tensor such as a `DTensor`, a forward pass on rank 0 alon
 other ranks do not join. In that case the inspectors refuse to run: the command fails with a `refused` error, and a read
 of a live file fails. The training continues.
 
+Midrun refuses live forwards on `Embedding` and `EmbeddingBag` with `max_norm` set because they can change their
+weights.
+
 ### Tunable hyperparameters
 
 `set_hparam` changes only the attributes that the model declares in `midrun_tunable_hparams`:
