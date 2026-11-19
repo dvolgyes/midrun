@@ -347,7 +347,8 @@ In `meta/ranks/` and `/run`, `worker_pids` refers to active multiprocessing chil
 zero refreshes its own list when it publishes state. The other ranks report empty lists gathered at setup, not live
 worker counts.
 
-In `model/hparams.json`, byte values that contain valid UTF-8 appear as text.
+In `model/hparams.json` and the `hparams` field of `model_summary` snapshots, `bytes` and `bytearray` values that
+contain valid UTF-8 appear as text.
 
 Other byte values appear as `{"$midrun_bytes_hex": "ff02"}`, including values nested in dictionaries, lists, or tuples.
 

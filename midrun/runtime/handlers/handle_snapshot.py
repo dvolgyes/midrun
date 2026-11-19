@@ -9,6 +9,7 @@ from midrun.runtime.events import SafePoint
 from midrun.runtime.handlers.optimizer_summary_payload import (
     optimizer_summary_payload,
 )
+from midrun.runtime.json_hparam_value import json_hparam_value
 from midrun.runtime.state.host_snapshot import host_snapshot
 
 if TYPE_CHECKING:
@@ -34,7 +35,7 @@ def handle_snapshot(
     elif kind == "model_summary":
         payload = {
             "class": type(pl_module).__name__,
-            "hparams": dict(getattr(pl_module, "hparams", {})),
+            "hparams": json_hparam_value(dict(getattr(pl_module, "hparams", {}))),
         }
     elif kind == "optimizer_summary":
         payload = optimizer_summary_payload(trainer)

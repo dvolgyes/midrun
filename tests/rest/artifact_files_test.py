@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Event
 
+import lightning.pytorch as PL
 import pytest
 from fastapi.testclient import TestClient
 
@@ -16,6 +17,7 @@ from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
 from midrun.rest.app import build_app
 from midrun.runtime.artifacts import ArtifactStore
+from midrun.runtime.events import SafePoint
 from midrun.runtime.runtime import MidrunRuntime
 
 
@@ -58,6 +60,46 @@ def test_artifact_files_mount_serves_snapshot_payload(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert response.json() == {"foo": "bar"}
+
+
+def test_model_summary_snapshot_matches_live_hparams_json(tmp_path: Path) -> None:
+    client, runtime = _client(tmp_path)
+    model = PL.LightningModule()
+    model.trainer = PL.Trainer(
+        accelerator="cpu",
+        logger=False,
+        enable_checkpointing=False,
+        default_root_dir=tmp_path,
+    )
+    model.save_hyperparameters(
+        {
+            "digest": b"\xff\x02",
+            "nested": [
+                {"values": (bytearray(b"\x80"), "café".encode(), bytearray(b"ok"))}
+            ],
+            "count": 3,
+        }
+    )
+    runtime.on_fit_start(model)
+
+    live = client.get("/files/model/hparams.json")
+    assert live.status_code == 200
+    assert live.json() == {
+        "digest": {"$midrun_bytes_hex": "ff02"},
+        "nested": [{"values": [{"$midrun_bytes_hex": "80"}, "café", "ok"]}],
+        "count": 3,
+    }
+
+    queued = client.post("/snapshots", json={"kind": "model_summary"})
+    assert queued.status_code == 200
+    runtime.process_safe_point(model, SafePoint.TRAIN_BATCH_END)
+
+    completed = client.get(f"/commands/{queued.json()['id']}").json()
+    assert completed["status"] == "succeeded", completed["error"]
+    artifact_id = completed["result"]["id"]
+    snapshot = client.get(f"/artifact-files/snapshots/{artifact_id}/model_summary.json")
+    assert snapshot.status_code == 200
+    assert snapshot.json() == {"class": "LightningModule", "hparams": live.json()}
 
 
 def test_artifact_files_mount_404_for_unknown_file(tmp_path: Path) -> None:

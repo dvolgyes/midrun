@@ -4,9 +4,10 @@ from collections.abc import Callable
 from dataclasses import asdict
 from typing import TYPE_CHECKING
 
+from midrun.encode_json import encode_json
 from midrun.runtime import inspectors_registry
 from midrun.runtime.cuda_memory.cheap_cuda_memory_stats import cheap_cuda_memory_stats
-from midrun.encode_json import encode_json
+from midrun.runtime.json_hparam_value import json_hparam_value
 from midrun.runtime.state.host_snapshot import host_snapshot
 from midrun.runtime.virtual_fs.encode_text import encode_text
 
@@ -16,20 +17,6 @@ if TYPE_CHECKING:
 
 def _bool(value: bool) -> str:
     return "true" if value else "false"
-
-
-def _json_hparam_value(value: object) -> object:
-    """Keep UTF-8 text readable and encode binary hyperparameter values as tagged hex."""
-    if isinstance(value, bytes | bytearray):
-        try:
-            return value.decode("utf-8")
-        except UnicodeDecodeError:
-            return {"$midrun_bytes_hex": value.hex()}
-    if isinstance(value, dict):
-        return {key: _json_hparam_value(item) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [_json_hparam_value(item) for item in value]
-    return value
 
 
 README = """Midrun live filesystem
@@ -182,7 +169,7 @@ STATIC_FILES: dict[str, Callable[["MidrunRuntime"], bytes]] = {
     "/state/pipeline/summary.json": lambda rt: encode_json(rt.pipeline.summary()),
     "/model/class": lambda rt: encode_text(rt.model_info.class_name or ""),
     "/model/hparams.json": lambda rt: encode_json(
-        _json_hparam_value(rt.model_info.hparams)
+        json_hparam_value(rt.model_info.hparams)
     ),
     "/model/summary.txt": lambda rt: encode_text(rt.model_info.summary),
     "/model/summary.json": lambda rt: encode_json(rt.model_info.summary_json),
