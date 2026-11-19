@@ -22,6 +22,7 @@ Environment variables of the script:
         NaN on rank 1 only. It also turns on the dataloader finite check. Default -1.
     MIDRUN_TEST_FAIL_CHECKPOINT_WRITE: Optional, "1" makes each checkpoint write
         raise ENOSPC. Only rank 0 writes. Default "0".
+    MIDRUN_TEST_FAIL_CHECKPOINT_HOOK: Optional, "1" raises in rank 1's save hook.
     MIDRUN_TEST_REST_PORT: Optional, default 18500.
     MIDRUN_TEST_TORCH_DEBUG_PORT: Optional, default 18600.
 """
@@ -136,6 +137,14 @@ class _DdpModel(MidrunMixin, pl.LightningModule):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         logits: torch.Tensor = self.net(x)
         return logits
+
+    def on_save_checkpoint(self, checkpoint: dict) -> None:
+        super().on_save_checkpoint(checkpoint)
+        if (
+            self.global_rank == 1
+            and _ENV.get("MIDRUN_TEST_FAIL_CHECKPOINT_HOOK") == "1"
+        ):
+            raise RuntimeError("worker save hook failed")
 
     def on_train_batch_start(  # pylint: disable=arguments-differ
         self, batch: tuple[torch.Tensor, torch.Tensor], batch_idx: int
@@ -393,7 +402,8 @@ def test_a_checkpoint_completes_on_every_rank(launch) -> None:
     )
     command = run.get(f"/commands/{command_id}")
     assert command["status"] == "succeeded", command
-    assert Path(command["result"]["checkpoint_path"]).is_file()
+    checkpoint = torch.load(command["result"]["checkpoint_path"], map_location="cpu")
+    assert "net.0.weight" in checkpoint["state_dict"]
     assert run.wait(timeout=60) == 0
 
 
@@ -413,6 +423,23 @@ def _assert_the_checkpoint_fails_and_every_rank_trains_on(
     run.wait_until(lambda: all(len(run.steps(r)) > steps[r] + 5 for r in (0, 1)))
     run.post("/control/stop", {})
     assert run.wait(timeout=30) == 0
+
+
+def test_a_worker_checkpoint_hook_failure_fails_only_the_command(launch) -> None:
+    run = launch(
+        MIDRUN_TEST_FAIL_CHECKPOINT_HOOK="1",
+        MIDRUN_TEST_STEP_SLEEP_S="0.05",
+        MIDRUN_TEST_PG_TIMEOUT_S="20",
+    )
+    run.status(1)
+    checkpoints = Path(run.status(0)["artifacts_path"]) / "checkpoints"
+    existing = checkpoints / "existing.ckpt"
+    existing.write_bytes(b"previous checkpoint")
+    _assert_the_checkpoint_fails_and_every_rank_trains_on(
+        run, "worker save hook failed"
+    )
+    assert list(checkpoints.iterdir()) == [existing]
+    assert existing.read_bytes() == b"previous checkpoint"
 
 
 def test_a_checkpoint_write_failing_on_rank_zero_fails_only_the_command(

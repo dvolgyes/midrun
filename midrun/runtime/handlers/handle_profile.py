@@ -26,12 +26,13 @@ def handle_profile(
 
     Raises:
         ValueError: A profiler run is already armed.
-        RuntimeError: The CPU clock that torch.profiler reads differs between the
-            CPUs of this thread.
+        RuntimeError: This stage has no artifact store or the CPU clock that
+            torch.profiler reads differs between the CPUs of this thread.
     """
     del pl_module, trainer, safe_point
     if runtime.profiler_run is not None:
         raise ValueError("a profiler run is already armed")
+    _ = runtime.artifact_store
     warmup_steps = command.args["warmup_steps"]
     active_steps = command.args["active_steps"]
     level = command.args["level"]

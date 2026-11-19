@@ -175,10 +175,10 @@ curl -s -X POST $URL/control/continue              # release the hold
 curl -s -X POST $URL/control/stop                  # stop the training cleanly
 ```
 
-Each command returns an id. Use `GET $URL/commands/<id>` to see its status, result and `when` (in the form that
-`execution.when` accepts). The status is `queued`, `executing`, `succeeded`, `failed`, `cancelled` or `expired`. A
-command that is still queued when its stage stops becomes `expired`, with an error. midrun keeps the last 1000 finished
-commands, so `GET $URL/commands/<id>` returns status 404 for an older id.
+Each accepted command has an ID. Use `GET $URL/commands/<id>` to read its status, result and scheduling condition
+(`when`). The status is `queued`, `executing`, `succeeded`, `failed`, `cancelled` or `expired`. When a stage stops,
+queued commands expire and new submissions get HTTP 409 until the next stage opens. Midrun keeps the last 1000 finished
+commands; a lookup for an older ID returns HTTP 404.
 
 By default a command runs at the next point where it is safe. To run it later, add `execution.when`:
 
@@ -215,6 +215,11 @@ Instead of `epoch`, you can give `global_step`. Without `safe_point`, the condit
 | `torchinfo_capture`, `torchview_capture`, `torchviz_capture`, `torchlens_capture` | Capture a model summary or graph (optional extras). |
 | `profile`, `set_lightning_profiler` | Profile some training steps. |
 
+If a completed `profile` cannot write its trace, `state/profiler.json` reports `pending_publication`.
+
+- The next batch end or stage teardown retries the write without recording more steps.
+- A requested `then_hold` pauses training only after a successful batch-end write.
+
 The REST API checks the kind and the arguments of a command when it receives the command. It rejects an unknown kind, a
 missing or unknown argument, and a value of the wrong type with status 422. The type check is strict: the string
 `"false"` is not a boolean, and `7.9` and `7.0` are not integers. The only conversion is from an integer to a float: for
@@ -232,17 +237,28 @@ lists the other command IDs, and a release with any of those IDs releases the ru
 after the hold loop starts stays queued. After a stop has run, new hold commands are refused until the next stage
 starts.
 
+Releasing a stale hold ID returns HTTP 404 and leaves the replacement hold active.
+
 Other routes: `/run`, `/metrics`, `/optimizers`, `/artifacts`, `/telemetry/pipeline`, `/inspectors`,
 `/debug/cuda-memory/snapshot`, `/files/<path>` (the same tree as `procfs/`). `GET $URL/checkpoints` lists each
-checkpoint with its size, modification time and download URL. A checkpoint that is being saved shows its partial size. A
-directory under `/files/` is a page of links for a browser, and JSON (`path` and `entries`) for other clients.
-`GET $URL/debug/cuda-memory/history?enabled=true` starts to record the CUDA allocator history for the snapshots. Without
-`max_entries`, it keeps the last 100_000 entries.
+checkpoint with its size, modification time and download URL. A checkpoint can show a partial size during a save. In
+contrast, a snapshot or debug capture appears only when its manifest and all its payload files are ready. A directory
+under `/files/` is a page of links for a browser, and JSON (`path` and `entries`) for other clients. Two CUDA `GET`
+routes have side effects: `/debug/cuda-memory/snapshot` writes a debug artifact, and
+`/debug/cuda-memory/history?enabled=true` starts recording allocator history. Without `max_entries`, the history keeps
+the last 100_000 entries.
+
+If a stage cannot initialize its artifact directory, it does not use the previous stage's directory.
 
 `/run`, `/metrics` and `/optimizers` report scalar values from the last published snapshot, not a live device query. For
 ordinary CUDA scalar publication, midrun schedules a host copy and leaves the wait to readers that need the value. This
 does not make all inspection asynchronous: finite checking and heavy hooks can make training wait for the device.
 Metrics that are not real scalars, such as vectors and complex tensors, are omitted.
+
+`/telemetry/pipeline` reports the optimizer step count **at batch end**. With gradient accumulation, consecutive batches
+can report the same `global_step`. The rolling summary uses nearest-rank percentiles without interpolation. In each
+phase, `mean_to_batch_ratio` replaces `fraction`: it divides mean phase time by mean in-batch time. The input gap occurs
+*between* batches, so its ratio can exceed one.
 
 ### Model inspectors
 
@@ -299,7 +315,10 @@ worker counts.
 
 `model/summary-live.txt`, `model/graph.dot` and `model/lightning-profiler-summary.txt` need a training safe point.
 
-A read waits until just before the next optimizer step and times out after 30 seconds if training stays held.
+The training thread serves live reads just before an optimizer step; each reader waits up to 30 seconds for its result.
+
+- If the request expires before the training thread claims it, the capture never runs.
+- If the training thread has already claimed it, the reader can time out while the capture continues.
 
 Without a Midrun-managed Lightning profiler, the profiler summary returns without waiting for an optimizer step.
 
@@ -352,7 +371,13 @@ description of each option.
 | `break_on_backward_exception` | `True` | Hold the run when `backward()` raises, so that you can inspect the batch. |
 | `dataloader_finite_check_enabled` | `False` | Check each batch for NaN/Inf (slow). |
 | `optimizer_surgery_enabled` | `True` | Allow `reset_momentum` and per-group learning rates. |
-| `inspection_strict` | `False` | Raise instead of a warning when a service or the hooks tree does not start. |
+| `inspection_strict` | `False` | Raise on service or hook setup failures; raise the first shutdown error after attempting all cleanup actions. |
+
+If a shutdown action fails, the runtime reports `stopping` and keeps the resources needed to retry it.
+
+Call teardown again before starting a new stage on any rank.
+
+The terminal snapshot reports the queued command count after teardown expires outstanding commands.
 
 ## Limits
 

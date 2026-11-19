@@ -15,7 +15,7 @@ def virtual_file_content(runtime: "MidrunRuntime", path: str) -> bytes | None:
     """Returns `path`'s current content, or `None` if `path` names no virtual file.
 
     Raises:
-        TimeoutError: `path` is a live file and no safe point was reached in time.
+        TimeoutError: The reader timed out waiting for a live capture.
     """
     generator = STATIC_FILES.get(path)
     if generator is not None:

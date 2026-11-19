@@ -5,8 +5,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from midrun.config import MidrunConfig
+from midrun.hooks.handle_result import HandleResult
+from midrun.hooks.hook_process import HookProcess
+from midrun.hooks.hook_rank import HookRank
 from midrun.hooks.manager.bootstrap_hooks_tree import bootstrap_hooks_tree
-from midrun.hooks.session import HandleResult, HookSession
+from midrun.hooks.payload.hook_capture_limits import HookCaptureLimits
+from midrun.hooks.session import HookSession
 from midrun.logging.logging_session import LoggingSession
 from midrun.runtime.default_base_dir import default_base_dir
 from midrun.runtime.new_hooks_session_id import new_hooks_session_id
@@ -20,11 +24,10 @@ if TYPE_CHECKING:
 class StageSessions:
     """Holds the per-stage logging session and hooks session of one runtime.
 
-    Attributes:
-        config: Effective `MidrunConfig` for this run.
-        run_id: Unique id for this training run.
-        hook_session: The hooks session of the current stage, if one is open.
-        logging_session: The logging session of the current stage, if one is open.
+    :ivar config: Effective `MidrunConfig` for this run.
+    :ivar run_id: Unique identifier for this training run.
+    :ivar hook_session: Hooks session for the stage, if open.
+    :ivar logging_session: Logging session for the stage, if open.
     """
 
     config: MidrunConfig
@@ -104,18 +107,24 @@ class StageSessions:
         self.hook_session = HookSession(
             tree.live_dir,
             session_id=tree.session_id,
-            rank=trainer.global_rank,
-            world_size=trainer.world_size,
-            rank_policy=self.config.hooks_rank_policy,
-            shell=shell,
-            setpriv=None if setpriv is None else Path(setpriv),
-            timeout_s=self.config.hooks_timeout_s,
-            max_params_bytes=self.config.hooks_max_params_bytes,
-            max_metadata_items=self.config.hooks_max_metadata_items,
-            max_metadata_depth=self.config.hooks_max_metadata_depth,
-            max_export_bytes=self.config.hooks_max_export_bytes,
-            max_output_bytes=self.config.hooks_max_output_bytes,
-            log=log,
+            rank=HookRank(
+                rank=trainer.global_rank,
+                world_size=trainer.world_size,
+                policy=self.config.hooks_rank_policy,
+            ),
+            process=HookProcess(
+                shell=shell,
+                setpriv=None if setpriv is None else Path(setpriv),
+                timeout_s=self.config.hooks_timeout_s,
+                max_output_bytes=self.config.hooks_max_output_bytes,
+                log=log,
+            ),
+            limits=HookCaptureLimits(
+                max_params_bytes=self.config.hooks_max_params_bytes,
+                max_metadata_items=self.config.hooks_max_metadata_items,
+                max_metadata_depth=self.config.hooks_max_metadata_depth,
+                max_export_bytes=self.config.hooks_max_export_bytes,
+            ),
         )
 
     def dispatch_hook(

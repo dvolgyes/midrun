@@ -259,7 +259,7 @@ def test_build_light_params_drops_arguments_entirely_when_over_byte_budget() -> 
         occurrence_id="occ-1",
         invocation_id="inv-1",
         arguments={"payload": "x" * 1000},
-        max_params_bytes=10,
+        max_params_bytes=550,
         max_metadata_items=10,
         max_metadata_depth=4,
     )
@@ -531,8 +531,7 @@ def test_build_heavy_manifest_has_all_schema_fields_and_restricts_arguments(
         tensor_records=records,
         max_metadata_items=10,
         max_metadata_depth=4,
-        truncated=truncated,
-        truncated_reason=reason,
+        truncation=(truncated, reason),
     )
     for field in (
         "schema_version",
@@ -584,8 +583,7 @@ def test_build_heavy_manifest_for_no_tensor_callback_is_valid_and_empty() -> Non
         tensor_records=[],
         max_metadata_items=10,
         max_metadata_depth=4,
-        truncated=False,
-        truncated_reason=None,
+        truncation=(False, None),
     )
     assert manifest["tensor_records"] == []
     assert manifest["arguments"] == {}

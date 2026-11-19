@@ -6,6 +6,7 @@ served.
 
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -241,3 +242,36 @@ def test_a_hold_due_while_another_is_active_joins_it(
     response = client.post(f"/holds/{first if released == 'first' else second}/release")
     assert response.status_code == 200, response.text
     assert not runtime.gate.is_held()
+
+
+def test_stale_release_does_not_release_a_replacement_hold(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = _runtime(tmp_path)
+    gate = runtime.gate
+    gate.enter("old", "train_batch_end", 0, 1)
+    release = gate.release
+    request_ready = threading.Event()
+    replacement_ready = threading.Event()
+
+    def delayed_release(**kwargs: str) -> bool:
+        request_ready.set()
+        assert replacement_ready.wait(10)
+        return release(**kwargs)
+
+    monkeypatch.setattr(gate, "release", delayed_release)
+    with (
+        TestClient(build_app(runtime), base_url="http://localhost") as client,
+        ThreadPoolExecutor(max_workers=1) as executor,
+    ):
+        request = executor.submit(client.post, "/holds/old/release")
+        try:
+            assert request_ready.wait(10)
+            assert release()
+            replacement = gate.enter("new", "train_batch_end", 0, 2)
+        finally:
+            replacement_ready.set()
+        response = request.result()
+
+    assert response.status_code == 404, response.text
+    assert gate.active_hold() == replacement

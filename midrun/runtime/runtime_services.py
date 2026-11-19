@@ -3,13 +3,13 @@
 import socket
 import threading
 from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
-from loguru import logger
 
 from midrun.config import MidrunConfig
-from midrun.fuse import mountpoint_check, process_guard
+from midrun.fuse import mountpoint_check, process_guard, unmount_watcher
 from midrun.runtime.bind_free_socket import bind_free_socket
 from midrun.runtime.bind_socket import bind_socket
 from midrun.runtime.rest_base_url import rest_base_url
@@ -145,14 +145,14 @@ class RuntimeServices:
         self.state.update(rest_host=self.config.rest_host, rest_port=port)
 
     def stop_rest(self) -> None:
-        """Stops the REST server, if it runs, and warns when its thread stays alive."""
+        """Stops the REST server, retaining its handles if the thread stays alive."""
         if self._rest_server is None:
             return
         self._rest_server.should_exit = True
         if self._rest_thread is not None:
             self._rest_thread.join(timeout=5)
             if self._rest_thread.is_alive():
-                logger.warning("midrun: the REST server thread did not stop in 5 s")
+                raise TimeoutError("the REST server thread did not stop in 5 s")
         self._rest_server = None
         self._rest_thread = None
         self.rest_port = None
@@ -186,15 +186,22 @@ class RuntimeServices:
 
     def stop_fuse(self) -> None:
         """Unmounts the FUSE filesystem, if mounted, and stops its watcher."""
-        if self._fuse_thread is None:
-            return
         import subprocess
 
-        subprocess.run(["fusermount3", "-u", str(self.fuse_mountpoint)], check=False)  # noqa: S603, S607 -- own mount
-        self._fuse_thread.join(timeout=5)
+        if self.fuse_mountpoint is not None:
+            path = str(self.fuse_mountpoint)
+            if unmount_watcher.mount_at(path) == ("fuse", mountpoint_check.FUSE_FSNAME):
+                subprocess.run(["fusermount3", "-u", path], check=True)  # noqa: S603, S607 -- own mount
+            self.fuse_mountpoint = None
+        if self._fuse_thread is not None:
+            self._fuse_thread.join(timeout=5)
+            if self._fuse_thread.is_alive():
+                raise TimeoutError("the FUSE thread did not stop in 5 s")
+            self._fuse_thread = None
         if self._fuse_watcher is not None:
-            # A byte on stdin tells the watcher to check once and exit.
-            self._fuse_watcher.communicate(b"\n", timeout=5)
-        self._fuse_thread = None
-        self.fuse_mountpoint = None
-        self._fuse_watcher = None
+            watcher = self._fuse_watcher
+            if watcher.stdin is not None and not watcher.stdin.closed:
+                with suppress(BrokenPipeError), watcher.stdin as signal_pipe:
+                    signal_pipe.write(b"\n")
+            watcher.wait(timeout=5)
+            self._fuse_watcher = None

@@ -1,5 +1,7 @@
 """Runs the `checkpoint` command: saves a Lightning checkpoint."""
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -11,6 +13,20 @@ if TYPE_CHECKING:
     from lightning.pytorch import LightningModule, Trainer
 
 
+@contextmanager
+def _agree_on_phase(runtime: CommandRuntime, phase: str) -> Iterator[None]:
+    """Reports a local exception to every rank before any rank advances."""
+    error = None
+    try:
+        yield
+    # pylint: disable-next=broad-exception-caught
+    except Exception as exc:  # noqa: BLE001 -- exchange ordinary checkpoint failures
+        error = f"{type(exc).__name__}: {exc}"
+    for rank, message in enumerate(runtime.rank_sync.all_gather(error)):
+        if message is not None:
+            raise RuntimeError(f"checkpoint {phase} failed on rank {rank}: {message}")
+
+
 def handle_checkpoint(
     runtime: CommandRuntime,
     pl_module: "LightningModule",
@@ -20,9 +36,10 @@ def handle_checkpoint(
 ) -> dict[str, Any]:
     """Saves a checkpoint on this rank, at the path that rank 0 selects for the label.
 
-    A failure on one rank does not leave the other ranks in a collective: every rank
-    raises when rank 0 cannot reserve the path, and a rank whose save raises still
-    enters the barrier that ends Lightning's save.
+    Lightning's public save method includes a final barrier. Distributed saves use
+    the Trainer's checkpoint connector to finish preparation on every rank before
+    starting strategy I/O. Failures inside a strategy-owned collective are not
+    recoverable here.
     """
     del pl_module, safe_point
     label = command.args["label"]
@@ -42,13 +59,15 @@ def handle_checkpoint(
     if path is None:
         raise RuntimeError("rank 0 could not reserve a checkpoint path")
     try:
-        trainer.save_checkpoint(str(path))
-    except BaseException as exc:
-        # An empty or partial file must not look like a saved checkpoint.
+        if runtime.rank_sync.world_size == 1:
+            trainer.save_checkpoint(str(path))
+        else:
+            with _agree_on_phase(runtime, "preparation"):
+                checkpoint = trainer._checkpoint_connector.dump_checkpoint(None)
+            with _agree_on_phase(runtime, "write"):
+                trainer.strategy.save_checkpoint(checkpoint, str(path))
+    except BaseException:
         if reserved is not None:
             reserved.unlink(missing_ok=True)
-        # Lightning's save ends with a barrier on every rank, which a raise skips.
-        if isinstance(exc, Exception):
-            trainer.strategy.barrier("midrun.handle_checkpoint")
         raise
     return {"checkpoint_path": str(path)}

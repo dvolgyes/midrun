@@ -7,14 +7,15 @@ module owns only the on-disk layout and manifest format.
 """
 
 import re
+import shutil
 import time
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 from midrun.encode_json import encode_json
 from midrun.runtime.commands.next_id import next_id
-from midrun.write_atomically import write_atomically
 
 # Allowed checkpoint labels and capture filenames: one plain path component.
 ARTIFACT_NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
@@ -28,9 +29,10 @@ _MAX_ID_ATTEMPTS = 100_000
 class ArtifactStore:
     """Materializes checkpoints, snapshots, and debug captures under `root`.
 
-    Attributes:
-        root: Base artifact directory for this run.
+    :ivar root: Base artifact directory for this run.
     """
+
+    root: Path
 
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -75,11 +77,13 @@ class ArtifactStore:
         Returns:
             The written manifest (id, kind, created_at, and payload path).
         """
-        snap_id, snap_dir = _new_artifact_dir(self.root / "snapshots", "snap")
-        manifest = {"id": snap_id, "kind": kind, "created_at": time.time()}
-        write_atomically(snap_dir / "manifest.json", encode_json(manifest))
-        (snap_dir / f"{kind}.json").write_bytes(encode_json(payload))
-        manifest["path"] = str(snap_dir)
+        if not _ARTIFACT_NAME.fullmatch(kind) or kind == "manifest":
+            raise ValueError(f"invalid snapshot kind {kind!r}")
+        with _stage_artifact(self.root / "snapshots", "snap") as (stage, published):
+            manifest = {"id": published.name, "kind": kind, "created_at": time.time()}
+            (stage / f"{kind}.json").write_bytes(encode_json(payload))
+            (stage / "manifest.json").write_bytes(encode_json(manifest))
+        manifest["path"] = str(published)
         return manifest
 
     def write_debug_capture(
@@ -115,41 +119,47 @@ class ArtifactStore:
                     f"invalid capture filename {filename!r}: must match"
                     f" {ARTIFACT_NAME_PATTERN} and not be manifest.json"
                 )
-        dbg_id, dbg_dir = _new_artifact_dir(self.root / "debug", "dbg")
-        manifest = {
-            "id": dbg_id,
-            "kind": kind,
-            "created_at": time.time(),
-            "metadata": metadata or {},
-            "files": sorted(files),
-        }
-        write_atomically(dbg_dir / "manifest.json", encode_json(manifest))
-        for filename, content in files.items():
-            if isinstance(content, bytes):
-                (dbg_dir / filename).write_bytes(content)
-            else:
-                (dbg_dir / filename).write_text(content)
-        manifest["path"] = str(dbg_dir)
+        with _stage_artifact(self.root / "debug", "dbg") as (stage, published):
+            manifest = {
+                "id": published.name,
+                "kind": kind,
+                "created_at": time.time(),
+                "metadata": metadata or {},
+                "files": sorted(files),
+            }
+            for filename, content in files.items():
+                if isinstance(content, bytes):
+                    (stage / filename).write_bytes(content)
+                else:
+                    (stage / filename).write_text(content)
+            (stage / "manifest.json").write_bytes(encode_json(manifest))
+        manifest["path"] = str(published)
         return manifest
 
 
-def _new_artifact_dir(parent: Path, prefix: str) -> tuple[str, Path]:
-    """Creates a directory under `parent` named by a fresh id; returns the id and the directory.
-
-    Ids are process-local, so an earlier run or another DDP rank sharing `parent`
-    may hold an id already; exclusive creation skips to the next id.
-
-    Raises:
-        FileExistsError: `_MAX_ID_ATTEMPTS` consecutive ids were all taken.
-    """
+@contextmanager
+def _stage_artifact(parent: Path, prefix: str) -> Iterator[tuple[Path, Path]]:
+    """Reserves a private directory outside the published categories until all writes succeed."""
+    staging_parent = parent.parent
+    if staging_parent.stat().st_dev != parent.stat().st_dev:
+        raise OSError("artifact staging and publication require the same filesystem")
     for _ in range(_MAX_ID_ATTEMPTS):
         artifact_id = next_id(prefix)
-        directory = parent / artifact_id
+        destination = parent / artifact_id
+        stage = staging_parent / f".midrun-stage-{artifact_id}"
         try:
-            directory.mkdir(parents=True)
+            stage.mkdir(mode=0o700)
         except FileExistsError:
             continue
-        return artifact_id, directory
+        try:
+            if not destination.exists():
+                yield stage, destination
+                stage.rename(destination)
+                return
+        except BaseException:
+            shutil.rmtree(stage)
+            raise
+        stage.rmdir()
     raise FileExistsError(
         f"no free {prefix} id under {parent} after {_MAX_ID_ATTEMPTS} attempts"
     )

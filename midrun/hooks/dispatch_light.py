@@ -8,21 +8,20 @@ real Trainer.
 
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from midrun.hooks.capture_failed_result import capture_failed_result
 from midrun.hooks.create_invocation_dir import create_invocation_dir
+from midrun.hooks.hook_process import HookProcess
 from midrun.hooks.is_hook_failure import is_hook_failure
 from midrun.hooks.log_hook_failure import log_hook_failure
 from midrun.hooks.payload.build_light_params import build_light_params
+from midrun.hooks.payload.hook_capture_limits import HookCaptureLimits
 from midrun.hooks.payload.new_hook_id import new_hook_id
 from midrun.hooks.payload.occurrence_context import OccurrenceContext
 from midrun.hooks.resolve_enabled_script import resolve_enabled_script
-from midrun.hooks.runner import ExecutionResult, run_script
+from midrun.hooks.runner import ExecutionResult
 from midrun.hooks.write_json_file import write_json_file
-
-if TYPE_CHECKING:
-    from loguru import Logger
 
 
 def dispatch_light(
@@ -31,15 +30,9 @@ def dispatch_light(
     arguments: dict[str, Any],
     *,
     occurrence_id: str,
-    shell: Path,
-    setpriv: Path | None,
-    timeout_s: float | None,
-    max_params_bytes: int,
-    max_metadata_items: int,
-    max_metadata_depth: int,
-    max_output_bytes: int,
+    process: HookProcess,
+    limits: HookCaptureLimits,
     tmp_root: Path,
-    log: "Logger",
 ) -> ExecutionResult | None:
     """Builds `params.json` and runs the light hook for `context.hook`, if enabled.
 
@@ -58,44 +51,36 @@ def dispatch_light(
         `ExecutionResult`. A failing result is logged here as one ERROR record
         before being returned.
     """
-    if resolve_enabled_script(live_dir, "light", context.hook) is None:
-        return None
-    invocation_id = new_hook_id()
-    params, _truncated, _reason = build_light_params(
-        context=context,
-        occurrence_id=occurrence_id,
-        invocation_id=invocation_id,
-        arguments=arguments,
-        max_params_bytes=max_params_bytes,
-        max_metadata_items=max_metadata_items,
-        max_metadata_depth=max_metadata_depth,
-    )
     script = resolve_enabled_script(live_dir, "light", context.hook)
     if script is None:
         return None
-    invocation_dir = tmp_root / invocation_id
+    invocation_id = new_hook_id()
+    invocation_dir: Path | None = None
     try:
         try:
-            create_invocation_dir(tmp_root, invocation_id)
-            params_path = write_json_file(invocation_dir / "params.json", params)
-        except OSError as exc:
-            # E.g. a full disk: the capture failed, training must not.
-            result = capture_failed_result(f"cannot write the light payload: {exc}")
-        else:
-            result = run_script(
-                script,
-                [str(params_path)],
-                cwd=live_dir,
-                shell=shell,
-                setpriv=setpriv,
-                timeout_s=timeout_s,
-                max_output_bytes=max_output_bytes,
-                log=log,
+            params, _, _ = build_light_params(
+                context=context,
+                occurrence_id=occurrence_id,
+                invocation_id=invocation_id,
+                arguments=arguments,
+                max_params_bytes=limits.max_params_bytes,
+                max_metadata_items=limits.max_metadata_items,
+                max_metadata_depth=limits.max_metadata_depth,
             )
+            invocation_dir = create_invocation_dir(tmp_root, invocation_id)
+            params_path = write_json_file(invocation_dir / "params.json", params)
+        except (ValueError, RuntimeError, OSError) as exc:
+            result = capture_failed_result(f"cannot capture the light payload: {exc}")
+        else:
+            script = resolve_enabled_script(live_dir, "light", context.hook)
+            if script is None:
+                return None
+            result = process.run(script, params_path, cwd=live_dir)
     finally:
-        shutil.rmtree(invocation_dir, ignore_errors=True)
+        if invocation_dir is not None:
+            shutil.rmtree(invocation_dir, ignore_errors=True)
     if is_hook_failure(result):
         log_hook_failure(
-            script, "light", context, occurrence_id, invocation_id, result, log
+            script, "light", context, occurrence_id, invocation_id, result, process.log
         )
     return result

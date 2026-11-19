@@ -7,33 +7,19 @@ without constructing either.
 """
 
 import shutil
-from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from midrun.hooks.catalog import CALLBACK_BY_NAME
 from midrun.hooks.discovery import EpochScanState
 from midrun.hooks.dispatch_heavy import dispatch_heavy
 from midrun.hooks.dispatch_light import dispatch_light
+from midrun.hooks.handle_result import HandleResult
+from midrun.hooks.hook_process import HookProcess
+from midrun.hooks.hook_rank import HookRank
+from midrun.hooks.payload.hook_capture_limits import HookCaptureLimits
 from midrun.hooks.payload.new_hook_id import new_hook_id
 from midrun.hooks.payload.occurrence_context import OccurrenceContext
-from midrun.hooks.runner import ExecutionResult
-
-if TYPE_CHECKING:
-    from loguru import Logger
-
-
-@dataclass(frozen=True)
-class HandleResult:
-    """Both modalities' outcomes for one dispatched callback occurrence.
-
-    Attributes:
-        light: The light hook's `ExecutionResult`, or `None` if it wasn't enabled.
-        heavy: The heavy hook's `ExecutionResult`, or `None` if it wasn't enabled.
-    """
-
-    light: ExecutionResult | None
-    heavy: ExecutionResult | None
 
 
 class HookSession:
@@ -43,56 +29,58 @@ class HookSession:
     kernel kills a script's shell when the trainer dies. When `setpriv` is `None`,
     an eligible session logs one warning that scripts can outlive a killed trainer.
 
-    Attributes:
-        live_dir: The published `hooks/` tree this session dispatches against.
-        session_id: This run's hooks session id (shared with the bootstrap marker).
-        rank: This process's `trainer.global_rank`.
-        world_size: This process's `trainer.world_size`.
+    :ivar live_dir: Published tree this session dispatches against.
+    :ivar session_id: Run identity shared with the bootstrap marker.
+    :ivar _rank: Rank identity and dispatch eligibility.
+    :ivar _process: Process launch policy and session logger.
+    :ivar _limits: Bounds on metadata and tensor capture.
+    :ivar _epoch_scan: Discovery state for the current epoch.
+    :ivar _tmp_root: Private temporary directory for this session.
     """
 
-    _setpriv: Path | None
+    live_dir: Path
+    session_id: str
+    _rank: HookRank
+    _process: HookProcess
+    _limits: HookCaptureLimits
+    _epoch_scan: EpochScanState
+    _tmp_root: Path
 
     def __init__(
         self,
         live_dir: Path,
         *,
         session_id: str,
-        rank: int,
-        world_size: int,
-        rank_policy: str,
-        shell: Path,
-        setpriv: Path | None,
-        timeout_s: float | None,
-        max_params_bytes: int,
-        max_metadata_items: int,
-        max_metadata_depth: int,
-        max_export_bytes: int,
-        max_output_bytes: int,
-        log: "Logger",
+        rank: HookRank,
+        process: HookProcess,
+        limits: HookCaptureLimits,
     ) -> None:
         self.live_dir = live_dir
         self.session_id = session_id
-        self.rank = rank
-        self.world_size = world_size
-        self._rank_policy = rank_policy
-        self._shell = shell
-        self._setpriv = setpriv
-        if setpriv is None and (rank_policy == "all" or rank == 0):
-            log.warning(
+        self._rank = rank
+        self._process = process
+        self._limits = limits
+        if process.setpriv is None and (rank.policy == "all" or rank.rank == 0):
+            process.log.warning(
                 "midrun: setpriv is not on PATH; a hook script can outlive a "
                 "killed trainer"
             )
-        self._timeout_s = timeout_s
-        self._max_params_bytes = max_params_bytes
-        self._max_metadata_items = max_metadata_items
-        self._max_metadata_depth = max_metadata_depth
-        self._max_export_bytes = max_export_bytes
-        self._max_output_bytes = max_output_bytes
-        self._log = log
         self._epoch_scan = EpochScanState()
         # `.hooks-tmp/` is shared by every rank and session of the run; each session
         # owns only its uniquely named directory inside it.
-        self._tmp_root = live_dir.parent / ".hooks-tmp" / f"rank-{rank}-{new_hook_id()}"
+        self._tmp_root = (
+            live_dir.parent / ".hooks-tmp" / f"rank-{self.rank}-{new_hook_id()}"
+        )
+
+    @property
+    def rank(self) -> int:
+        """Global rank of this session's process."""
+        return self._rank.rank
+
+    @property
+    def world_size(self) -> int:
+        """Number of ranks in the training job."""
+        return self._rank.world_size
 
     def handle(
         self,
@@ -129,9 +117,9 @@ class HookSession:
             Otherwise a `HandleResult` whose `light`/`heavy` fields are each `None`
             when that modality's script isn't currently enabled.
         """
-        if self._rank_policy == "rank_zero" and self.rank != 0:
+        if not self._rank.eligible:
             return None
-        self._epoch_scan.scan_if_due(self.live_dir, (stage, epoch), self._log)
+        self._epoch_scan.scan_if_due(self.live_dir, (stage, epoch), self._process.log)
         context = OccurrenceContext(
             session_id=self.session_id,
             hook=hook,
@@ -150,15 +138,9 @@ class HookSession:
             context,
             args,
             occurrence_id=occurrence_id,
-            shell=self._shell,
-            setpriv=self._setpriv,
-            timeout_s=self._timeout_s,
-            max_params_bytes=self._max_params_bytes,
-            max_metadata_items=self._max_metadata_items,
-            max_metadata_depth=self._max_metadata_depth,
-            max_output_bytes=self._max_output_bytes,
+            process=self._process,
+            limits=self._limits,
             tmp_root=self._tmp_root,
-            log=self._log,
         )
         spec = CALLBACK_BY_NAME.get(hook)
         tensor_arg_names = spec.tensor_args if spec is not None else ()
@@ -168,15 +150,9 @@ class HookSession:
             occurrence_id,
             args,
             tensor_arg_names,
-            shell=self._shell,
-            setpriv=self._setpriv,
-            timeout_s=self._timeout_s,
-            max_metadata_items=self._max_metadata_items,
-            max_metadata_depth=self._max_metadata_depth,
-            max_export_bytes=self._max_export_bytes,
-            max_output_bytes=self._max_output_bytes,
+            process=self._process,
+            limits=self._limits,
             tmp_root=self._tmp_root,
-            log=self._log,
         )
         return HandleResult(light=light_result, heavy=heavy_result)
 

@@ -3,8 +3,7 @@
 import weakref
 from typing import TYPE_CHECKING, Any
 
-import torch
-
+from midrun.runtime.close_unstarted_recorder import close_unstarted_recorder
 from midrun.runtime.command_specs.command_runtime import CommandRuntime
 from midrun.runtime.commands.command import Command
 from midrun.runtime.events import SafePoint
@@ -55,15 +54,7 @@ def handle_set_lightning_profiler(
     old = trainer.profiler  # type: ignore[attr-defined]
     stage = trainer.state.fn
     if isinstance(old, profilers.PyTorchProfiler):
-        torch_profiler = old.profiler
-        if (
-            isinstance(torch_profiler, torch.profiler.profile)
-            and torch_profiler.profiler is None
-        ):
-            # It never recorded, and Lightning's teardown fails to read its events.
-            # torch's profile.__exit__ has no annotations.
-            torch_profiler.__exit__(None, None, None)  # type: ignore[no-untyped-call]
-            old.profiler = None
+        old.profiler = close_unstarted_recorder(old.profiler)
         old.teardown(stage=stage)
     if level == "off":
         profiler = profilers.PassThroughProfiler()

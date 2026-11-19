@@ -21,7 +21,7 @@ def live_model_summary(rt: "MidrunRuntime") -> bytes:
     Blocks the calling thread until the training thread runs the capture.
 
     Raises:
-        TimeoutError: No safe point was reached within `LIVE_CAPTURE_TIMEOUT_S`.
+        TimeoutError: The reader did not receive a result within `LIVE_CAPTURE_TIMEOUT_S`.
         ValueError: The safe point had no in-flight batch, or the parameters are
             sharded.
     """

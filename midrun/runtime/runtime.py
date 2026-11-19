@@ -1,11 +1,11 @@
-"""Owns Midrun's runtime services and dispatches Lightning-hook-driven state
-publication and command execution.
+"""Owns runtime services and dispatches state publication and command execution.
 
 The Lightning training thread is the only thread that mutates or deeply inspects
 Trainer/model state. REST and FUSE only read published `RuntimeSnapshot`s or enqueue
 `Command`s; this module is what actually executes them, from inside Lightning hooks.
 """
 
+import multiprocessing
 import os
 import secrets
 import threading
@@ -20,7 +20,8 @@ import torch
 from loguru import logger
 
 from midrun.config import MidrunConfig
-from midrun.hooks.session import HandleResult, HookSession
+from midrun.hooks.handle_result import HandleResult
+from midrun.hooks.session import HookSession
 from midrun.lightning_backend import LightningBackend
 from midrun.logging.logging_session import LoggingSession
 from midrun.runtime.artifacts import ArtifactStore
@@ -97,47 +98,83 @@ class MidrunRuntime:
         build_rest_app: Builds the REST app of a runtime, when REST starts.
         build_fuse_ops: Builds the FUSE operations of a runtime, when FUSE mounts.
 
-    Attributes:
-        config: Effective `MidrunConfig` for this run.
-        backend: The Lightning backend the composed model uses.
-        run_id: Unique id for this training run.
-        started_at: Unix timestamp this runtime object was constructed.
-        state: Published `RuntimeSnapshot` store.
-        command_queue: Submitted control-plane commands.
-        gate: Cooperative hold gate.
-        artifacts: Checkpoint/snapshot/debug-capture disk store; created once
-            `setup_environment` resolves its final directory, not before.
-        torch_debug: PyTorch distributed debug server manager.
-        pipeline: Rolling per-batch phase-timing tracker.
-        current_step: Live batch/loss/exception for the in-flight training step.
-        finite_guard: Opt-in dataloader-batch finite-value checker.
-        cuda_memory_history: Current CUDA allocator-history recording configuration.
-        profiler_run: The armed/active bounded `torch.profiler` run, if any.
-        lightning_profiler: The Lightning profiler instance currently installed as
-            `trainer.profiler` by `set_lightning_profiler`, if any. Kept as a direct
-            reference so its live `.summary()` can be read without a `trainer` handle.
-        lightning_profiler_level: `off`, `simple`, `advanced`, or `pytorch` -- the
-            level `lightning_profiler` was last set to.
-        live_captures: Broker for cheap, non-persisted live views served at
-            `SafePoint.BEFORE_OPTIMIZER_STEP` -- see
-            `midrun.runtime.virtual_fs.live_files.LIVE_FILES`.
-        tunable_hparams: Current value/type of each hparam the model opted into via
-            `midrun_tunable_hparams`, refreshed at every safe point and in a hold.
-            A tensor's value is read when this property is read, not at the safe
-            point. Entries declared via the dict form also carry `min`/`max`/`label`.
-        rank_sync: Control-plane collectives with the other ranks of a distributed
-            run.
-        rank_info: This rank's `RankInfo`, with its training device, e.g. `cuda:1`.
-            Until `setup_environment`, the device is `cpu`.
-        services: The REST, FUSE and torch debug servers and their handles.
-        sessions: The logging session and hooks session of the current stage.
-        model_info: The model's class, hparams and summary, as of the last fit start.
-        exception_hold: The active exception hold on rank 0, or None. The
-            `release_exception` command sets it to None to end the hold.
-        tunable_hparam_specs: The declared tunable hparams of the model class, as of
-            the last fit start.
+    :ivar config: Effective `MidrunConfig` for this run.
+    :ivar backend: The Lightning backend the composed model uses.
+    :ivar run_id: Unique id for this training run.
+    :ivar started_at: Unix timestamp this runtime object was constructed.
+    :ivar state: Published `RuntimeSnapshot` store.
+    :ivar command_queue: Submitted control-plane commands.
+    :ivar gate: Cooperative hold gate.
+    :ivar artifacts: Checkpoint/snapshot/debug-capture disk store; created once
+        `setup_environment` resolves its final directory, not before.
+    :ivar torch_debug: PyTorch distributed debug server manager.
+    :ivar pipeline: Rolling per-batch phase-timing tracker.
+    :ivar current_step: Live batch/loss/exception for the in-flight training step.
+    :ivar finite_guard: Opt-in dataloader-batch finite-value checker.
+    :ivar cuda_memory_history: Current CUDA allocator-history recording configuration.
+    :ivar profiler_run: The armed/active bounded `torch.profiler` run, if any.
+    :ivar lightning_profiler: The Lightning profiler instance currently installed as
+        `trainer.profiler` by `set_lightning_profiler`, if any. Kept as a direct
+        reference so its live `.summary()` can be read without a `trainer` handle.
+    :ivar lightning_profiler_level: `off`, `simple`, `advanced`, or `pytorch` -- the
+        level `lightning_profiler` was last set to.
+    :ivar live_captures: Broker for cheap, non-persisted live views served at
+        `SafePoint.BEFORE_OPTIMIZER_STEP` -- see
+        `midrun.runtime.virtual_fs.live_files.LIVE_FILES`.
+    :ivar tunable_hparams: Current value/type of each hparam the model opted into via
+        `midrun_tunable_hparams`, refreshed at every safe point and in a hold.
+        A tensor's value is read when this property is read, not at the safe
+        point. Entries declared via the dict form also carry `min`/`max`/`label`.
+    :ivar rank_sync: Control-plane collectives with the other ranks of a distributed
+        run.
+    :ivar rank_info: This rank's `RankInfo`, with its training device, e.g. `cuda:1`.
+        Until `setup_environment`, the device is `cpu`.
+    :ivar services: The REST, FUSE and torch debug servers and their handles.
+    :ivar sessions: The logging session and hooks session of the current stage.
+    :ivar model_info: The model's class, hparams and summary, as of the last fit start.
+    :ivar exception_hold: The active exception hold on rank 0, or None. The
+        `release_exception` command sets it to None to end the hold.
+    :ivar tunable_hparam_specs: The declared tunable hparams of the model class, as of
+        the last fit start.
+    :ivar _unreadable_hparams_reported: Names whose read failure has already been logged.
+    :ivar _lock: Serializes runtime startup and shutdown.
+    :ivar _started: Whether the stage has started.
+    :ivar _shutdown_status: Terminal status to publish when every cleanup action succeeds.
+    :ivar _shutdown_active: Whether a caller currently owns the cleanup pass.
+    :ivar _pending_cleanup: Stage cleanup actions that have not yet succeeded.
+    :ivar _is_rank_zero: Whether this process owns control-plane services.
+    :ivar _tunable_hparams: Latest tunable values and deferred tensor reads.
     """
 
+    config: MidrunConfig
+    backend: LightningBackend
+    run_id: str
+    started_at: float
+    state: StateStore
+    command_queue: CommandQueue
+    gate: RunGate
+    artifacts: ArtifactStore | None
+    torch_debug: TorchDebugManager
+    services: RuntimeServices
+    model_info: ModelInfo
+    rank_info: RankInfo
+    pipeline: PipelinePressureTracker
+    current_step: CurrentStep
+    finite_guard: DataloaderFiniteGuard
+    exception_hold: ExceptionBreakpointInfo | None
+    cuda_memory_history: CudaMemoryHistoryState
+    lightning_profiler: Any | None
+    lightning_profiler_level: str
+    live_captures: LiveCaptureBroker
+    _tunable_hparams: dict[str, tuple[HparamValue, torch.Tensor | None]]
+    tunable_hparam_specs: dict[str, TunableHparamSpec]
+    _lock: threading.Lock
+    _started: bool
+    _shutdown_status: str | None
+    _shutdown_active: bool
+    _pending_cleanup: dict[str, Callable[[], object]]
+    _is_rank_zero: bool
+    sessions: StageSessions
     _unreadable_hparams_reported: set[str]
     rank_sync: RankSync
     profiler_run: ProfilerRun | None
@@ -150,28 +187,31 @@ class MidrunRuntime:
         build_rest_app: Callable[["MidrunRuntime"], Any],
         build_fuse_ops: Callable[["MidrunRuntime"], Any],
     ) -> None:
-        self.config: MidrunConfig = config
-        self.backend: LightningBackend = backend
+        self.config = config
+        self.backend = backend
         # commands.next_id is process-local, so two processes would share a run id.
-        self.run_id: str = (
+        self.run_id = (
             f"run-{time.strftime('%Y%m%dT%H%M%S')}-{os.getpid()}-{secrets.token_hex(4)}"
         )
-        self.started_at: float = time.time()
-        self.state: StateStore = StateStore(
+        self.started_at = time.time()
+        self.state = StateStore(
             initial_snapshot(self.run_id, backend.name, backend.version)
         )
-        self.command_queue: CommandQueue = CommandQueue(validate_command_args)
-        self.gate: RunGate = RunGate()
-        self.artifacts: ArtifactStore | None = None
-        self.torch_debug: TorchDebugManager = TorchDebugManager(
+        self.command_queue = CommandQueue(validate_command_args)
+        self.gate = RunGate()
+        self.artifacts = None
+        self.torch_debug = TorchDebugManager(
             port=config.torch_debug_port, port_search=config.torch_debug_port_search
         )
 
         self._lock = threading.Lock()
         self._started = False
+        self._shutdown_status = None
+        self._shutdown_active = False
+        self._pending_cleanup = {}
         self._is_rank_zero = True
 
-        self.services: RuntimeServices = RuntimeServices(
+        self.services = RuntimeServices(
             config,
             self.state,
             self.torch_debug,
@@ -181,29 +221,27 @@ class MidrunRuntime:
         )
         self.sessions = StageSessions(config, self.run_id)
 
-        self.model_info: ModelInfo = ModelInfo()
+        self.model_info = ModelInfo()
 
         # Until `_gather_ranks` runs at setup, the runtime knows only its own rank.
-        self.rank_info: RankInfo = local_rank_info("cpu")
+        self.rank_info = local_rank_info("cpu")
         self.rank_sync = RankSync()
 
-        self.pipeline: PipelinePressureTracker = PipelinePressureTracker(
-            window=config.pipeline_pressure_window
-        )
-        self.current_step: CurrentStep = CurrentStep()
-        self.finite_guard: DataloaderFiniteGuard = DataloaderFiniteGuard(
+        self.pipeline = PipelinePressureTracker(window=config.pipeline_pressure_window)
+        self.current_step = CurrentStep()
+        self.finite_guard = DataloaderFiniteGuard(
             enabled=config.dataloader_finite_check_enabled
         )
-        self.exception_hold: ExceptionBreakpointInfo | None = None
-        self.cuda_memory_history: CudaMemoryHistoryState = CudaMemoryHistoryState(
+        self.exception_hold = None
+        self.cuda_memory_history = CudaMemoryHistoryState(
             enabled=False, max_entries=None, started_at=None
         )
         self.profiler_run = None
-        self.lightning_profiler: Any | None = None
-        self.lightning_profiler_level: str = "off"
-        self.live_captures: LiveCaptureBroker = LiveCaptureBroker()
-        self._tunable_hparams: dict[str, tuple[HparamValue, torch.Tensor | None]] = {}
-        self.tunable_hparam_specs: dict[str, TunableHparamSpec] = {}
+        self.lightning_profiler = None
+        self.lightning_profiler_level = "off"
+        self.live_captures = LiveCaptureBroker()
+        self._tunable_hparams = {}
+        self.tunable_hparam_specs = {}
         self._unreadable_hparams_reported = set()
 
     def __reduce_ex__(self, protocol: SupportsIndex) -> NoReturn:
@@ -252,11 +290,11 @@ class MidrunRuntime:
         """The artifact store that `setup_environment` creates.
 
         Raises:
-            RuntimeError: `setup_environment` has not created the store yet.
+            RuntimeError: `setup_environment` did not create a store for this stage.
         """
         if self.artifacts is None:
             raise RuntimeError(
-                "midrun: the artifact store does not exist until setup_environment runs"
+                "midrun: setup_environment has not initialized an artifact store for this stage"
             )
         return self.artifacts
 
@@ -273,12 +311,19 @@ class MidrunRuntime:
         with self._lock:
             if self._started:
                 return
+            candidate = RankSync.create()
+            try:
+                if candidate.any_rank(self._shutdown_status is not None):
+                    raise RuntimeError("cannot start a stage while shutdown is pending")
+            except BaseException:
+                candidate.close()
+                raise
+            self.rank_sync = candidate
+            self.artifacts = None
+            self.state.update(artifacts_path=None)
             self._started = True
-        # A new run or stage accepts the holds that a stop of the last one refused.
-        self.command_queue.refusals.clear()
 
         self._is_rank_zero = is_rank_zero()
-        self.rank_sync = RankSync.create()
         self._gather_ranks(pl_module)
         self._detect_backward_interception(pl_module)
 
@@ -313,6 +358,7 @@ class MidrunRuntime:
             self._guarded("FUSE mount", lambda: self.services.start_fuse(base_dir))
 
         self.state.update(status="running")
+        self.command_queue.reopen()
 
     def on_fit_start(self, pl_module: "LightningModule") -> None:
         """Publishes the first full snapshot and tunable hparams once the Trainer is attached."""
@@ -339,27 +385,58 @@ class MidrunRuntime:
 
     def _stop_services(self, final_status: str) -> None:
         with self._lock:
-            if not self._started:
+            if not self._started and self._shutdown_status is None:
                 return
-            self._started = False
-        self.state.update(status="stopping")
-        # A command queued for this stage must not run in the next one.
-        self.command_queue.end_queued(
-            "expired", error="the stage stopped before the command ran"
-        )
-        self.gate.release()
-        self._guarded("REST shutdown", self._stop_rest)
+            if final_status == "failed" or self._shutdown_status is None:
+                self._shutdown_status = final_status
+            if self._shutdown_active:
+                return
+            if self._started:
+                self._pending_cleanup = {
+                    "command queue shutdown": self.command_queue.close,
+                    "hold release": self.gate.release,
+                    "REST shutdown": self._stop_rest,
+                    "CUDA memory history shutdown": self._stop_cuda_memory_history,
+                    "FUSE shutdown": self._stop_fuse,
+                    "pytorch distributed debug shutdown": self.torch_debug.stop,
+                    "profiler shutdown": self._stop_profiler,
+                    "control group shutdown": self.rank_sync.close,
+                }
+                self._started = False
+            self._shutdown_active = True
+        try:
+            self.state.update(status="stopping")
+            first_error = None
+            for name, cleanup in tuple(self._pending_cleanup.items()):
+                error = self._guarded(name, cleanup, defer_raise=True)
+                if error is not None:
+                    if first_error is None:
+                        first_error = error
+                elif not (
+                    cleanup == self._stop_cuda_memory_history
+                    and self._stop_rest in self._pending_cleanup.values()
+                ):
+                    del self._pending_cleanup[name]
+            if first_error is not None and self.config.inspection_strict:
+                raise first_error
+        finally:
+            with self._lock:
+                self._shutdown_active = False
+                if not self._pending_cleanup:
+                    self.state.update(
+                        status=self._shutdown_status,
+                        pending_commands=self.command_queue.queued_count,
+                    )
+                    self._shutdown_status = None
+
+    def _stop_cuda_memory_history(self) -> None:
         if self.cuda_memory_history.enabled:
-            # Recording is process-global: it would outlive the stage. REST is
-            # down, so nothing turns it on again.
             self.cuda_memory_history = set_cuda_memory_history(False, max_entries=None)
-        self._guarded("FUSE shutdown", self._stop_fuse)
-        self._guarded("pytorch distributed debug shutdown", self.torch_debug.stop)
+
+    def _stop_profiler(self) -> None:
         if (run := self.profiler_run) is not None:
+            run.save(self.artifact_store)
             self.profiler_run = None
-            self._guarded("profiler shutdown", lambda: run.save(self.artifact_store))
-        self._guarded("control group shutdown", self.rank_sync.close)
-        self.state.update(status=final_status)
 
     def _stop_rest(self) -> None:
         self.services.stop_rest()
@@ -528,9 +605,7 @@ class MidrunRuntime:
         """
         trainer = pl_module.trainer
         now = time.perf_counter_ns()
-        self.pipeline.batch_start(
-            now, trainer.current_epoch, trainer.global_step, batch_idx
-        )
+        self.pipeline.batch_start(now, trainer.current_epoch, batch_idx)
         self.current_step.begin(
             batch, batch_idx, trainer.current_epoch, trainer.global_step, now
         )
@@ -556,7 +631,9 @@ class MidrunRuntime:
         block so the retained batch/loss/exception never survive into the next batch.
         """
         if self.config.pipeline_pressure_enabled:
-            self.pipeline.batch_end(time.perf_counter_ns())
+            self.pipeline.batch_end(
+                time.perf_counter_ns(), pl_module.trainer.global_step
+            )
         self._advance_profiler(pl_module)
         self.current_step.clear()
 
@@ -583,6 +660,9 @@ class MidrunRuntime:
             run.save(self.artifact_store)
         except Exception as exc:  # noqa: BLE001 -- inspector must never destabilize training
             logger.warning("midrun: profiler finalize failed: {}", exc)
+            if not run.pending_publication:
+                self.profiler_run = None
+            return
         self.profiler_run = None
         if run.then_hold:
             trainer = pl_module.trainer
@@ -702,10 +782,7 @@ class MidrunRuntime:
             self.gate.wait_for_control_event(timeout=0.1)
 
     def _detect_backward_interception(self, pl_module: "LightningModule") -> None:
-        """Probes whether the active strategy is known to route backward through
-        `LightningModule.backward()`, via an explicit allowlist (not runtime
-        bypass-detection, which is unreliable).
-        """
+        """Checks whether the strategy is known to use `LightningModule.backward()`."""
         trainer = getattr(pl_module, "trainer", None)
         strategy = getattr(trainer, "strategy", None) if trainer is not None else None
         if strategy is None:
@@ -728,7 +805,7 @@ class MidrunRuntime:
     # ---- state publication ------------------------------------------------------
 
     def _publish(
-        self, pl_module: "LightningModule", status: str, batch_idx: int | None = None
+        self, pl_module: "LightningModule", status: str, *, batch_idx: int | None = None
     ) -> None:
         trainer = pl_module.trainer
         # Lightning computes these properties on each access; read them once.
@@ -759,7 +836,6 @@ class MidrunRuntime:
         if batch_idx is None and self.current_step.batch is not None:
             # A publish inside a batch, such as from a hold, shows that batch.
             batch_idx = self.current_step.batch_idx
-        pending = len(self.command_queue.list_all(status="queued"))
         self.state.update(
             status=status,
             stage=stage,
@@ -770,7 +846,7 @@ class MidrunRuntime:
             ranks=self._current_ranks(),
             metrics=metrics,
             learning_rates=learning_rates,
-            pending_commands=pending,
+            pending_commands=self.command_queue.queued_count,
             hold_state="held" if self.gate.is_held() else "none",
             exception=self.exception_hold,
         )
@@ -783,8 +859,6 @@ class MidrunRuntime:
         gathered once like the rest of `RankInfo`. While the pids do not
         change, this returns the published entry instead of a new `RankInfo`.
         """
-        import multiprocessing
-
         worker_pids = tuple(
             sorted(
                 child.pid
@@ -817,23 +891,27 @@ class MidrunRuntime:
         )
 
     def _gather_ranks(self, pl_module: "LightningModule") -> None:
-        import torch.distributed as dist
-
-        initialized = dist.is_available() and dist.is_initialized()
-        world_size = dist.get_world_size() if initialized else 1
+        initialized = (
+            torch.distributed.is_available() and torch.distributed.is_initialized()
+        )
+        world_size = torch.distributed.get_world_size() if initialized else 1
         self.rank_info = local_rank_info(str(getattr(pl_module, "device", "cpu")))
         ranks = tuple(self.rank_sync.all_gather(self.rank_info))
         self.state.update(world_size=world_size, ranks=ranks)
 
     # ---- service management ------------------------------------------------------
 
-    def _guarded(self, description: str, fn: Callable[[], None]) -> None:
+    def _guarded(
+        self, description: str, fn: Callable[[], object], *, defer_raise: bool = False
+    ) -> Exception | None:
         try:
             fn()
         except Exception as exc:
-            if self.config.inspection_strict:
+            if self.config.inspection_strict and not defer_raise:
                 raise
-            logger.warning("midrun: {} failed: {}", description, exc)
+            logger.opt(exception=exc).warning("midrun: {} failed: {}", description, exc)
+            return exc
+        return None
 
     def _resolve_artifact_dir(self, base_dir: Path) -> None:
         artifact_dir = self.config.artifact_dir or base_dir / "artifacts"

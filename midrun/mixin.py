@@ -20,6 +20,7 @@ If a subclass overrides one of the reserved hooks below (`setup`, `on_fit_start`
 """
 
 from collections.abc import Sequence
+from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -47,23 +48,23 @@ else:
 class MidrunMixin(_MixinBase):
     """Starts and owns a `MidrunRuntime` for the Lightning model it is composed with.
 
-    Attributes:
-        __midrun_lightning_backend__: The Lightning backend detected from the
-            subclass's MRO at class-definition time (`lightning.pytorch` or
-            `pytorch_lightning`); set once per subclass by `__init_subclass__`.
-        __midrun_hooks_callback_class__: This subclass's concrete lifecycle-hooks
-            `Callback` adapter class, built once per subclass by `__init_subclass__`.
-        __midrun_service_guard_class__: This subclass's concrete `Callback` class
-            that stops Midrun's services after an uncaught exception, built once
-            per subclass by `__init_subclass__`.
+    :ivar __midrun_lightning_backend__: Lightning namespace selected from the subclass MRO.
+    :ivar __midrun_hooks_callback_class__: Hooks callback type shared by that backend.
+    :ivar __midrun_service_guard_class__: Service guard type shared by that backend.
+    :ivar _midrun: Runtime owned by this model.
+    :ivar _midrun_hooks_adapter: Hooks adapter reused when configuring the Trainer.
+    :ivar _midrun_service_guard: Service guard reused when configuring the Trainer.
     """
 
     __midrun_lightning_backend__: LightningBackend
     __midrun_hooks_callback_class__: type
     __midrun_service_guard_class__: type
+    _midrun: MidrunRuntime
+    _midrun_hooks_adapter: Any | None
+    _midrun_service_guard: Any | None
 
     def __init_subclass__(cls, **kwargs: object) -> None:
-        """Detects the Lightning backend and builds this subclass's hooks callback class."""
+        """Selects the subclass's Lightning backend and its shared callback types."""
         super().__init_subclass__(**kwargs)
         cls.__midrun_lightning_backend__ = detect_lightning_backend_from_mro(
             cls.__mro__
@@ -71,10 +72,8 @@ class MidrunMixin(_MixinBase):
         cls.__midrun_hooks_callback_class__ = build_hooks_callback_class(
             cls.__midrun_lightning_backend__
         )
-        cls.__midrun_service_guard_class__ = type(
-            "MidrunServiceGuard",
-            (_ServiceGuardMethods, cls.__midrun_lightning_backend__.callback_class),
-            {},
+        cls.__midrun_service_guard_class__ = _service_guard_class(
+            cls.__midrun_lightning_backend__
         )
 
     def __init__(
@@ -149,8 +148,8 @@ class MidrunMixin(_MixinBase):
             run_log_enabled=run_log_enabled,
         )
         self._midrun = build_runtime(config, type(self).__midrun_lightning_backend__)
-        self._midrun_hooks_adapter: Any | None = None
-        self._midrun_service_guard: Any | None = None
+        self._midrun_hooks_adapter = None
+        self._midrun_service_guard = None
         super().__init__(*args, **kwargs)
 
     @property
@@ -311,8 +310,7 @@ class _ServiceGuardMethods:
     after a failure, so that the run log and the Lightning logging bridge do not
     depend on `hooks_enabled`. After a normal run, `MidrunMixin.teardown` closes it.
 
-    Attributes:
-        runtime: The model's `MidrunRuntime`.
+    :ivar runtime: The model's runtime, whose services the guard stops after a failure.
     """
 
     runtime: MidrunRuntime
@@ -326,14 +324,25 @@ class _ServiceGuardMethods:
     ) -> None:
         """Opens the logging session, unless the hooks adapter's `setup` opened it."""
         del stage
+        if getattr(pl_module, "_midrun_service_guard", None) is not self:
+            return
         self.runtime.open_logging_session(trainer, pl_module)
 
     def on_exception(
         self, trainer: object, pl_module: object, exception: BaseException
     ) -> None:
         """Stops Midrun's services, records the status `failed`, closes the logging session."""
-        del trainer, pl_module, exception
+        del trainer, exception
+        if getattr(pl_module, "_midrun_service_guard", None) is not self:
+            return
         try:
             self.runtime.stop_after_failure()
         finally:
             self.runtime.close_logging_session()
+
+
+@cache
+def _service_guard_class(backend: LightningBackend) -> type:
+    return type(
+        "MidrunServiceGuard", (_ServiceGuardMethods, backend.callback_class), {}
+    )

@@ -151,8 +151,15 @@ def test_a_rank_without_a_debug_frontend_warns_of_nothing(
 
 
 def test_stopping_a_rest_server_that_does_not_exit_warns(tmp_path: Path) -> None:
-    config = MidrunConfig(fuse_enabled=False, artifact_dir=tmp_path / "artifacts")
+    config = MidrunConfig(
+        rest_enabled=False,
+        fuse_enabled=False,
+        torch_debug_enabled=False,
+        artifact_dir=tmp_path / "artifacts",
+    )
     runtime = build_runtime(config, load_backend("lightning.pytorch"))
+    module = _FakeModule()
+    runtime.setup_environment(module, "fit")
     release = threading.Event()
     stuck_thread = threading.Thread(target=release.wait, daemon=True)
     stuck_thread.start()
@@ -161,9 +168,14 @@ def test_stopping_a_rest_server_that_does_not_exit_warns(tmp_path: Path) -> None
     warnings: list[str] = []
     sink_id = logger.add(warnings.append, level="WARNING", format="{message}")
     try:
-        runtime._stop_rest()
+        runtime.teardown(module, "fit")
+        assert runtime.state.read().status == "stopping"
+        assert runtime.services._rest_thread is stuck_thread
     finally:
         logger.remove(sink_id)
         release.set()
+        stuck_thread.join(timeout=1)
+        runtime.teardown(module, "fit")
+    assert runtime.state.read().status == "finished"
 
     assert any("REST server thread did not stop" in message for message in warnings)

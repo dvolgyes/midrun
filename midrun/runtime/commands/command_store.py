@@ -41,6 +41,11 @@ class CommandStore:
         """Returns every stored command, in submission order."""
         return list(self._commands.values())
 
+    @property
+    def queued_count(self) -> int:
+        """Returns the number of commands in the queued index."""
+        return len(self._queued)
+
     def queued(self) -> list[Command]:
         """Returns the commands that are still queued, in submission order."""
         return list(self._queued.values())

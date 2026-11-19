@@ -71,8 +71,8 @@ def test_pipeline_latest_json_is_null_before_first_batch() -> None:
 
 def test_pipeline_latest_and_summary_json_after_a_batch() -> None:
     runtime = _make_runtime()
-    runtime.pipeline.batch_start(0, epoch=0, global_step=0, batch_idx=0)
-    runtime.pipeline.batch_end(1_000)
+    runtime.pipeline.batch_start(0, epoch=0, batch_idx=0)
+    runtime.pipeline.batch_end(1_000, global_step=1)
 
     latest = json.loads(virtual_file_content(runtime, "/state/pipeline/latest.json"))
     assert latest["batch_total_ns"] == 1_000

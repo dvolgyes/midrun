@@ -51,9 +51,9 @@ class RankSync:
         its sockets open. This is not a collective. A group is already gone when the
         default process group was destroyed, so it is not destroyed again.
         """
-        group, self._group = self._group, None
-        if group is not None and dist.is_initialized():
-            dist.destroy_process_group(group)
+        if self._group is not None and dist.is_initialized():
+            dist.destroy_process_group(self._group)
+        self._group = None
 
     @property
     def world_size(self) -> int:

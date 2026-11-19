@@ -1,11 +1,10 @@
 """Assembles the manifest.json document of a heavy hook."""
 
-import os
-import time
 from collections.abc import Mapping, Sequence
 from typing import Any
 
 from midrun.hooks.payload.describe_arguments import describe_arguments
+from midrun.hooks.payload.invocation_header import invocation_header
 from midrun.hooks.payload.occurrence_context import OccurrenceContext
 from midrun.hooks.payload.tensor_record import TensorRecord
 
@@ -22,8 +21,7 @@ def build_heavy_manifest(
     tensor_records: list[TensorRecord],
     max_metadata_items: int,
     max_metadata_depth: int,
-    truncated: bool,
-    truncated_reason: str | None,
+    truncation: tuple[bool, str | None],
 ) -> dict[str, Any]:
     """Assembles the heavy hook's `manifest.json` document.
 
@@ -39,26 +37,17 @@ def build_heavy_manifest(
     described, meta_truncated, meta_reason = describe_arguments(
         restricted, max_items=max_metadata_items, max_depth=max_metadata_depth
     )
-    all_truncated = truncated or meta_truncated
-    reasons = [r for r in (truncated_reason, meta_reason) if r]
-    return {
-        "schema_version": _HEAVY_SCHEMA_VERSION,
-        "session_id": context.session_id,
-        "occurrence_id": occurrence_id,
-        "invocation_id": invocation_id,
-        "hook": context.hook,
-        "modality": "heavy",
-        "timestamp": time.time(),
-        "pid": os.getpid(),
-        "rank": context.rank,
-        "world_size": context.world_size,
-        "stage": context.stage,
-        "epoch": context.epoch,
-        "global_step": context.global_step,
-        "batch_idx": context.batch_idx,
-        "dataloader_idx": context.dataloader_idx,
-        "arguments": described,
-        "tensor_records": [
+    truncated, truncated_reason = truncation
+    manifest = invocation_header(
+        context,
+        occurrence_id,
+        invocation_id,
+        modality="heavy",
+        version=_HEAVY_SCHEMA_VERSION,
+    )
+    manifest.update(
+        arguments=described,
+        tensor_records=[
             {
                 "argument_path": record.argument_path,
                 "file": record.file,
@@ -69,6 +58,9 @@ def build_heavy_manifest(
             }
             for record in tensor_records
         ],
-        "truncated": all_truncated,
-        "truncated_reason": "; ".join(reasons) if reasons else None,
-    }
+        tensor_capture_partial=truncated,
+        truncated=truncated or meta_truncated,
+        truncated_reason="; ".join(filter(None, (truncated_reason, meta_reason)))
+        or None,
+    )
+    return manifest

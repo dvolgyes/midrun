@@ -1,12 +1,11 @@
 """Assembles the params.json document of a light hook."""
 
-import os
-import time
 from collections.abc import Mapping
 from typing import Any
 
 from midrun.hooks.encode_json_document import encode_json_document
 from midrun.hooks.payload.describe_arguments import describe_arguments
+from midrun.hooks.payload.invocation_header import invocation_header
 from midrun.hooks.payload.occurrence_context import OccurrenceContext
 
 _SCHEMA_VERSION = 1
@@ -34,42 +33,16 @@ def build_light_params(
     described, truncated, reason = describe_arguments(
         arguments, max_items=max_metadata_items, max_depth=max_metadata_depth
     )
-    params = _assemble(
-        context, occurrence_id, invocation_id, described, truncated, reason
+    params = invocation_header(
+        context, occurrence_id, invocation_id, modality="light", version=_SCHEMA_VERSION
     )
-    encoded = encode_json_document(params).encode("utf-8")
-    if len(encoded) <= max_params_bytes:
+    params.update(arguments=described, truncated=truncated, truncated_reason=reason)
+    if len(encode_json_document(params)) <= max_params_bytes:
         return params, truncated, reason
     reason = "max_params_bytes" if reason is None else f"{reason}; max_params_bytes"
-    params = _assemble(context, occurrence_id, invocation_id, None, True, reason)
+    params.update(arguments=None, truncated=True, truncated_reason=reason)
+    if len(encode_json_document(params)) > max_params_bytes:
+        raise ValueError(
+            f"light payload envelope exceeds hooks_max_params_bytes ({max_params_bytes})"
+        )
     return params, True, reason
-
-
-def _assemble(
-    context: OccurrenceContext,
-    occurrence_id: str,
-    invocation_id: str,
-    arguments: dict[str, Any] | None,
-    truncated: bool,
-    reason: str | None,
-) -> dict[str, Any]:
-    return {
-        "schema_version": _SCHEMA_VERSION,
-        "session_id": context.session_id,
-        "occurrence_id": occurrence_id,
-        "invocation_id": invocation_id,
-        "hook": context.hook,
-        "modality": "light",
-        "timestamp": time.time(),
-        "pid": os.getpid(),
-        "rank": context.rank,
-        "world_size": context.world_size,
-        "stage": context.stage,
-        "epoch": context.epoch,
-        "global_step": context.global_step,
-        "batch_idx": context.batch_idx,
-        "dataloader_idx": context.dataloader_idx,
-        "arguments": arguments,
-        "truncated": truncated,
-        "truncated_reason": reason,
-    }

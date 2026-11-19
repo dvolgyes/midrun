@@ -46,3 +46,20 @@ def test_an_executing_command_is_listed_as_neither_queued_nor_forgotten() -> Non
     assert queue.list_all(status="queued") == []
     assert queue.get(command.id) is command
     assert queue.due(None, 0, 0, None) == []
+
+
+def test_queued_count_tracks_commands_until_they_start_or_end() -> None:
+    queue = _queue()
+    assert queue.queued_count == 0
+    command = queue.submit("stop", {}, parse_when("now"))
+    cancelled = _submit(queue)
+    expired = _submit(queue)
+    due = queue.due(None, 0, 0, None)
+    assert [item.id for item in due] == [command.id, cancelled, expired]
+    assert queue.queued_count == 3
+    assert queue.mark_executing(command)
+    assert queue.queued_count == 2
+    assert queue.cancel(cancelled)
+    assert queue.queued_count == 1
+    queue.end_queued("expired")
+    assert queue.queued_count == 0

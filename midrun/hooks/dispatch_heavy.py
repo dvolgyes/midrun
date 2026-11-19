@@ -8,24 +8,24 @@ real Trainer.
 
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from midrun.hooks.capture_failed_result import capture_failed_result
 from midrun.hooks.create_invocation_dir import create_invocation_dir
+from midrun.hooks.hook_process import HookProcess
 from midrun.hooks.is_hook_failure import is_hook_failure
 from midrun.hooks.log_hook_failure import log_hook_failure
 from midrun.hooks.payload.build_heavy_manifest import build_heavy_manifest
 from midrun.hooks.payload.export_tensors import export_tensors
 from midrun.hooks.payload.heavy_capture_failure import HeavyCaptureFailure
+from midrun.hooks.payload.hook_capture_limits import HookCaptureLimits
 from midrun.hooks.payload.new_hook_id import new_hook_id
 from midrun.hooks.payload.occurrence_context import OccurrenceContext
 from midrun.hooks.payload.prepare_heavy_export import prepare_heavy_export
+from midrun.hooks.payload.tensor_leaf import TensorLeaf
 from midrun.hooks.resolve_enabled_script import resolve_enabled_script
-from midrun.hooks.runner import ExecutionResult, run_script
+from midrun.hooks.runner import ExecutionResult
 from midrun.hooks.write_json_file import write_json_file
-
-if TYPE_CHECKING:
-    from loguru import Logger
 
 
 def dispatch_heavy(
@@ -35,15 +35,9 @@ def dispatch_heavy(
     arguments: dict[str, Any],
     tensor_arg_names: tuple[str, ...],
     *,
-    shell: Path,
-    setpriv: Path | None,
-    timeout_s: float | None,
-    max_metadata_items: int,
-    max_metadata_depth: int,
-    max_export_bytes: int,
-    max_output_bytes: int,
+    process: HookProcess,
+    limits: HookCaptureLimits,
     tmp_root: Path,
-    log: "Logger",
 ) -> ExecutionResult | None:
     """Builds `manifest.json` plus `.npy` tensors and runs the heavy hook, if enabled.
 
@@ -63,9 +57,9 @@ def dispatch_heavy(
     prepared = prepare_heavy_export(
         arguments,
         tensor_arg_names,
-        max_items=max_metadata_items,
-        max_depth=max_metadata_depth,
-        max_export_bytes=max_export_bytes,
+        max_items=limits.max_metadata_items,
+        max_depth=limits.max_metadata_depth,
+        max_export_bytes=limits.max_export_bytes,
     )
     script = resolve_enabled_script(live_dir, "heavy", context.hook)
     if script is None:
@@ -73,48 +67,59 @@ def dispatch_heavy(
     if isinstance(prepared, HeavyCaptureFailure):
         result = capture_failed_result(prepared.reason)
         log_hook_failure(
-            script, "heavy", context, occurrence_id, invocation_id, result, log
+            script, "heavy", context, occurrence_id, invocation_id, result, process.log
         )
         return result
-    leaves, truncated, reason = prepared
     invocation_dir = tmp_root / invocation_id
     try:
         try:
             create_invocation_dir(tmp_root, invocation_id)
-            tensor_records = export_tensors(leaves, invocation_dir)
-            manifest_path = write_json_file(
-                invocation_dir / "manifest.json",
-                build_heavy_manifest(
-                    context=context,
-                    occurrence_id=occurrence_id,
-                    invocation_id=invocation_id,
-                    arguments=arguments,
-                    tensor_arg_names=tensor_arg_names,
-                    tensor_records=tensor_records,
-                    max_metadata_items=max_metadata_items,
-                    max_metadata_depth=max_metadata_depth,
-                    truncated=truncated,
-                    truncated_reason=reason,
-                ),
+            manifest_path = _write_manifest(
+                invocation_dir,
+                context,
+                occurrence_id,
+                arguments,
+                tensor_arg_names,
+                prepared=prepared,
+                limits=limits,
             )
         except OSError as exc:
             # E.g. a full disk: the capture failed, training must not.
             result = capture_failed_result(f"cannot write the heavy payload: {exc}")
         else:
-            result = run_script(
-                script,
-                [str(manifest_path)],
-                cwd=live_dir,
-                shell=shell,
-                setpriv=setpriv,
-                timeout_s=timeout_s,
-                max_output_bytes=max_output_bytes,
-                log=log,
-            )
+            result = process.run(script, manifest_path, cwd=live_dir)
     finally:
         shutil.rmtree(invocation_dir, ignore_errors=True)
     if is_hook_failure(result):
         log_hook_failure(
-            script, "heavy", context, occurrence_id, invocation_id, result, log
+            script, "heavy", context, occurrence_id, invocation_id, result, process.log
         )
     return result
+
+
+def _write_manifest(
+    invocation_dir: Path,
+    context: OccurrenceContext,
+    occurrence_id: str,
+    arguments: dict[str, Any],
+    tensor_arg_names: tuple[str, ...],
+    *,
+    prepared: tuple[list[TensorLeaf], bool, str | None],
+    limits: HookCaptureLimits,
+) -> Path:
+    """Write the exported tensors and the manifest that identifies them."""
+    leaves, truncated, reason = prepared
+    return write_json_file(
+        invocation_dir / "manifest.json",
+        build_heavy_manifest(
+            context=context,
+            occurrence_id=occurrence_id,
+            invocation_id=invocation_dir.name,
+            arguments=arguments,
+            tensor_arg_names=tensor_arg_names,
+            tensor_records=export_tensors(leaves, invocation_dir),
+            max_metadata_items=limits.max_metadata_items,
+            max_metadata_depth=limits.max_metadata_depth,
+            truncation=(truncated, reason),
+        ),
+    )

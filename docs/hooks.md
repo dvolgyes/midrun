@@ -105,7 +105,8 @@ stops after 10 × `hooks_max_metadata_items` values in total, so shared referenc
 `truncated_reason` then names `max_nodes`. A NaN or infinite float becomes `{"kind": "float", "value": "nan"}` (or
 `"inf"`, `"-inf"`), so the file is always standard JSON. If the `params.json` file (indented JSON, as written) would
 exceed `hooks_max_params_bytes`, `arguments` is dropped entirely (not partially re-truncated) and `truncated_reason`
-records why.
+records why. A nested tensor has `"shape": null` because it need not have a dense shape. If even the encoded document
+with `"arguments": null` exceeds the byte limit, capture fails and Bash is not launched.
 
 ## The heavy hook manifest
 
@@ -162,6 +163,7 @@ first, so the two are not a single simultaneous snapshot.
       "device": "cpu"
     }
   ],
+  "tensor_capture_partial": false,
   "truncated": false,
   "truncated_reason": null
 }
@@ -174,13 +176,14 @@ first, so the two are not a single simultaneous snapshot.
 - `bfloat16` tensors are converted to `float32` for export (numpy has no native `bfloat16`); this is recorded per-tensor
   as `original_dtype`. No other conversion happens; a lazily conjugated or negated view is written with its logical
   values.
-- **All-or-failed capture:** before any tensor is copied off its device, every tensor the callback would export is
-  checked for a supported layout (dense/strided; sparse, quantized, meta-device, nested, and wrapper-subclass tensors
-  such as `DTensor` are rejected) and the predicted total converted size is checked against `hooks_max_export_bytes`
-  (default 1 GiB). If any tensor is unsupported or the budget would be exceeded, the *entire* heavy capture fails — no
-  partial manifest, no files written, the script is never launched — and this is logged as one `ERROR` record
-  (`phase="capture_failed"`) naming the offending argument or the exceeded limit. An OS error while writing the `.npy`
-  files or the manifest (e.g. a full disk) is a `capture_failed` too: the script is not launched and training continues.
+- **Bounded tensor discovery:** if the item, depth, or node limit stops discovery, the script can still run. Its
+  manifest sets `tensor_capture_partial` to `true` and `truncated_reason` names the limit. Only discovered tensors
+  appear in `tensor_records`; an empty list in a partial capture does not imply an empty batch. Metadata-only truncation
+  (for example, shortening a string) does not set `tensor_capture_partial`.
+- **All-or-failed export:** Midrun validates every discovered tensor before copying any of them. Sparse, quantized,
+  meta-device, nested, and wrapper-subclass tensors such as `DTensor` are unsupported. An unsupported tensor or a total
+  converted array size above `hooks_max_export_bytes` (default 1 GiB) fails the entire capture. Midrun logs
+  `phase="capture_failed"` and does not launch the script. A payload write error has the same outcome.
 - The private per-invocation directory (manifest plus `.npy` files) exists for the heavy script's entire supervised
   lifetime and is removed afterward, on success, failure, or timeout alike — the same lifecycle the light hook's
   `params.json` directory has.
@@ -215,23 +218,22 @@ first, so the two are not a single simultaneous snapshot.
   runs is a script an operator placed under the run's own `hooks/` directory (or its baseline `hooks_source_dir`) and
   explicitly `chmod +x`'d. Scripts run as the training process's own user, with its own environment and filesystem
   access; midrun adds no privilege boundary beyond the execute bit itself.
-- `hooks_max_params_bytes`, `hooks_max_metadata_items`/`_depth`, `hooks_max_export_bytes`, and `hooks_max_output_bytes`
-  are hard caps enforced *before* the corresponding resource is spent (before writing `params.json`, before traversing
-  deeper, before copying a tensor off its device, before retaining more of a stream) — a misbehaving or oversized batch
-  cannot turn a hook into an unbounded memory or disk consumer.
+- `hooks_max_params_bytes` caps the encoded light file, not the memory used to describe or encode it. The metadata
+  limits bound traversal, not the size of the original batch. `hooks_max_export_bytes` counts converted array data, not
+  `.npy` headers, the manifest, or files the script creates. `hooks_max_output_bytes` bounds the logged output and
+  retained tail per stream, not how much the script can emit.
 - A script that hangs is bounded only by `hooks_timeout_s` (`None` by default — set an explicit value outside
   interactive sessions); once it fires, the *entire process group* is killed. The group is also killed when a script
   exits on its own, so a hook cannot leave orphaned background work behind in its process group.
-- **Recovery:** disabling a stuck or misbehaving hook never requires restarting training — `chmod -x` the script and the
-  next occurrence simply skips it. A hook that crashed or timed out already had its private invocation directory removed
-  (success, failure, and timeout all clean up the same way), and a session removes its own `.hooks-tmp/rank-*-<id>/`
-  directory when the run ends. Only a training process that is itself killed without cleanup (for example `kill -9` or
-  the OOM killer) during a hook leaves a stale directory there, with up to `hooks_max_export_bytes` of `.npy` files from
-  a heavy hook. A later session never reuses or removes it; when no run is using that run directory, delete
-  `.hooks-tmp/` manually. If a run's `hooks/` tree itself is in a bad state, the marker file (`midrun-hooks-state.json`,
-  next to `hooks/`) records the session that published it; deleting both and restarting the run bootstraps a fresh tree
-  from `hooks_source_dir` (or fresh disabled examples) exactly as the first run did. When only `hooks/` was deleted and
-  the marker remains, a resume logs a warning that names both paths and runs no hook; it does not seed the tree again.
+- **Recovery:** `chmod -x` prevents future invocations but does not stop a script that is already running. Wait for its
+  configured timeout or terminate the identified hook process group, not the trainer's group. With no timeout, a stuck
+  script can otherwise keep training blocked indefinitely. Midrun removes the invocation directory after exit or
+  timeout. If the trainer dies without cleanup, a later session does not reuse or remove stale payloads. Delete
+  `.hooks-tmp/` manually only when no run is using that run directory. If a run's `hooks/` tree itself is in a bad
+  state, the marker file (`midrun-hooks-state.json`, next to `hooks/`) records the session that published it; deleting
+  both and restarting the run bootstraps a fresh tree from `hooks_source_dir` (or fresh disabled examples) exactly as
+  the first run did. When only `hooks/` was deleted and the marker remains, a resume logs a warning that names both
+  paths and runs no hook; it does not seed the tree again.
 
 ## Attaching to a Lightning `Trainer`
 
@@ -290,9 +292,9 @@ tail -f <log-dir>/midrun.log   # or midrun-rank-N.log under hooks_rank_policy="a
 
 The next batch boundary runs the script and logs its stdout to `midrun.log`. Editing the script to `exit 3` and waiting
 for the next batch produces one `ERROR` record in `midrun.log` naming the hook, exit code, and stdout/stderr tails.
-`chmod -x` the same file to stop it, still without restarting training. Enabling `hooks/heavy/on_train_batch_end.sh`
-instead (or as well) additionally writes `.npy` files for the batch's tensors alongside its `manifest.json`, visible for
-the duration of that one script invocation.
+`chmod -x` the same file to skip future invocations without restarting training. Enabling
+`hooks/heavy/on_train_batch_end.sh` instead (or as well) additionally writes `.npy` files for the batch's tensors
+alongside its `manifest.json`, visible for the duration of that one script invocation.
 
 ## Status
 

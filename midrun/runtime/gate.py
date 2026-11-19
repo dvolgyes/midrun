@@ -79,19 +79,24 @@ class RunGate:
         with self._lock:
             return self._active_hold
 
-    def release(self) -> bool:
-        """Releases an active hold, if any. Safe to call from REST or training threads.
+    def release(self, *, command_id: str | None = None) -> bool:
+        """Releases the active hold if the supplied primary or joined ID matches.
 
         Returns:
-            True if a hold was released, False if the gate was not held.
+            True if released. Without an ID, releases any active hold.
         """
         with self._lock:
-            if self._active_hold is None:
+            hold = self._active_hold
+            if hold is None or (
+                command_id is not None
+                and command_id != hold.command_id
+                and command_id not in hold.joined_ids
+            ):
                 return False
             self._active_hold = None
-        self._release_event.set()
-        self._control_event.set()
-        return True
+            self._release_event.set()
+            self._control_event.set()
+            return True
 
     def notify(self) -> None:
         """Wakes a training thread blocked in `wait_for_control_event` (e.g. new command)."""

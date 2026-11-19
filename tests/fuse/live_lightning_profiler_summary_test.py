@@ -5,13 +5,16 @@ SafePoint.BEFORE_OPTIMIZER_STEP, and the summary is computed there, because the
 Lightning profilers are not safe to read from another thread.
 """
 
+import json
 import threading
 import time
+from pathlib import Path
 
 import pytest
 import torch
 from lightning.pytorch.profilers import (
     AdvancedProfiler,
+    PassThroughProfiler,
     Profiler,
     PyTorchProfiler,
     SimpleProfiler,
@@ -21,6 +24,8 @@ from midrun.build_runtime import build_runtime
 from midrun.config import MidrunConfig
 from midrun.fuse.filesystem import MidrunFS
 from midrun.load_backend import load_backend
+from midrun.runtime.command_specs.execute_command import execute_command
+from midrun.runtime.commands.parse_when import parse_when
 from midrun.runtime.events import SafePoint
 from midrun.runtime.runtime import MidrunRuntime
 from midrun.runtime.virtual_fs.virtual_file_content import virtual_file_content
@@ -39,9 +44,14 @@ class _Model(torch.nn.Module):
 
 class _FakeState:
     stage = None
+    fn = "fit"
 
 
 class _FakeTrainer:
+    world_size = 2
+    local_rank = 1
+    num_training_batches = 6
+
     def __init__(self, profiler: Profiler) -> None:
         self.callback_metrics: dict[str, float] = {}
         self.current_epoch = 0
@@ -122,20 +132,82 @@ def test_summary_is_computed_on_the_training_thread(
     assert "later_action" in profiler.summary()
 
 
-def test_pytorch_level_read_installs_a_fresh_profiler() -> None:
-    profiler = PyTorchProfiler()
+def test_pytorch_read_closes_active_scopes_and_reuses_effective_options() -> None:
+    profiler = PyTorchProfiler(
+        schedule=None,
+        activities=[torch.profiler.ProfilerActivity.CPU],
+        table_kwargs={"header": "configured summary"},
+        row_limit=-1,
+    )
     runtime, model = _make_runtime(profiler, "pytorch")
     threads = _record_summary_threads(profiler)
 
-    text = _read_on_reader_thread(runtime, model).decode()
+    with profiler.profile("first_action"):
+        torch.ones(2).neg()
+        text = _read_on_reader_thread(runtime, model).decode()
+        assert not profiler._recording_map
 
     assert threads == [threading.get_ident()]
-    assert "reset" in text
-    fresh = model.trainer.profiler
-    assert isinstance(fresh, PyTorchProfiler)
-    assert fresh is not profiler
-    assert runtime.lightning_profiler is fresh
+    assert "first_action" in text
+    assert "configured summary" in text
+    assert model.trainer.profiler is profiler
+    assert runtime.lightning_profiler is profiler
     assert runtime.lightning_profiler_level == "pytorch"
+    with profiler.profile("second_action"):
+        torch.ones(2).abs()
+    second = _read_on_reader_thread(runtime, model)
+    assert b"configured summary" in second
+    assert b"second_action" in second
+    assert b"first_action" not in second
+
+
+def test_read_leaves_external_trainer_profiler_untouched() -> None:
+    managed = PyTorchProfiler()
+    runtime, model = _make_runtime(managed, "pytorch")
+    external = PyTorchProfiler(
+        schedule=None, activities=[torch.profiler.ProfilerActivity.CPU], row_limit=-1
+    )
+    model.trainer.profiler = external
+    threads = _record_summary_threads(managed)
+
+    with external.profile("externally_owned"):
+        assert b"not enabled" in _read_on_reader_thread(runtime, model)
+        torch.ones(2).neg()
+    assert "externally_owned" in external.summary()
+    assert model.trainer.profiler is external
+    assert not threads
+
+
+@pytest.mark.parametrize("num_batches", [2, 6])
+def test_second_recording_exports_ranked_trace_with_module_scopes(
+    tmp_path: Path, num_batches: int
+) -> None:
+    original = PassThroughProfiler()
+    original.setup(stage="fit", local_rank=1, log_dir=str(tmp_path))
+    runtime, model = _make_runtime(original, "off")
+    model.trainer.num_training_batches = num_batches
+    command = runtime.command_queue.submit(
+        "set_lightning_profiler", {"level": "pytorch"}, parse_when("now")
+    )
+    execute_command(runtime, model, model.trainer, command, safe_point=None)
+    assert command.status == "succeeded"
+    for _ in range(model.trainer.num_training_batches):
+        with model.trainer.profiler.profile("first_training_step"):
+            model(torch.ones(1, 4))
+    _read_on_reader_thread(runtime, model)
+
+    profiler = model.trainer.profiler
+    for _ in range(model.trainer.num_training_batches):
+        with profiler.profile("second_training_step"):
+            model(torch.ones(1, 4))
+    _read_on_reader_thread(runtime, model)
+
+    (trace,) = tmp_path.glob("fit-1-second_training_step.*.pt.trace.json")
+    events = json.loads(trace.read_bytes())["traceEvents"]
+    assert any(
+        event.get("name") == "[pl][module]torch.nn.modules.linear.Linear: fc"
+        for event in events
+    )
 
 
 def test_fuse_getattr_does_not_compute_the_summary() -> None:

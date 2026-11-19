@@ -23,14 +23,18 @@ class CommandQueue:
     The queue keeps every queued or executing command, and the last
     `CommandStore.finished_limit` finished ones; it forgets older finished commands.
 
-    Attributes:
-        refusals: The command kinds that `submit` and `submit_once` refuse.
+    :ivar refusals: Command kinds refused on submission.
+    :ivar _closed: Whether the stage has stopped admitting commands.
+    :ivar _validate_args: Validates and normalizes arguments before admission.
+    :ivar _lock: Serializes admission and command state transitions.
+    :ivar _store: Queued, executing, and retained terminal commands.
     """
 
     _validate_args: Callable[[str, dict[str, Any]], dict[str, Any]]
     _lock: threading.Lock
     _store: CommandStore
     refusals: CommandRefusals
+    _closed: bool
 
     def __init__(
         self, validate_args: Callable[[str, dict[str, Any]], dict[str, Any]]
@@ -39,6 +43,7 @@ class CommandQueue:
         self._lock = threading.Lock()
         self._store = CommandStore()
         self.refusals = CommandRefusals()
+        self._closed = False
 
     def submit(self, kind: str, args: dict[str, Any], when: CommandWhen) -> Command:
         """Registers a new queued command.
@@ -52,10 +57,29 @@ class CommandQueue:
             id=next_id("cmd"), kind=kind, args=args, when=when, created_at=time.time()
         )
         with self._lock:
-            if (reason := self.refusals.reason(kind)) is not None:
-                raise RefusedCommandError(f"{kind} refused: {reason}")
+            self._check_admission(kind)
             self._store.add(command)
         return command
+
+    def _check_admission(self, kind: str) -> None:
+        if self._closed:
+            raise RefusedCommandError(f"{kind} refused: the stage has stopped")
+        if (reason := self.refusals.reason(kind)) is not None:
+            raise RefusedCommandError(f"{kind} refused: {reason}")
+
+    def close(self) -> None:
+        """Closes admission and expires queued work under the same lock."""
+        with self._lock:
+            self._closed = True
+            self._end_queued(
+                "expired", None, "the stage stopped before the command ran"
+            )
+
+    def reopen(self) -> None:
+        """Admits work for the newly initialized stage."""
+        with self._lock:
+            self.refusals.clear()
+            self._closed = False
 
     def end_queued(
         self, status: str, *, kind: str | None = None, error: str | None = None
@@ -70,16 +94,17 @@ class CommandQueue:
             The ids of the ended commands.
         """
         with self._lock:
-            ended = [
-                command
-                for command in self._store.queued()
-                if kind is None or command.kind == kind
-            ]
-            for command in ended:
-                command.status = status
-                command.error = error
-                self._store.finish(command)
-            return [command.id for command in ended]
+            return self._end_queued(status, kind, error)
+
+    def _end_queued(
+        self, status: str, kind: str | None, error: str | None
+    ) -> list[str]:
+        ended = [c for c in self._store.queued() if kind is None or c.kind == kind]
+        for command in ended:
+            command.status = status
+            command.error = error
+            self._store.finish(command)
+        return [command.id for command in ended]
 
     def submit_once(
         self, kind: str, args: dict[str, Any], when: CommandWhen
@@ -95,8 +120,7 @@ class CommandQueue:
         """
         args = self._validate_args(kind, args)
         with self._lock:
-            if (reason := self.refusals.reason(kind)) is not None:
-                raise RefusedCommandError(f"{kind} refused: {reason}")
+            self._check_admission(kind)
             for command in self._store.all():
                 if command.status in ("queued", "executing") and (
                     command.kind,
@@ -118,6 +142,12 @@ class CommandQueue:
         """Returns a command by id, or None if unknown or forgotten."""
         with self._lock:
             return self._store.get(command_id)
+
+    @property
+    def queued_count(self) -> int:
+        """Returns the number of commands that are still queued."""
+        with self._lock:
+            return self._store.queued_count
 
     def list_all(self, *, status: str | None = None) -> list[Command]:
         """Returns the known commands, in submission order.

@@ -6,70 +6,40 @@ thread); the Lightning training thread executes commands from
 see the module docstring in `midrun.runtime.runtime`.
 """
 
-import json
 import os
 import socket
-from dataclasses import asdict
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from loguru import logger
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from midrun.rest.argument_error import argument_error
 from midrun.rest.attachment_static_files import AttachmentStaticFiles
-from midrun.rest.checkpoint_entries import checkpoint_entries
 from midrun.rest.command_dict import command_dict
 from midrun.rest.parse_when_or_422 import parse_when_or_422
-from midrun.rest.prefers_html import prefers_html
+from midrun.rest.register_artifact_routes import register_artifact_routes
+from midrun.rest.register_debug_routes import register_debug_routes
+from midrun.rest.register_file_routes import register_file_routes
+from midrun.rest.register_hold_routes import register_hold_routes
+from midrun.rest.register_status_routes import register_status_routes
 from midrun.rest.reject_invalid_request import reject_invalid_request
 from midrun.rest.reject_refused_command import reject_refused_command
-from midrun.rest.require_artifact_store import require_artifact_store
-from midrun.rest.schemas.checkpoint_in import CheckpointIn
 from midrun.rest.schemas.command_in import CommandIn
-from midrun.rest.schemas.debug_capture_in import DebugCaptureIn
-from midrun.rest.schemas.hold_in import HoldIn
-from midrun.rest.schemas.snapshot_in import SnapshotIn
 from midrun.rest.trusted_hosts import trusted_hosts
-from midrun.rest.virtual_dir_page import virtual_dir_page
-from midrun.rest.wait_for_command import wait_for_command
-from midrun.runtime import inspectors_registry
 from midrun.runtime.command_args.validate_command_args import InvalidCommandError
-from midrun.runtime.command_specs.allowed_during_exception import (
-    ALLOWED_DURING_EXCEPTION,
-)
-from midrun.runtime.command_specs.allowed_during_hold import ALLOWED_DURING_HOLD
 from midrun.runtime.command_specs.needs_batch import NEEDS_BATCH
-from midrun.runtime.command_specs.runnable_kinds import runnable_kinds
-from midrun.runtime.commands.parse_when import parse_when
-from midrun.runtime.events import SafePoint
 from midrun.runtime.commands.refused_command_error import RefusedCommandError
-from midrun.runtime.cuda_memory.cheap_cuda_memory_stats import (
-    cheap_cuda_memory_stats,
-)
-from midrun.runtime.cuda_memory.dump_cuda_memory_snapshot import (
-    dump_cuda_memory_snapshot,
-)
-from midrun.runtime.cuda_memory.set_cuda_memory_history import (
-    set_cuda_memory_history,
-)
-from midrun.runtime.state.host_snapshot import host_snapshot
-from midrun.runtime.virtual_fs.is_virtual_dir import is_virtual_dir
-from midrun.runtime.virtual_fs.list_virtual_dir import list_virtual_dir
-from midrun.runtime.virtual_fs.virtual_file_content import virtual_file_content
+from midrun.runtime.events import SafePoint
+from midrun.runtime.runtime import MidrunRuntime
 
 _STATIC_DIR = Path(__file__).parent / "static"
-_MEDIA_TYPES = {".json": "application/json"}
-
-if TYPE_CHECKING:
-    from midrun.runtime.runtime import MidrunRuntime
 
 
-def build_app(runtime: "MidrunRuntime") -> FastAPI:
+def build_app(runtime: MidrunRuntime) -> FastAPI:
     """Builds the REST app bound to one `MidrunRuntime` instance."""
     app = FastAPI(
         title="midrun",
@@ -102,40 +72,41 @@ def build_app(runtime: "MidrunRuntime") -> FastAPI:
 
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
+        """Serves the bundled control interface."""
         return FileResponse(_STATIC_DIR / "index.html")
 
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
     if runtime.artifacts is not None:
-        app.mount(
-            "/artifact-files",
-            AttachmentStaticFiles(directory=str(runtime.artifact_store.root)),
-            name="artifact-files",
-        )
+        for category in ("checkpoints", "snapshots", "debug"):
+            app.mount(
+                f"/artifact-files/{category}",
+                AttachmentStaticFiles(
+                    directory=str(runtime.artifact_store.root / category)
+                ),
+                name=f"artifact-files-{category}",
+            )
 
-    @app.get("/health")
-    def health() -> dict[str, Any]:
-        return {"status": "ok", "run_id": runtime.run_id}
+    register_status_routes(app, runtime)
+    _register_command_routes(app, runtime)
+    register_hold_routes(app, runtime)
+    register_artifact_routes(app, runtime)
+    register_debug_routes(app, runtime)
+    register_file_routes(app, runtime)
 
-    @app.get("/run")
-    def get_run() -> dict[str, Any]:
-        return asdict(host_snapshot(runtime.state.read()))
+    return app
 
-    @app.get("/metrics")
-    def get_metrics() -> dict[str, Any]:
-        metrics = host_snapshot(runtime.state.read()).metrics
-        return {key: asdict(metric) for key, metric in metrics.items()}
 
-    @app.get("/optimizers")
-    def get_optimizers() -> dict[str, Any]:
-        learning_rates = host_snapshot(runtime.state.read()).learning_rates
-        return {"learning_rates": list(learning_rates)}
+def _register_command_routes(app: FastAPI, runtime: MidrunRuntime) -> None:
+    """Register command submission and inspection endpoints."""
 
     @app.get("/commands")
     def list_commands() -> list[dict[str, Any]]:
+        """Lists commands in queue order."""
         return [command_dict(command) for command in runtime.command_queue.list_all()]
 
     @app.get("/commands/{command_id}")
     def get_command(command_id: str) -> dict[str, Any]:
+        """Returns one command by ID."""
         command = runtime.command_queue.get(command_id)
         if command is None:
             raise HTTPException(status_code=404, detail="unknown command id")
@@ -143,6 +114,7 @@ def build_app(runtime: "MidrunRuntime") -> FastAPI:
 
     @app.post("/commands")
     def submit_command(body: CommandIn) -> dict[str, Any]:
+        """Validates and enqueues a runtime command."""
         if body.kind == "release_exception" and runtime.state.read().exception is None:
             raise HTTPException(status_code=409, detail="no exception hold is active")
         when = parse_when_or_422(body.execution.when, loc=("body", "execution", "when"))
@@ -160,237 +132,3 @@ def build_app(runtime: "MidrunRuntime") -> FastAPI:
         command = runtime.command_queue.submit(body.kind, body.args, when)
         runtime.gate.notify()
         return command_dict(command)
-
-    @app.get("/holds")
-    def list_holds() -> dict[str, Any]:
-        commands = runtime.command_queue.list_all()
-        active = runtime.gate.active_hold()
-        exception = runtime.state.read().exception
-        # A hold runs only some kinds, and no batch command while no batch is in
-        # flight; the other queued commands wait.
-        # While an exception is held, the training thread runs only the exception
-        # hold loop, so that loop's policy applies.
-        allowed: frozenset[str] | None = None
-        if exception is not None:
-            allowed = ALLOWED_DURING_EXCEPTION
-        elif active is not None:
-            allowed = ALLOWED_DURING_HOLD
-        if allowed is not None:
-            allowed = runnable_kinds(allowed, runtime.current_step.batch is not None)
-        return {
-            "holds": [command_dict(c) for c in commands if c.kind == "hold"],
-            "active": asdict(active) if active else None,
-            "exception": asdict(exception) if exception else None,
-            "waiting": [
-                command_dict(c)
-                for c in commands
-                if allowed is not None
-                and c.kind != "hold"
-                and c.kind not in allowed
-                and c.status == "queued"
-            ],
-        }
-
-    # Async, so a request that waits for its hold uses no worker thread.
-    @app.post("/holds", response_model=None)
-    async def arm_hold(body: HoldIn) -> dict[str, Any] | JSONResponse:
-        when = parse_when_or_422(body.when)
-        command = runtime.command_queue.submit("hold", {"reason": body.reason}, when)
-        runtime.gate.notify()
-        command = await wait_for_command(runtime, command.id, timeout_s=body.timeout_s)
-        if command.status == "queued":
-            return JSONResponse(status_code=202, content=command_dict(command))
-        return command_dict(command)
-
-    @app.post("/holds/{command_id}/cancel")
-    def cancel_hold(command_id: str) -> dict[str, Any]:
-        command = runtime.command_queue.get(command_id)
-        if (
-            command is None
-            or command.kind != "hold"
-            or not runtime.command_queue.cancel(command_id)
-        ):
-            raise HTTPException(
-                status_code=404,
-                detail="hold not cancellable (unknown id, not a hold, or already resolved)",
-            )
-        return {"cancelled": command_id}
-
-    @app.post("/holds/{command_id}/release")
-    def release_hold(command_id: str) -> dict[str, Any]:
-        active = runtime.gate.active_hold()
-        if active is None or command_id not in (active.command_id, *active.joined_ids):
-            raise HTTPException(status_code=404, detail="no active hold with that id")
-        runtime.gate.release()
-        return {"released": command_id}
-
-    @app.post("/control/pause")
-    def control_pause() -> dict[str, Any]:
-        # A repeated pause queues nothing, so one continue always resumes the run.
-        active = runtime.gate.active_hold()
-        if active is not None:
-            return {"hold_id": active.command_id, "queued": False}
-        command, queued = runtime.command_queue.submit_once(
-            "hold", {"reason": "control/pause"}, parse_when("now")
-        )
-        runtime.gate.notify()
-        return {"hold_id": command.id, "queued": queued}
-
-    @app.post("/control/continue")
-    def control_continue() -> dict[str, Any]:
-        # Cancels a pause that is not due yet before the release, so it cannot hold
-        # the run at the next safe point. Holds from /holds stay queued.
-        cancelled = [
-            command.id
-            for command in runtime.command_queue.list_all()
-            if (command.kind, command.args, command.when)
-            == ("hold", {"reason": "control/pause"}, parse_when("now"))
-            and runtime.command_queue.cancel(command.id)
-        ]
-        return {"released": runtime.gate.release(), "cancelled_holds": cancelled}
-
-    @app.post("/control/stop")
-    def control_stop() -> dict[str, Any]:
-        command = runtime.command_queue.submit("stop", {}, parse_when("now"))
-        runtime.gate.notify()
-        return command_dict(command)
-
-    @app.post("/checkpoints")
-    def create_checkpoint(body: CheckpointIn) -> dict[str, Any]:
-        when = parse_when_or_422(body.when)
-        command = runtime.command_queue.submit(
-            "checkpoint", {"label": body.label}, when
-        )
-        runtime.gate.notify()
-        return command_dict(command)
-
-    @app.get("/checkpoints")
-    def list_checkpoints() -> dict[str, Any]:
-        """Lists the saved checkpoints with their download URLs."""
-        root = require_artifact_store(runtime.artifacts).root
-        return {"checkpoints": checkpoint_entries(root / "checkpoints")}
-
-    @app.post("/snapshots")
-    def create_snapshot(body: SnapshotIn) -> dict[str, Any]:
-        when = parse_when_or_422(body.when)
-        command = runtime.command_queue.submit("snapshot", {"kind": body.kind}, when)
-        runtime.gate.notify()
-        return command_dict(command)
-
-    @app.get("/artifacts")
-    def list_artifacts() -> dict[str, Any]:
-        root = require_artifact_store(runtime.artifacts).root
-        # An operator can delete a store directory while the run continues.
-        return {
-            subdir: sorted(entry.name for entry in (root / subdir).glob(pattern))
-            if (root / subdir).is_dir()
-            else []
-            for subdir, pattern in (
-                ("checkpoints", "*.ckpt"),
-                ("snapshots", "*"),
-                ("debug", "*"),
-            )
-        }
-
-    @app.get("/artifacts/{artifact_id}")
-    def get_artifact(artifact_id: str) -> dict[str, Any]:
-        root = require_artifact_store(runtime.artifacts).root
-        for subdir in ("snapshots", "debug"):
-            manifest_path = root / subdir / artifact_id / "manifest.json"
-            if manifest_path.exists():
-                manifest: dict[str, Any] = json.loads(manifest_path.read_text())
-                manifest["files_url"] = f"/artifact-files/{subdir}/{artifact_id}"
-                return manifest
-        raise HTTPException(status_code=404, detail="unknown artifact id")
-
-    @app.post("/debug/captures")
-    def create_debug_capture(body: DebugCaptureIn) -> dict[str, Any]:
-        store = require_artifact_store(runtime.artifacts)
-        try:
-            return store.write_debug_capture(body.kind, body.files, body.metadata)
-        except ValueError as exc:
-            raise argument_error(("body", "files"), str(exc)) from exc
-
-    @app.get("/debug/pytorch/status")
-    def debug_pytorch_status() -> dict[str, Any]:
-        return {
-            "enabled": runtime.torch_debug.started,
-            "url": runtime.state.read().torch_debug_url,
-        }
-
-    @app.get("/debug/cuda-memory/snapshot")
-    def cuda_memory_snapshot() -> dict[str, Any]:
-        store = require_artifact_store(runtime.artifacts)
-        try:
-            snapshot_bytes = dump_cuda_memory_snapshot()
-        except RuntimeError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        stats = cheap_cuda_memory_stats(runtime.rank_info.device)
-        manifest = store.write_debug_capture(
-            "cuda-memory",
-            {
-                "snapshot.pickle": snapshot_bytes,
-                "summary.json": json.dumps(stats, indent=2),
-            },
-        )
-        manifest["files_url"] = f"/artifact-files/debug/{manifest['id']}"
-        return manifest
-
-    @app.get("/debug/cuda-memory/history")
-    def cuda_memory_history(
-        enabled: bool, max_entries: Annotated[int | None, Query(ge=1)] = None
-    ) -> dict[str, Any]:
-        try:
-            state = set_cuda_memory_history(enabled, max_entries)
-        except RuntimeError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        runtime.cuda_memory_history = state
-        return asdict(state)
-
-    @app.get("/telemetry/pipeline")
-    def telemetry_pipeline() -> dict[str, Any]:
-        latest = runtime.pipeline.latest()
-        return {
-            "latest": asdict(latest) if latest else None,
-            "summary": runtime.pipeline.summary(),
-        }
-
-    @app.get("/inspectors")
-    def get_inspectors() -> dict[str, Any]:
-        return inspectors_registry.availability_snapshot()
-
-    @app.get("/files/{path:path}")
-    def get_file(path: str, request: Request) -> Response:
-        virtual_path = "/" + path
-        if is_virtual_dir(runtime, virtual_path):
-            shown = virtual_path.rstrip("/") or "/"
-            entries = list_virtual_dir(runtime, virtual_path)
-            # A browser gets a page of links; curl and scripts get JSON.
-            if prefers_html(request.headers.get("accept", "")):
-                children = [
-                    (name, is_virtual_dir(runtime, f"{shown.rstrip('/')}/{name}"))
-                    for name in entries
-                ]
-                return HTMLResponse(
-                    virtual_dir_page(shown, children),
-                    headers={
-                        "Vary": "Accept",
-                        "Content-Security-Policy": "default-src 'none'",
-                    },
-                )
-            return JSONResponse(
-                {"path": shown, "entries": entries}, headers={"Vary": "Accept"}
-            )
-        try:
-            content = virtual_file_content(runtime, virtual_path)
-        except TimeoutError as exc:
-            raise HTTPException(status_code=504, detail=str(exc)) from exc
-        except Exception as exc:
-            logger.warning("midrun GET /files{} failed: {}", virtual_path, exc)
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
-        if content is None:
-            raise HTTPException(status_code=404, detail="unknown virtual path")
-        media_type = _MEDIA_TYPES.get(Path(virtual_path).suffix, "text/plain")
-        return Response(content=content, media_type=media_type)
-
-    return app

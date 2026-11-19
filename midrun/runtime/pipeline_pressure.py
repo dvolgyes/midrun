@@ -6,6 +6,7 @@ level (input gap, forward+loss, backward, post-backward), built from a handful o
 separate concern of retaining a batch/loss/exception across hook boundaries.
 """
 
+import math
 import statistics
 from collections import deque
 from dataclasses import dataclass
@@ -16,19 +17,19 @@ from typing import Any
 class PipelinePressureSample:
     """One batch's phase timing breakdown, in nanoseconds.
 
-    Attributes:
-        epoch: Epoch this batch belonged to.
-        global_step: Global step at batch end.
-        batch_idx: Batch index within the epoch.
-        input_gap_ns: Time between the previous batch's end and this batch's start --
-            some mix of DataLoader wait, batch transfer, and framework overhead; not
-            proven to be pure DataLoader time. `None` for the first batch.
-        forward_loss_ns: Time from batch start to just before backward -- training_step,
-            forward, and loss construction. `None` if backward never started.
-        backward_ns: Time spent inside `backward()`. `None` if backward never finished.
-        post_backward_ns: Time from after backward to batch end -- gradient handling,
-            optimizer work, bookkeeping. `None` if backward never finished.
-        batch_total_ns: Time from batch start to batch end.
+    :ivar epoch: Epoch this batch belonged to.
+    :ivar global_step: Global step after this batch completed; it can remain unchanged
+        across batches when gradient accumulation is enabled.
+    :ivar batch_idx: Batch index within the epoch.
+    :ivar input_gap_ns: Time between the previous batch's end and this batch's start --
+        some mix of DataLoader wait, batch transfer, and framework overhead; not
+        proven to be pure DataLoader time. `None` for the first batch.
+    :ivar forward_loss_ns: Time from batch start to just before backward -- training_step,
+        forward, and loss construction. `None` if backward never started.
+    :ivar backward_ns: Time spent inside `backward()`. `None` if backward never finished.
+    :ivar post_backward_ns: Time from after backward to batch end -- gradient handling,
+        optimizer work, bookkeeping. `None` if backward never finished.
+    :ivar batch_total_ns: Time from batch start to batch end.
     """
 
     epoch: int
@@ -41,73 +42,91 @@ class PipelinePressureSample:
     batch_total_ns: int | None
 
 
+@dataclass
+class _BatchState:
+    """Timestamps and identity for the batch currently being measured.
+
+    :ivar batch_start_ns: Timestamp of the current batch's start.
+    :ivar before_backward_ns: Most recent backward start within this batch.
+    :ivar after_backward_ns: Most recent backward end within this batch.
+    :ivar previous_batch_end_ns: End of the last completed batch, across epochs.
+    :ivar epoch: Current epoch.
+    :ivar batch_idx: Index within the current epoch.
+    """
+
+    batch_start_ns: int | None = None
+    before_backward_ns: int | None = None
+    after_backward_ns: int | None = None
+    previous_batch_end_ns: int | None = None
+    epoch: int = 0
+    batch_idx: int = 0
+
+
 class PipelinePressureTracker:
     """Records per-batch phase timestamps and keeps a rolling window of samples.
 
-    Attributes:
-        window: Maximum number of samples retained.
+    :ivar window: Configured window length.
+    :ivar _samples: Most recent completed batches, oldest first.
+    :ivar _batch: Mutable timing state reused across batches.
     """
+
+    window: int
+    _samples: deque[PipelinePressureSample]
+    _batch: _BatchState
 
     def __init__(self, window: int) -> None:
         self.window = window
-        self._samples: deque[PipelinePressureSample] = deque(maxlen=window)
-        self._batch_start_ns: int | None = None
-        self._before_backward_ns: int | None = None
-        self._after_backward_ns: int | None = None
-        self._prev_batch_end_ns: int | None = None
-        self._epoch = 0
-        self._global_step = 0
-        self._batch_idx = 0
+        self._samples = deque(maxlen=window)
+        self._batch = _BatchState()
 
-    def batch_start(
-        self, now_ns: int, epoch: int, global_step: int, batch_idx: int
-    ) -> None:
+    def batch_start(self, now_ns: int, epoch: int, batch_idx: int) -> None:
         """Records the start of a new batch. Call from `on_train_batch_start`."""
-        self._batch_start_ns = now_ns
-        self._before_backward_ns = None
-        self._after_backward_ns = None
-        self._epoch = epoch
-        self._global_step = global_step
-        self._batch_idx = batch_idx
+        self._batch.batch_start_ns = now_ns
+        self._batch.before_backward_ns = None
+        self._batch.after_backward_ns = None
+        self._batch.epoch = epoch
+        self._batch.batch_idx = batch_idx
 
     def before_backward(self, now_ns: int) -> None:
         """Records the point just before `backward()`. Call from `on_before_backward`."""
-        self._before_backward_ns = now_ns
+        self._batch.before_backward_ns = now_ns
 
     def after_backward(self, now_ns: int) -> None:
         """Records the point just after `backward()`. Call from `on_after_backward`."""
-        self._after_backward_ns = now_ns
+        self._batch.after_backward_ns = now_ns
 
-    def batch_end(self, now_ns: int) -> PipelinePressureSample:
-        """Finalizes the current batch's sample and appends it to the rolling window."""
+    def batch_end(self, now_ns: int, global_step: int) -> PipelinePressureSample:
+        """Finalizes a batch using the global step observed at batch end."""
+        batch = self._batch
         input_gap_ns = (
-            self._batch_start_ns - self._prev_batch_end_ns
-            if self._batch_start_ns is not None and self._prev_batch_end_ns is not None
+            batch.batch_start_ns - batch.previous_batch_end_ns
+            if batch.batch_start_ns is not None
+            and batch.previous_batch_end_ns is not None
             else None
         )
         forward_loss_ns = (
-            self._before_backward_ns - self._batch_start_ns
-            if self._before_backward_ns is not None and self._batch_start_ns is not None
+            batch.before_backward_ns - batch.batch_start_ns
+            if batch.before_backward_ns is not None and batch.batch_start_ns is not None
             else None
         )
         backward_ns = (
-            self._after_backward_ns - self._before_backward_ns
-            if self._after_backward_ns is not None
-            and self._before_backward_ns is not None
+            batch.after_backward_ns - batch.before_backward_ns
+            if batch.after_backward_ns is not None
+            and batch.before_backward_ns is not None
             else None
         )
         post_backward_ns = (
-            now_ns - self._after_backward_ns
-            if self._after_backward_ns is not None
+            now_ns - batch.after_backward_ns
+            if batch.after_backward_ns is not None
             else None
         )
         batch_total_ns = (
-            now_ns - self._batch_start_ns if self._batch_start_ns is not None else None
+            now_ns - batch.batch_start_ns if batch.batch_start_ns is not None else None
         )
         sample = PipelinePressureSample(
-            epoch=self._epoch,
-            global_step=self._global_step,
-            batch_idx=self._batch_idx,
+            epoch=batch.epoch,
+            batch_idx=batch.batch_idx,
+            global_step=global_step,
             input_gap_ns=input_gap_ns,
             forward_loss_ns=forward_loss_ns,
             backward_ns=backward_ns,
@@ -115,7 +134,7 @@ class PipelinePressureTracker:
             batch_total_ns=batch_total_ns,
         )
         self._samples.append(sample)
-        self._prev_batch_end_ns = now_ns
+        batch.previous_batch_end_ns = now_ns
         return sample
 
     def latest(self) -> PipelinePressureSample | None:
@@ -128,6 +147,7 @@ class PipelinePressureTracker:
         if not samples:
             return {"window": self.window, "samples": 0}
         totals = [s.batch_total_ns for s in samples if s.batch_total_ns is not None]
+        mean_batch = statistics.mean(totals) if totals else 0
         phase_stats: dict[str, Any] = {}
         for phase in (
             "input_gap_ns",
@@ -144,8 +164,8 @@ class PipelinePressureTracker:
                 "p50_ms": _percentile(values, 0.50) / 1e6,
                 "p95_ms": _percentile(values, 0.95) / 1e6,
                 "max_ms": max(values) / 1e6,
-                "fraction": (statistics.mean(values) / statistics.mean(totals))
-                if totals
+                "mean_to_batch_ratio": statistics.mean(values) / mean_batch
+                if mean_batch
                 else None,
             }
         largest_phase = (
@@ -171,7 +191,6 @@ class PipelinePressureTracker:
 
 
 def _percentile(values: list[int], fraction: float) -> float:
-    """Nearest-rank percentile over `values`; not interpolated, fine for a rolling summary."""
+    """Nearest-rank percentile over `values`; not interpolated."""
     ordered = sorted(values)
-    index = min(int(fraction * len(ordered)), len(ordered) - 1)
-    return float(ordered[index])
+    return float(ordered[math.ceil(fraction * len(ordered)) - 1])

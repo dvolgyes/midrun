@@ -36,7 +36,13 @@ class ProfilerRun:
         level: One of `basic`, `shapes`, `memory`, `full` (see `_LEVEL_KWARGS`).
         then_hold: Whether to enter a cooperative hold once this run finalizes.
         steps_done: Number of `step()` calls made so far, the first included.
+
+    :ivar _stopped: Whether the underlying profiler has stopped.
+    :ivar _pending_export: Trace and metadata retained until the artifact write succeeds.
     """
+
+    _stopped: bool
+    _pending_export: tuple[dict[str, str | bytes], dict[str, Any]] | None
 
     def __init__(
         self,
@@ -59,6 +65,8 @@ class ProfilerRun:
         self.then_hold = then_hold
         self.steps_done = 0
         self._prof: Any = None
+        self._stopped = False
+        self._pending_export = None
 
     def start(self, device: str) -> None:
         """Builds and starts the underlying `torch.profiler.profile`.
@@ -77,6 +85,17 @@ class ProfilerRun:
             activities=activities, schedule=sched, **_LEVEL_KWARGS[self.level]
         )
         self._prof.start()
+        self._stopped = False
+        self._pending_export = None
+
+    @property
+    def _recording_complete(self) -> bool:
+        return self.steps_done > self.warmup_steps + self.active_steps
+
+    @property
+    def pending_publication(self) -> bool:
+        """Whether an exported trace is available for a write or retry."""
+        return self._pending_export is not None
 
     def step(self) -> bool:
         """Advances the profiler at the end of a batch.
@@ -87,17 +106,21 @@ class ProfilerRun:
         Returns:
             True once `warmup_steps + active_steps` full batches have been stepped.
         """
+        if self._recording_complete:
+            return True
         try:
             self._prof.step()
         except Exception:
             self.stop()
             raise
         self.steps_done += 1
-        return self.steps_done > self.warmup_steps + self.active_steps
+        return self._recording_complete
 
     def stop(self) -> None:
         """Stops the profiler without exporting anything."""
-        self._prof.stop()
+        if not self._stopped:
+            self._prof.stop()
+            self._stopped = True
 
     def save(self, artifact_store: ArtifactStore) -> None:
         """Stops the profiler and saves what it recorded as a `profiler` debug capture.
@@ -120,10 +143,13 @@ class ProfilerRun:
         recorded_steps = self.steps_done - 1 - self.warmup_steps
         if recorded_steps < self.active_steps:
             metadata |= {"truncated": True, "recorded_steps": recorded_steps}
-        files, finalize_metadata = self.finalize()
+        if self._pending_export is None:
+            self._pending_export = self.finalize()
+        files, finalize_metadata = self._pending_export
         artifact_store.write_debug_capture(
             "profiler", files, metadata | finalize_metadata
         )
+        self._pending_export = None
 
     def finalize(self) -> tuple[dict[str, str | bytes], dict[str, Any]]:
         """Stops the profiler and returns its exported artifact contents.
@@ -135,7 +161,7 @@ class ProfilerRun:
             `{"trace.json": <chrome trace bytes>, "summary.txt": <key-averages text>}`,
             and the metadata to add to the capture's own.
         """
-        self._prof.stop()
+        self.stop()
         with tempfile.TemporaryDirectory() as tmp_dir:
             trace_path = Path(tmp_dir) / "trace.json"
             self._prof.export_chrome_trace(str(trace_path))
@@ -151,7 +177,9 @@ class ProfilerRun:
 
     def phase_state(self) -> dict[str, Any]:
         """Live progress, for FUSE/status reporting."""
-        if self.steps_done == 0:
+        if self._recording_complete or self.pending_publication:
+            phase = "pending_publication"
+        elif self.steps_done == 0:
             phase = "waiting"
         elif self.steps_done <= self.warmup_steps:
             phase = "warmup"

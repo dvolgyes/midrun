@@ -209,18 +209,16 @@ class TorchDebugManager:
             return
         from torch.distributed import debug as torch_debug
 
-        try:
-            if self._selected_port is not None:
-                torch_debug.stop_debug_server()
-            else:
-                # stop_debug_server() asserts that this process has the frontend, which
-                # only rank 0 has, so the other ranks stop their worker server directly.
-                # pylint: disable=protected-access
-                worker_server = torch_debug._WORKER_SERVER
-                if worker_server is not None:
-                    worker_server.shutdown()
-                    torch_debug._WORKER_SERVER = None
-                # pylint: enable=protected-access
-        finally:
-            self._started = False
-            self._selected_port = None
+        if self._selected_port is not None:
+            torch_debug.stop_debug_server()
+        else:
+            # stop_debug_server() asserts that this process has the frontend, which
+            # only rank 0 has, so the other ranks stop their worker server directly.
+            # pylint: disable=protected-access
+            worker_server = torch_debug._WORKER_SERVER
+            if worker_server is not None:
+                worker_server.shutdown()
+                torch_debug._WORKER_SERVER = None
+            # pylint: enable=protected-access
+        self._started = False
+        self._selected_port = None

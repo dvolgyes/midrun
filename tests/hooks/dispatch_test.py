@@ -4,6 +4,7 @@ import errno
 import json
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy
 import pytest
@@ -12,7 +13,9 @@ from loguru import logger
 
 from midrun.hooks.dispatch_heavy import dispatch_heavy
 from midrun.hooks.dispatch_light import dispatch_light
+from midrun.hooks.hook_process import HookProcess
 from midrun.hooks.manager.bootstrap_hooks_tree import bootstrap_hooks_tree
+from midrun.hooks.payload.hook_capture_limits import HookCaptureLimits
 from midrun.hooks.payload.occurrence_context import OccurrenceContext
 
 _SHELL = Path(shutil.which("bash"))
@@ -67,21 +70,34 @@ def _make_heavy_script(
     script.chmod(0o755 if executable else 0o644)
 
 
-def _dispatch(live_dir, tmp_root, context, *, arguments=None, log=None):
+def _dispatch(
+    live_dir,
+    tmp_root,
+    context,
+    *,
+    arguments=None,
+    log=None,
+    max_params_bytes=256 * 1024,
+):
     return dispatch_light(
         live_dir,
         context,
         arguments or {},
         occurrence_id="occ-1",
-        shell=_SHELL,
-        setpriv=_SETPRIV,
-        timeout_s=5.0,
-        max_params_bytes=256 * 1024,
-        max_metadata_items=1000,
-        max_metadata_depth=8,
-        max_output_bytes=64 * 1024,
+        process=HookProcess(
+            shell=_SHELL,
+            setpriv=_SETPRIV,
+            timeout_s=5.0,
+            max_output_bytes=64 * 1024,
+            log=log or _FakeLog(),
+        ),
+        limits=HookCaptureLimits(
+            max_params_bytes=max_params_bytes,
+            max_metadata_items=1000,
+            max_metadata_depth=8,
+            max_export_bytes=1024**3,
+        ),
         tmp_root=tmp_root,
-        log=log or _FakeLog(),
     )
 
 
@@ -95,6 +111,8 @@ def _dispatch_heavy(
     *,
     log=None,
     max_export_bytes=1024**3,
+    max_metadata_items=1000,
+    max_metadata_depth=8,
 ):
     return dispatch_heavy(
         live_dir,
@@ -102,15 +120,20 @@ def _dispatch_heavy(
         occurrence_id,
         arguments,
         tensor_arg_names,
-        shell=_SHELL,
-        setpriv=_SETPRIV,
-        timeout_s=5.0,
-        max_metadata_items=1000,
-        max_metadata_depth=8,
-        max_export_bytes=max_export_bytes,
-        max_output_bytes=64 * 1024,
+        process=HookProcess(
+            shell=_SHELL,
+            setpriv=_SETPRIV,
+            timeout_s=5.0,
+            max_output_bytes=64 * 1024,
+            log=log or _FakeLog(),
+        ),
+        limits=HookCaptureLimits(
+            max_metadata_items=max_metadata_items,
+            max_metadata_depth=max_metadata_depth,
+            max_export_bytes=max_export_bytes,
+            max_params_bytes=256 * 1024,
+        ),
         tmp_root=tmp_root,
-        log=log or _FakeLog(),
     )
 
 
@@ -554,3 +577,95 @@ def test_heavy_manifest_describes_non_finite_floats_as_standard_json(tmp_path) -
     assert result is not None
     manifest = json.loads(result.stdout_tail, parse_constant=_reject_constant)
     assert manifest["arguments"] == {"batch": _NON_FINITE_DESCRIBED}
+
+
+def test_light_script_observes_exact_byte_boundaries(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "midrun.hooks.payload.invocation_header.time",
+        SimpleNamespace(time=lambda: 1.0),
+    )
+    live_dir = tmp_path / "hooks"
+    captured = tmp_path / "captured.json"
+    context = _context()
+    _make_light_script(live_dir, context.hook, f'cp "$1" "{captured}"')
+    batch = {"batch": "é" * 150}
+
+    def dispatch(cap):
+        return _dispatch(
+            live_dir,
+            tmp_path / "tmp-root",
+            context,
+            arguments=batch,
+            max_params_bytes=cap,
+        )
+
+    assert dispatch(65536).exit_code == 0
+    full = captured.stat().st_size
+    assert dispatch(full).exit_code == 0
+    assert json.loads(captured.read_bytes())["arguments"] == batch
+    assert dispatch(full - 1).exit_code == 0
+    envelope = captured.stat().st_size
+    assert dispatch(envelope).exit_code == 0
+    assert captured.stat().st_size == envelope
+    assert json.loads(captured.read_bytes())["arguments"] is None
+    captured.unlink()
+    assert dispatch(envelope - 1).phase == "capture_failed"
+    assert not captured.exists()
+
+
+@pytest.mark.parametrize("max_params_bytes", [1, 65536])
+def test_light_capture_failure_preserves_other_invocation(
+    tmp_path, monkeypatch, max_params_bytes
+) -> None:
+    live_dir = tmp_path / "hooks"
+    context = _context()
+    _make_light_script(live_dir, context.hook, "exit 0")
+    existing = tmp_path / "tmp" / "collision" / "params.json"
+    existing.parent.mkdir(parents=True)
+    existing.write_text("other invocation")
+    monkeypatch.setattr("midrun.hooks.dispatch_light.new_hook_id", lambda: "collision")
+    result = _dispatch(
+        live_dir, tmp_path / "tmp", context, max_params_bytes=max_params_bytes
+    )
+    assert result.phase == "capture_failed"
+    assert existing.read_text() == "other invocation"
+
+
+def test_light_script_receives_ragged_tensor_metadata(tmp_path) -> None:
+    live_dir = tmp_path / "hooks"
+    context = _context()
+    _make_light_script(live_dir, context.hook, 'cat "$1"')
+    tensor = torch.nested.nested_tensor([torch.zeros(2), torch.zeros(3)])
+    result = _dispatch(live_dir, tmp_path / "tmp", context, arguments={"batch": tensor})
+    record = json.loads(result.stdout_tail)["arguments"]["batch"]
+    assert record["kind"] == "tensor"
+    assert record["shape"] is None
+    assert record["dtype"] == str(tensor.dtype)
+
+
+@pytest.mark.parametrize(
+    "items,depth,reason", [(1, 8, "max_items"), (10, 1, "max_depth")]
+)
+def test_heavy_script_can_identify_partial_tensor_export(
+    tmp_path, items, depth, reason
+):
+    live_dir = tmp_path / "hooks"
+    context = _context()
+    _make_heavy_script(live_dir, context.hook, 'cat "$1"')
+    tensor = torch.zeros(2)
+    result = _dispatch_heavy(
+        live_dir,
+        tmp_path / "tmp",
+        context,
+        "occ",
+        {"batch": [tensor, [tensor]]},
+        ("batch",),
+        max_metadata_items=items,
+        max_metadata_depth=depth,
+    )
+    manifest = json.loads(result.stdout_tail)
+    assert manifest["tensor_capture_partial"] is True
+    assert reason in manifest["truncated_reason"]
+    assert [record["argument_path"] for record in manifest["tensor_records"]] == [
+        "batch/0"
+    ]

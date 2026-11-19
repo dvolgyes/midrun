@@ -225,21 +225,26 @@ def test_a_new_run_accepts_holds_after_a_stopped_run(tmp_path) -> None:
         TensorDataset(torch.randn(64, 4), torch.randn(64, 1)), batch_size=4
     )
 
-    def fit(max_epochs: int) -> None:
-        PL.Trainer(
-            default_root_dir=str(tmp_path),
-            max_epochs=max_epochs,
-            enable_progress_bar=False,
-            logger=False,
-            enable_checkpointing=False,
-            accelerator="cpu",
-        ).fit(model, loader)
-
-    client.post("/control/stop")
-    fit(max_epochs=1000)
+    stop = client.post("/control/stop").json()
+    PL.Trainer(
+        default_root_dir=str(tmp_path),
+        max_epochs=1000,
+        enable_progress_bar=False,
+        logger=False,
+        enable_checkpointing=False,
+        accelerator="cpu",
+    ).fit(model, loader)
+    assert client.get(f"/commands/{stop['id']}").json()["status"] == "succeeded"
     assert client.post("/control/pause").status_code == 409
-    fit(max_epochs=1)
 
-    response = client.post("/control/pause")
-    assert response.status_code == 200, response.text
-    assert response.json()["queued"] is True
+    def pause_then_continue(live_client: TestClient) -> None:
+        response = live_client.post("/control/pause")
+        assert response.status_code == 200, response.text
+        assert response.json()["queued"] is True
+        assert _wait_until(model.midrun.gate.is_held)
+        step = model.trainer.global_step
+        assert live_client.post("/control/continue").json()["released"] is True
+        assert _wait_until(lambda: model.trainer.global_step > step)
+
+    _fit_while(model, pause_then_continue, tmp_path)
+    assert client.post("/control/pause").status_code == 409

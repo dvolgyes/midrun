@@ -10,7 +10,10 @@ import pytest
 import torch
 from loguru import logger
 
+from midrun.hooks.hook_process import HookProcess
+from midrun.hooks.hook_rank import HookRank
 from midrun.hooks.manager.bootstrap_hooks_tree import bootstrap_hooks_tree
+from midrun.hooks.payload.hook_capture_limits import HookCaptureLimits
 from midrun.hooks.session import HookSession
 
 _SHELL = Path(shutil.which("bash"))
@@ -45,18 +48,20 @@ def _make_session(
     return HookSession(
         live_dir,
         session_id="s-1",
-        rank=rank,
-        world_size=2,
-        rank_policy=rank_policy,
-        shell=_SHELL,
-        setpriv=setpriv,
-        timeout_s=5.0,
-        max_params_bytes=256 * 1024,
-        max_metadata_items=1000,
-        max_metadata_depth=8,
-        max_export_bytes=1024**3,
-        max_output_bytes=64 * 1024,
-        log=log if log is not None else logger,
+        rank=HookRank(rank=rank, world_size=2, policy=rank_policy),
+        process=HookProcess(
+            shell=_SHELL,
+            setpriv=setpriv,
+            timeout_s=5.0,
+            max_output_bytes=64 * 1024,
+            log=log if log is not None else logger,
+        ),
+        limits=HookCaptureLimits(
+            max_params_bytes=256 * 1024,
+            max_metadata_items=1000,
+            max_metadata_depth=8,
+            max_export_bytes=1024**3,
+        ),
     )
 
 

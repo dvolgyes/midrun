@@ -2,7 +2,8 @@
 
 from dataclasses import replace
 
-from midrun.runtime.state.host_scalar import HostScalar
+from midrun.runtime.state.host_learning_rates import host_learning_rates
+from midrun.runtime.state.host_metrics import host_metrics
 from midrun.runtime.state.runtime_snapshot import RuntimeSnapshot
 
 
@@ -19,11 +20,8 @@ def host_snapshot(snapshot: RuntimeSnapshot) -> RuntimeSnapshot:
     Returns:
         A snapshot whose `metrics` values and `learning_rates` are floats.
     """
-    metrics = {
-        key: replace(metric, value=float(metric.value))
-        if isinstance(metric.value, HostScalar)
-        else metric
-        for key, metric in snapshot.metrics.items()
-    }
-    learning_rates = tuple(float(lr) for lr in snapshot.learning_rates)
-    return replace(snapshot, metrics=metrics, learning_rates=learning_rates)
+    return replace(
+        snapshot,
+        metrics=host_metrics(snapshot.metrics),
+        learning_rates=host_learning_rates(snapshot.learning_rates),
+    )

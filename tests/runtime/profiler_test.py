@@ -6,7 +6,9 @@ import sys
 import threading
 import time
 import warnings
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import lightning.pytorch as PL
 import pytest
@@ -121,6 +123,21 @@ def test_a_failed_summary_still_saves_the_trace_and_records_the_error(
     assert not (capture_dir / "summary.txt").exists()
 
 
+def test_profile_command_rejects_missing_stage_store(tmp_path: Path) -> None:
+    runtime = _make_runtime(tmp_path)
+    runtime.artifacts = None
+    trainer = _FakeTrainer()
+    command = runtime.command_queue.submit("profile", {}, parse_when("now"))
+    execute_command(runtime, _FakePLModule(trainer), trainer, command, safe_point=None)
+    try:
+        assert command.status == "failed"
+        assert "artifact store" in command.error
+        assert runtime.profiler_run is None
+    finally:
+        if runtime.profiler_run is not None:
+            runtime.profiler_run.stop()
+
+
 def test_profile_command_arms_immediately(tmp_path: Path) -> None:
     runtime = _make_runtime(tmp_path)
     trainer = _FakeTrainer()
@@ -187,6 +204,94 @@ def test_finish_train_batch_advances_and_finalizes_profiler(tmp_path: Path) -> N
 
     debug_dirs = list((runtime.artifacts.root / "debug").iterdir())
     assert len(debug_dirs) == 1
+
+
+def test_completed_profile_retries_publication_before_holding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = _make_runtime(tmp_path)
+    trainer = _FakeTrainer()
+    module = _FakePLModule(trainer)
+    store = runtime.artifact_store
+    publish = store.write_debug_capture
+    traces: list[bytes] = []
+    holds: list[list[bytes]] = []
+
+    def fail_once(
+        kind: str, files: Mapping[str, str | bytes], metadata: dict[str, Any]
+    ) -> dict[str, Any]:
+        trace = files["trace.json"]
+        assert isinstance(trace, bytes)
+        traces.append(trace)
+        if len(traces) == 1:
+            raise OSError("capture publication unavailable")
+        return publish(kind, files, metadata)
+
+    def release_hold(*_args: object) -> None:
+        assert runtime.gate.is_held()
+        holds.append(
+            [path.read_bytes() for path in store.root.glob("debug/*/trace.json")]
+        )
+        runtime.gate.release()
+
+    monkeypatch.setattr(store, "write_debug_capture", fail_once)
+    monkeypatch.setattr(runtime, "_hold_loop", release_hold)
+    cmd = runtime.command_queue.submit(
+        "profile",
+        {"warmup_steps": 0, "active_steps": 1, "then_hold": True},
+        parse_when("now"),
+    )
+    execute_command(runtime, module, trainer, cmd, safe_point=None)
+    run = runtime.profiler_run
+    assert run is not None
+    runtime.finish_train_batch(module)
+    runtime.begin_train_batch(module, batch={}, batch_idx=1)
+    _ = torch.ones(4).cumsum(0)
+    runtime.finish_train_batch(module)
+    assert len(traces) == 1
+    assert not holds
+    assert runtime.profiler_run is run
+    assert run.phase_state()["state"] == "pending_publication"
+
+    runtime.begin_train_batch(module, batch={}, batch_idx=2)
+    runtime.finish_train_batch(module)
+    runtime.begin_train_batch(module, batch={}, batch_idx=3)
+    runtime.finish_train_batch(module)
+    assert runtime.profiler_run is None
+    assert run.steps_done == 2
+    assert len(traces) == 2
+    assert traces[0] == traces[1]
+    assert holds == [[traces[0]]]
+    (capture,) = (store.root / "debug").iterdir()
+    assert "aten::cumsum" in _traced_op_names(capture)
+
+
+def test_failed_trace_export_does_not_block_the_next_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = _make_runtime(tmp_path)
+    trainer = _FakeTrainer()
+    module = _FakePLModule(trainer)
+    args = {"warmup_steps": 0, "active_steps": 1}
+
+    def fail_export(*_args: object) -> None:
+        raise RuntimeError("no trace was produced")
+
+    for fail in (True, False):
+        command = runtime.command_queue.submit("profile", args, parse_when("now"))
+        execute_command(runtime, module, trainer, command, safe_point=None)
+        assert command.status == "succeeded", command.error
+        with monkeypatch.context() as patch:
+            if fail:
+                patch.setattr(
+                    torch.profiler.profile, "export_chrome_trace", fail_export
+                )
+            runtime.finish_train_batch(module)
+            _ = torch.ones(4).cumsum(0)
+            runtime.finish_train_batch(module)
+
+    (capture,) = (runtime.artifact_store.root / "debug").iterdir()
+    assert "aten::cumsum" in _traced_op_names(capture)
 
 
 def test_a_cpu_clock_that_differs_between_cpus_disables_the_profile(
