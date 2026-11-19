@@ -33,9 +33,10 @@ def torchinfo_rich_summary(
     import torchinfo
 
     stats = torchinfo.summary(pl_module, input_data=batch, verbose=0)
-    stats.total_params, stats.trainable_params, stats.total_param_bytes = (
-        parameter_totals(pl_module.parameters())
-    )
+    counts = parameter_totals(pl_module.parameters())
+    stats.total_params = counts.total
+    stats.trainable_params = counts.trainable
+    stats.total_param_bytes = counts.total_bytes
     payload = {
         "total_params": stats.total_params,
         "trainable_params": stats.trainable_params,

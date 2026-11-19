@@ -352,6 +352,10 @@ gets back its training mode.
 
 Model summaries count a shared parameter once, even when multiple layers use it in the same forward pass.
 
+At fit start, `model/summary.json` sets `partial: true` if its counts omit uninitialized parameters.
+
+This static summary does not run a forward pass or change after training initializes those parameters.
+
 Under a strategy that shards the parameters (`FSDPStrategy`, `ModelParallelStrategy`, `DeepSpeedStrategy`), or when a
 parameter is a wrapper tensor such as a `DTensor`, a forward pass on rank 0 alone would wait for collectives that the
 other ranks do not join. In that case the inspectors refuse to run: the command fails with a `refused` error, and a read

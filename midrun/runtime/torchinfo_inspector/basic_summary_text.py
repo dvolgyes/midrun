@@ -22,9 +22,13 @@ def basic_summary_text(pl_module: "LightningModule") -> str:
         return str(pl_module)
     try:
         stats = torchinfo.summary(pl_module, verbose=0)
-        stats.total_params, stats.trainable_params, stats.total_param_bytes = (
-            parameter_totals(pl_module.parameters())
-        )
-        return str(stats)
+        counts = parameter_totals(pl_module.parameters())
+        stats.total_params = counts.total
+        stats.trainable_params = counts.trainable
+        stats.total_param_bytes = counts.total_bytes
+        text = str(stats)
+        if counts.partial:
+            return f"{text}\nParameter counts exclude uninitialized parameters."
+        return text
     except Exception:  # noqa: BLE001 -- best-effort cosmetic summary, never fatal
         return str(pl_module)
