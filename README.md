@@ -485,7 +485,7 @@ description of each option.
 | `hooks_enabled`, `hooks_source_dir`, `hooks_timeout_s`, `hooks_rank_policy` | `True`, `None`, `None`, `"rank_zero"` | Shell hooks; see [docs/hooks.md](docs/hooks.md). |
 | `pipeline_pressure_enabled`, `pipeline_pressure_window` | `True`, `256` | Per-batch phase timing. |
 | `break_on_backward_exception` | `True` | Hold the run when `backward()` raises, so that you can inspect the batch. |
-| `dataloader_finite_check_enabled` | `False` | Check each batch for NaN/Inf (slow). |
+| `dataloader_finite_check_enabled` | `False` | Check each batch for NaN/Inf, including sparse values, without converting sparse tensors to dense (slow). |
 | `optimizer_surgery_enabled` | `True` | Allow `reset_momentum` and per-group learning rates. |
 | `inspection_strict` | `False` | Raise on service or hook setup failures; raise the first shutdown error after attempting all cleanup actions. |
 

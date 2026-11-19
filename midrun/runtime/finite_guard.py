@@ -61,6 +61,10 @@ class DataloaderFiniteGuard:
         failures: Number of batches that failed the check.
     """
 
+    enabled: bool
+    checked_batches: int
+    failures: int
+
     def __init__(self, enabled: bool) -> None:
         self.enabled = enabled
         self.checked_batches = 0
@@ -70,6 +74,7 @@ class DataloaderFiniteGuard:
         """Returns a `FiniteCheckReport` if `batch` contains non-finite values, else `None`.
 
         Counts use the logical values of complex tensors, including conjugate views.
+        Sparse counts exclude implicit zeros and sum entries with duplicate coordinates.
         No-ops (returns `None` without traversing `batch`) when `enabled` is False.
         """
         if not self.enabled:
@@ -77,24 +82,36 @@ class DataloaderFiniteGuard:
         self.checked_batches += 1
         bad: list[BadTensorInfo] = []
         for ref in iter_batch_tensors(batch):
-            if bool(torch.isfinite(ref.tensor).all()):
+            tensor = ref.tensor
+            if tensor.layout == torch.sparse_coo:
+                values = tensor.coalesce().values()
+            elif tensor.layout in (
+                torch.sparse_csr,
+                torch.sparse_csc,
+                torch.sparse_bsr,
+                torch.sparse_bsc,
+            ):
+                values = tensor.values()
+            else:
+                values = tensor
+            if bool(torch.isfinite(values).all()):
                 continue
             # isposinf/isneginf reject complex input, so a complex element counts
             # when either of its components is infinite.
-            if ref.tensor.is_complex():
-                components = torch.view_as_real(ref.tensor.resolve_conj())
+            if values.is_complex():
+                components = torch.view_as_real(values.resolve_conj())
                 posinf = torch.isposinf(components).any(dim=-1)
                 neginf = torch.isneginf(components).any(dim=-1)
             else:
-                posinf = torch.isposinf(ref.tensor)
-                neginf = torch.isneginf(ref.tensor)
+                posinf = torch.isposinf(values)
+                neginf = torch.isneginf(values)
             bad.append(
                 BadTensorInfo(
                     path=ref.path,
-                    shape=tuple(ref.tensor.shape),
-                    dtype=str(ref.tensor.dtype),
-                    device=str(ref.tensor.device),
-                    nan_count=int(torch.isnan(ref.tensor).sum()),
+                    shape=tuple(tensor.shape),
+                    dtype=str(tensor.dtype),
+                    device=str(tensor.device),
+                    nan_count=int(torch.isnan(values).sum()),
                     posinf_count=int(posinf.sum()),
                     neginf_count=int(neginf.sum()),
                 )

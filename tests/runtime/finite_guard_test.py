@@ -135,6 +135,69 @@ def test_check_returns_none_for_finite_batch() -> None:
     assert guard.failures == 0
 
 
+def test_check_sums_duplicate_hybrid_coo_values_before_counting() -> None:
+    guard = DataloaderFiniteGuard(enabled=True)
+    indices = torch.tensor([[1, 1]])
+    shape = (4, 3)
+    finite = torch.sparse_coo_tensor(indices, torch.ones(2, 3), shape)
+    assert guard.check({"x": [finite]}) is None
+
+    largest = torch.finfo(torch.float32).max
+    values = torch.tensor(
+        [
+            [largest, float("inf"), float("-inf")],
+            [largest, float("-inf"), float("-inf")],
+        ],
+        dtype=torch.float32,
+    )
+    sparse = torch.sparse_coo_tensor(indices, values, shape)
+
+    report = guard.check({"x": [sparse]})
+
+    assert report is not None
+    (bad,) = report.bad_tensors
+    assert bad.path == "batch['x'][0]"
+    assert bad.shape == shape
+    assert bad.dtype == str(sparse.dtype)
+    assert bad.device == str(sparse.device)
+    assert (bad.nan_count, bad.posinf_count, bad.neginf_count) == (1, 1, 1)
+
+
+@pytest.mark.parametrize(
+    ("layout", "blocksize"),
+    [
+        (torch.sparse_csr, None),
+        (torch.sparse_csc, None),
+        (torch.sparse_bsr, (2, 2)),
+        (torch.sparse_bsc, (2, 2)),
+    ],
+    ids=["csr", "csc", "bsr", "bsc"],
+)
+def test_check_counts_hybrid_sparse_compressed_values(
+    layout: torch.layout, blocksize: tuple[int, int] | None
+) -> None:
+    guard = DataloaderFiniteGuard(enabled=True)
+    dense = torch.zeros(4, 4, 2)
+    dense[0, 0, 0] = 1
+    finite = dense.to_sparse(layout=layout, blocksize=blocksize, dense_dim=1)
+    assert guard.check({"x": finite}) is None
+
+    dense[0, 0] = torch.tensor([float("nan"), float("inf")])
+    dense[1, 1, 0] = float("inf")
+    dense[2, 2, 1] = float("-inf")
+    sparse = dense.to_sparse(layout=layout, blocksize=blocksize, dense_dim=1)
+
+    report = guard.check({"x": sparse})
+
+    assert report is not None
+    (bad,) = report.bad_tensors
+    assert bad.path == "batch['x']"
+    assert bad.shape == (4, 4, 2)
+    assert bad.dtype == str(sparse.dtype)
+    assert bad.device == str(sparse.device)
+    assert (bad.nan_count, bad.posinf_count, bad.neginf_count) == (1, 2, 1)
+
+
 def test_begin_train_batch_enters_hold_on_bad_batch(tmp_path: Path) -> None:
     runtime = _make_runtime(tmp_path, dataloader_finite_check_enabled=True)
     trainer = _FakeTrainer()
