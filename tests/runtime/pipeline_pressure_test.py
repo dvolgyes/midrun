@@ -47,6 +47,22 @@ def test_full_phase_breakdown_recorded_in_order() -> None:
     assert sample.batch_total_ns == 200
 
 
+def test_multiple_backward_passes_partition_batch_time() -> None:
+    tracker = PipelinePressureTracker(window=8)
+    ms = 1_000_000
+    tracker.batch_start(0, epoch=0, batch_idx=0)
+    tracker.before_backward(2 * ms)
+    tracker.after_backward(12 * ms)
+    tracker.before_backward(15 * ms)
+    tracker.after_backward(18 * ms)
+    sample = tracker.batch_end(20 * ms, global_step=1)
+
+    assert sample.forward_loss_ns == 5 * ms
+    assert sample.backward_ns == 13 * ms
+    assert sample.post_backward_ns == 2 * ms
+    assert sample.batch_total_ns == 20 * ms
+
+
 def test_missing_backward_phases_are_none() -> None:
     tracker = PipelinePressureTracker(window=8)
     tracker.batch_start(0, epoch=0, batch_idx=0)

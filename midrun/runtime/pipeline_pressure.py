@@ -24,11 +24,12 @@ class PipelinePressureSample:
     :ivar input_gap_ns: Time between the previous batch's end and this batch's start --
         some mix of DataLoader wait, batch transfer, and framework overhead; not
         proven to be pure DataLoader time. `None` for the first batch.
-    :ivar forward_loss_ns: Time from batch start to just before backward -- training_step,
-        forward, and loss construction. `None` if backward never started.
-    :ivar backward_ns: Time spent inside `backward()`. `None` if backward never finished.
-    :ivar post_backward_ns: Time from after backward to batch end -- gradient handling,
-        optimizer work, bookkeeping. `None` if backward never finished.
+    :ivar forward_loss_ns: Time before the first backward and between backward passes,
+        including work other than forward/loss. `None` if backward never started.
+    :ivar backward_ns: Total time inside backward passes. `None` if the final pass
+        has no matching start or end.
+    :ivar post_backward_ns: Time from the final backward end to batch end, including
+        optimizer work and bookkeeping. `None` without a final backward end.
     :ivar batch_total_ns: Time from batch start to batch end.
     """
 
@@ -49,6 +50,7 @@ class _BatchState:
     :ivar batch_start_ns: Timestamp of the current batch's start.
     :ivar before_backward_ns: Most recent backward start within this batch.
     :ivar after_backward_ns: Most recent backward end within this batch.
+    :ivar prior_backward_ns: Total duration of passes preceding the current one.
     :ivar previous_batch_end_ns: End of the last completed batch, across epochs.
     :ivar epoch: Current epoch.
     :ivar batch_idx: Index within the current epoch.
@@ -57,6 +59,7 @@ class _BatchState:
     batch_start_ns: int | None = None
     before_backward_ns: int | None = None
     after_backward_ns: int | None = None
+    prior_backward_ns: int = 0
     previous_batch_end_ns: int | None = None
     epoch: int = 0
     batch_idx: int = 0
@@ -84,12 +87,19 @@ class PipelinePressureTracker:
         self._batch.batch_start_ns = now_ns
         self._batch.before_backward_ns = None
         self._batch.after_backward_ns = None
+        self._batch.prior_backward_ns = 0
         self._batch.epoch = epoch
         self._batch.batch_idx = batch_idx
 
     def before_backward(self, now_ns: int) -> None:
         """Records the point just before `backward()`. Call from `on_before_backward`."""
-        self._batch.before_backward_ns = now_ns
+        batch = self._batch
+        if batch.before_backward_ns is not None and batch.after_backward_ns is not None:
+            batch.prior_backward_ns += (
+                batch.after_backward_ns - batch.before_backward_ns
+            )
+        batch.before_backward_ns = now_ns
+        batch.after_backward_ns = None
 
     def after_backward(self, now_ns: int) -> None:
         """Records the point just after `backward()`. Call from `on_after_backward`."""
@@ -105,12 +115,12 @@ class PipelinePressureTracker:
             else None
         )
         forward_loss_ns = (
-            batch.before_backward_ns - batch.batch_start_ns
+            batch.before_backward_ns - batch.batch_start_ns - batch.prior_backward_ns
             if batch.before_backward_ns is not None and batch.batch_start_ns is not None
             else None
         )
         backward_ns = (
-            batch.after_backward_ns - batch.before_backward_ns
+            batch.prior_backward_ns + batch.after_backward_ns - batch.before_backward_ns
             if batch.after_backward_ns is not None
             and batch.before_backward_ns is not None
             else None

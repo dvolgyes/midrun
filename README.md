@@ -260,6 +260,9 @@ can report the same `global_step`. The rolling summary uses nearest-rank percent
 phase, `mean_to_batch_ratio` replaces `fraction`: it divides mean phase time by mean in-batch time. The input gap occurs
 *between* batches, so its ratio can exceed one.
 
+For batches with multiple backward passes, `backward_ns` sums all passes and `forward_loss_ns` includes the gaps between
+them.
+
 ### Model inspectors
 
 The four inspector commands and the live files `model/summary-live.txt` and `model/graph.dot` run one forward pass on
