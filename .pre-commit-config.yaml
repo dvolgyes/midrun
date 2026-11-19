@@ -161,10 +161,15 @@ repos:
         args:
           - --exclude-protected=_asdict,_fields,_replace,_source,_make,os._exit,_schedule,_profiler_kwargs
       - !!merge <<: *pylint_limits
+        name: Pylint (Lightning metric cache access)
+        files: ^midrun/runtime/state/metric_observations\.py$
+        args:
+          - --exclude-protected=_asdict,_fields,_replace,_source,_make,os._exit,_first_loop_iter,_forward_cache,_computed,_forked_name,_callback_metrics
+      - !!merge <<: *pylint_limits
         name: Pylint (standard limits and protected access)
         files: ''
         exclude: >-
-          (?x) ^(?: tests/ | midrun/(?: mixin | hooks/lightning | runtime/(?:pipeline_pressure | handlers/handle_checkpoint | virtual_fs/live_lightning_profiler_summary))\.py$ )
+          (?x) ^(?: tests/ | midrun/(?: mixin | hooks/lightning | runtime/(?:pipeline_pressure | handlers/handle_checkpoint | virtual_fs/live_lightning_profiler_summary | state/metric_observations))\.py$ )
         args: []
 
   # Source: 205_autoflake.yaml [central]
@@ -233,7 +238,7 @@ repos:
     hooks:
       - id: py-review-rules
         exclude: >-
-          (?x) ^(?: legacy/ | tests/ | midrun/(?: mixin | hooks/lightning | runtime/(?: gate | commands/command_queue | command_specs/execute_command | handlers/handle_set_learning_rate | hparam_registry/typed_hparam_value ))\.py$ )
+          (?x) ^(?: legacy/ | tests/ | midrun/(?: mixin | hooks/lightning | runtime/(?: gate | commands/command_queue | command_specs/execute_command | handlers/handle_set_learning_rate | hparam_registry/typed_hparam_value | state/metric_observations ))\.py$ )
         args: [--max-function-nesting-depth, '1']
       # tests/midrun_options_test.py checks the public constructor against the typed options.
       - id: py-review-rules
@@ -254,8 +259,8 @@ repos:
         files: ^midrun/runtime/commands/command_queue\.py$
         args: [--max-function-nesting-depth=1, --max-methods=17]
       - id: py-review-rules
-        name: py-review-rules (command type-only imports)
-        files: ^midrun/runtime/(?:command_specs/execute_command|handlers/handle_set_learning_rate)\.py$
+        name: py-review-rules (Lightning type-only imports)
+        files: ^midrun/runtime/(?:command_specs/execute_command|handlers/handle_set_learning_rate|state/metric_observations)\.py$
         args: [--max-function-nesting-depth=1, --ignore=PRR015]
       - id: py-review-rules
         name: py-review-rules (tensor value validation)

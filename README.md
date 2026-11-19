@@ -315,6 +315,8 @@ Metrics that are not real scalars, such as vectors and complex tensors, are omit
 
 A retained Lightning metric keeps its step, epoch and timestamp until it is logged again, even with the same value.
 
+This applies separately to the metrics published for each validation dataloader.
+
 Values placed directly in the callback dictionary without a Lightning producer use the publication time.
 
 `/telemetry/pipeline` reports the optimizer step count **at batch end**. With gradient accumulation, consecutive batches
