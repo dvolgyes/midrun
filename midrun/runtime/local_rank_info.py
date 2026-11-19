@@ -9,7 +9,7 @@ from midrun.runtime.state.rank_info import RankInfo
 
 
 def local_rank_info(device: str) -> RankInfo:
-    """Returns this process's `RankInfo`, without DataLoader worker pids.
+    """Returns this process's `RankInfo` before child process IDs are sampled.
 
     Without an initialized process group, this process is global rank 0.
     """

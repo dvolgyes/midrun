@@ -9,8 +9,9 @@ class to your `LightningModule`. While the job runs, you get:
 - an artifact store for checkpoints, snapshots and debug captures;
 - shell hooks: scripts that run at Lightning callbacks, enabled with `chmod +x`.
 
-The REST API listens on `127.0.0.1` and has no authentication. In a distributed run, the `torch.distributed.debug`
-server listens on all network interfaces (see [Limits](#limits)).
+The REST API listens on `127.0.0.1` by default and has no authentication. Other users on the training host can control
+the run. The distributed PyTorch debug server listens on all interfaces; disable it on a shared network (see
+[Limits](#limits)).
 
 ## Install
 
@@ -52,9 +53,12 @@ class TinyRegressor(MidrunMixin, L.LightningModule):
         self.save_hyperparameters()
         self.net = nn.Sequential(nn.Linear(8, 32), nn.ReLU(), nn.Linear(32, 1))
 
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(x)
+
     def training_step(self, batch, batch_idx):
         x, y = batch
-        loss = nn.functional.mse_loss(self.net(x), y)
+        loss = nn.functional.mse_loss(self(x), y)
         loss = loss + self.hparams.l2 * sum(p.pow(2).sum() for p in self.parameters())
         self.log("train/loss", loss, prog_bar=True)
         return loss
@@ -69,7 +73,9 @@ if __name__ == "__main__":
     trainer.fit(TinyRegressor(), DataLoader(data, batch_size=32))
 ```
 
-Run it with `uv run python train.py`. Nothing else changes in your training code.
+Run it with `uv run python train.py`. For a batch such as `(input, target)`, live inspectors pass `input` to the model.
+If the batch does not match `forward()`, define `midrun_forward_input(self, batch)` on the model. For example, return
+`batch["image"]` when a dictionary holds both the image and its label.
 
 If your model overrides one of these Lightning hooks, call `super()` in your override, because midrun uses them:
 `setup`, `teardown`, `configure_callbacks`, `on_fit_start`, `on_fit_end`, `on_train_batch_start`, `on_train_batch_end`,
@@ -125,8 +131,8 @@ updates it immediately.
 
 ![midrun dashboard](docs/images/dashboard.png)
 
-**Pause** holds the training at the next safe point, before the optimizer step. While the run is held, you can make a
-checkpoint, change the learning rate or a tunable hyperparameter, and then click **Resume**.
+**Pause** holds the run at its next supported safe point, not necessarily before an optimizer step. While the run is
+held, you can save a checkpoint, change a learning rate or hyperparameter, and click **Resume**.
 
 ![Run panel while the training is held](docs/images/paused.png)
 
@@ -192,9 +198,10 @@ By default a command runs at the next point where it is safe. To run it later, a
 ```
 
 Safe points are `train_batch_end`, `train_epoch_end`, `validation_epoch_end`, `before_optimizer_step` and `fit_end`.
-Instead of `epoch`, you can give `global_step`. Without `safe_point`, the `epoch` or `global_step` condition applies at
-any safe point. With only `safe_point`, the command runs at the next occurrence of that safe point. The REST API rejects
-any other `when` value with status 422.
+Standalone `validate()` processes commands at validation epoch end. `test()` and `predict()` start services but have no
+command safe point. Model and tunable-hyperparameter metadata initialize at fit start, not at the start of those stages.
+Instead of `epoch`, you can give `global_step`. Without `safe_point`, the condition applies at any safe point. With only
+`safe_point`, the command runs at its next occurrence. The REST API rejects any other `when` value with status 422.
 
 | Command kind | What it does |
 | -- | -- |
@@ -220,10 +227,10 @@ During an exception hold, `active` in `GET $URL/holds` is `null`, and `exception
 fields as in `GET $URL/run`. Otherwise, `exception` is `null`. `release_exception` returns status 409 when no exception
 hold is active. `POST $URL/holds/<id>/cancel` cancels only a hold that is not active yet. `POST $URL/control/continue`
 releases the active hold, and also cancels a pause from `POST $URL/control/pause` that is not active yet; it lists the
-cancelled ids under `cancelled_holds`. A hold that becomes due while another hold is active joins it: its result names
-the active hold under `active_hold_id`, the active hold lists it under `joined_ids`, and a release with either id
-releases the run. After a stop has run, a new hold (`POST $URL/holds`, `POST $URL/control/pause` or a `hold` command)
-returns status 409 until the next `trainer.fit`, `validate` or `test` on the same model starts.
+cancelled ids under `cancelled_holds`. Holds selected together at a safe point share one active hold. Its `joined_ids`
+lists the other command IDs, and a release with any of those IDs releases the run. A new hold submitted through `/holds`
+after the hold loop starts stays queued. After a stop has run, new hold commands are refused until the next stage
+starts.
 
 Other routes: `/run`, `/metrics`, `/optimizers`, `/artifacts`, `/telemetry/pipeline`, `/inspectors`,
 `/debug/cuda-memory/snapshot`, `/files/<path>` (the same tree as `procfs/`). `GET $URL/checkpoints` lists each
@@ -232,10 +239,10 @@ directory under `/files/` is a page of links for a browser, and JSON (`path` and
 `GET $URL/debug/cuda-memory/history?enabled=true` starts to record the CUDA allocator history for the snapshots. Without
 `max_entries`, it keeps the last 100_000 entries.
 
-`/run`, `/metrics` and `/optimizers` show the values of the last safe point (before each optimizer step and at each
-training batch end), as floats. At each safe point, midrun copies the CUDA metric values and learning rates to the host
-without a wait for the device. Only a read waits for that copy, so the training loop never waits for the device because
-of midrun. A metric that is not a real scalar, such as a vector or a complex tensor, is not shown.
+`/run`, `/metrics` and `/optimizers` report scalar values from the last published snapshot, not a live device query. For
+ordinary CUDA scalar publication, midrun schedules a host copy and leaves the wait to readers that need the value. This
+does not make all inspection asynchronous: finite checking and heavy hooks can make training wait for the device.
+Metrics that are not real scalars, such as vectors and complex tensors, are omitted.
 
 ### Model inspectors
 
@@ -286,10 +293,17 @@ watch -n1 cat $RUN/procfs/state/pipeline/summary.json
 | `model/` | class, hyperparameters, summary, tunable hyperparameters, inspector results |
 | `debug/pytorch/` | `torch.distributed.debug` status |
 
-`model/summary-live.txt`, `model/graph.dot` and `model/lightning-profiler-summary.txt` are made on demand at the next
-optimizer step. A read of these files waits for that step and fails after 30 seconds if the training is held. When no
-Lightning profiler is set, `model/lightning-profiler-summary.txt` does not wait. A read at the `pytorch` level ends the
-PyTorch profile, so midrun then sets a new `PyTorchProfiler`, and the file says so.
+In `meta/ranks/` and `/run`, `worker_pids` refers to active multiprocessing children, not just DataLoader workers. Rank
+zero refreshes its own list when it publishes state. The other ranks report empty lists gathered at setup, not live
+worker counts.
+
+`model/summary-live.txt`, `model/graph.dot` and `model/lightning-profiler-summary.txt` need a training safe point.
+
+A read waits until just before the next optimizer step and times out after 30 seconds if training stays held.
+
+Without a Midrun-managed Lightning profiler, the profiler summary returns without waiting for an optimizer step.
+
+At the `pytorch` level, a summary read ends the current recording, not profiling for the rest of training.
 
 When the run ends or fails, midrun unmounts `procfs/`. If the training process is killed (for example with `kill -9`), a
 small watcher process unmounts `procfs/` when the training process exits. If the mount still stays and shows
@@ -354,9 +368,9 @@ description of each option.
 - In a distributed run, the `torch.distributed.debug` server listens on all network interfaces and has no
   authentication. It shows stack traces and process dumps of all ranks. On a shared network, set
   `torch_debug_enabled=False`.
-- The REST API has no authentication and listens on `127.0.0.1`. Anybody with a shell on the training machine can
-  control the run. Do not bind it to a public interface. A web page in your browser can still send requests that change
-  the run (cross-site request forgery), but the `Host` check stops it from reading the answers.
+- The REST `Host` allowlist is not operator authentication. Anybody who can reach the API can submit control requests
+  with an allowed host name. Keep REST on loopback and use SSH forwarding for remote access. Do not rely on the
+  allowlist to prevent a browser from sending state-changing requests.
 - midrun starts its services in `setup` and stops them in `teardown`, so they exist only while `fit`, `validate`, `test`
   or `predict` runs.
 - `torch.profiler` and the CUDA memory history time their events with the CPU time-stamp counter (TSC). On some machines
@@ -382,3 +396,5 @@ uv sync --all-extras
 uv run pytest -n 8
 pre-commit run --all
 ```
+
+For a release build, follow the [archive checks and clean-source build procedure](docs/release.md).

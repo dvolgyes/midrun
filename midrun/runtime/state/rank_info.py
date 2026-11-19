@@ -7,15 +7,14 @@ from dataclasses import dataclass
 class RankInfo:
     """Per-rank process metadata: mostly gathered once after distributed init.
 
-    Attributes:
-        global_rank: Rank across all processes.
-        local_rank: Rank within the local node.
-        pid: Process ID.
-        hostname: Host the rank runs on.
-        device: Selected compute device, e.g. `cuda:0` or `cpu`.
-        worker_pids: Live DataLoader worker process IDs. Unlike the other fields,
-            this is refreshed on every publish rather than gathered once, since
-            workers are spawned lazily and non-persistent ones churn per epoch.
+    :ivar global_rank: Rank across all processes.
+    :ivar local_rank: Rank within the local node.
+    :ivar pid: Process ID.
+    :ivar hostname: Host the rank runs on.
+    :ivar device: Selected compute device, e.g. `cuda:0` or `cpu`.
+    :ivar worker_pids: Active multiprocessing children of this rank, not necessarily
+        DataLoader workers. The publishing rank refreshes its own entry;
+        remote entries retain the empty tuple gathered at setup.
     """
 
     global_rank: int
