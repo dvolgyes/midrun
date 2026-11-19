@@ -67,8 +67,11 @@ def _tensor_value(
             f"got {tuple(tensor.shape)}"
         )
     _require_finite(tensor, leaf)
-    validate_bounds(spec, new_value if isinstance(new_value, list | tuple) else tensor)
+    source = new_value if isinstance(new_value, list | tuple) else tensor
+    validate_bounds(spec, source)
     if tensor.dtype == current.dtype:
+        if source is not tensor:
+            validate_bounds(spec, tensor)
         return tensor.to(device=current.device)
     integer_target = not (
         current.is_complex()

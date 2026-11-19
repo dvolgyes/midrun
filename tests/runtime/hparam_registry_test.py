@@ -326,6 +326,19 @@ def test_tensor_assignment_rejects_rounding_outside_bound() -> None:
     assert model.weight.item() == 0.0
 
 
+def test_float64_tensor_rejects_mixed_input_rounded_above_bound() -> None:
+    model = _Model()
+    model.weight = torch.zeros(2, dtype=torch.float64)
+    limit = 2**53 + 3
+    spec = TunableHparamSpec(path="weight", max=limit)
+    check_and_assign(spec, model, "weight", [limit - 1, 0.5])
+
+    with pytest.raises(ValueError, match=str(limit)):
+        check_and_assign(spec, model, "weight", [limit, 0.5])
+
+    assert model.weight.tolist() == [limit - 1, 0.5]
+
+
 @pytest.mark.parametrize("dtype", [torch.float32, torch.int64])
 def test_tensor_assignment_rejects_complex_source_for_real_target(
     dtype: torch.dtype,
