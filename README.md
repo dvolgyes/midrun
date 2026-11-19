@@ -235,6 +235,8 @@ Outside inference mode, the command rejects in-place updates to inference tensor
 
 For Adam and AdamW, `reset_momentum` clears only the selected first moments.
 
+Outside inference mode, the command rejects an in-place reset of an inference tensor before changing any first moment.
+
 If a reset replaces a shared buffer, recapture any CUDA graph that used that buffer before replay.
 
 The `profile` command returns a separate `capture_id` that stays the same on write retries and for truncated traces.

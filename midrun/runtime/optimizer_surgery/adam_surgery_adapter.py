@@ -60,7 +60,11 @@ class AdamSurgeryAdapter:
         *,
         optimizers: Sequence[torch.optim.Optimizer] = (),
     ) -> Callable[[], dict[str, Any]]:
-        """Plans in-place zeroing unless it would change another state entry."""
+        """Plans in-place zeroing unless it would change another state entry.
+
+        Raises:
+            ValueError: An in-place reset would write to an inference tensor outside inference mode.
+        """
         protected = _protected_storages(
             optimizer, set(parameters), optimizers or (optimizer,)
         )
@@ -75,6 +79,10 @@ class AdamSurgeryAdapter:
                     **state,
                     "exp_avg": torch.zeros_like(exp_avg),
                 }
+            elif exp_avg.is_inference() and not torch.is_inference_mode_enabled():
+                raise ValueError(
+                    "cannot reset an inference first moment in place outside inference mode"
+                )
             else:
                 tensors.append(exp_avg)
 

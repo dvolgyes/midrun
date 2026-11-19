@@ -111,6 +111,30 @@ def test_sgd_adapter_drops_momentum_buffer() -> None:
     assert all("momentum_buffer" not in optimizer.state[p] for p in model.parameters())
 
 
+@pytest.mark.parametrize("family", [torch.optim.Adam, torch.optim.AdamW])
+def test_adam_reset_preserves_all_moments_on_inference_conflict(
+    family: type[torch.optim.Adam | torch.optim.AdamW],
+) -> None:
+    model = torch.nn.Linear(2, 2)
+    optimizer = family(model.parameters())
+    model.weight.grad = torch.ones_like(model.weight)
+    optimizer.step()
+    optimizer.zero_grad(set_to_none=True)
+    with torch.inference_mode():
+        model.bias.grad = torch.ones_like(model.bias)
+        optimizer.step()
+    before = {p: optimizer.state[p]["exp_avg"].clone() for p in model.parameters()}
+    trainer = _FakeTrainer([optimizer])
+
+    command = _submit_and_run(
+        _make_runtime(), _FakePLModule(trainer, model), trainer, "reset_momentum", {}
+    )
+
+    assert command.status == "failed"
+    for parameter, previous in before.items():
+        assert torch.equal(optimizer.state[parameter]["exp_avg"], previous)
+
+
 def test_adam_adapter_zeroes_exp_avg_but_not_exp_avg_sq_or_step() -> None:
     model = torch.nn.Linear(2, 2)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.1)
