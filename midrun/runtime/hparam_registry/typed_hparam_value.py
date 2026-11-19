@@ -75,7 +75,7 @@ def _tensor_value(
         or current.is_floating_point()
         or current.dtype == torch.bool
     )
-    if integer_target and not tensor.is_complex():
+    if integer_target:
         limits = torch.iinfo(current.dtype)
         validate_bounds(TunableHparamSpec(leaf, limits.min, limits.max), tensor)
     converted = tensor.to(device=current.device, dtype=current.dtype)
@@ -104,7 +104,10 @@ def _changes_element_kind(tensor: torch.Tensor, current: torch.Tensor) -> bool:
 
     A bool and a number are not convertible, and neither is a float to an integer. An
     int is a valid element of a float tensor. An empty tensor has no element type.
+    A complex source requires a complex target even when empty.
     """
+    if tensor.is_complex() and not current.is_complex():
+        return True
     if tensor.numel() == 0:
         return False
     if (tensor.dtype == torch.bool) != (current.dtype == torch.bool):

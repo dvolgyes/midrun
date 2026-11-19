@@ -360,6 +360,8 @@ If a current value is outside that range, the dashboard leaves its field blank f
 
 Use REST directly to set larger integers within the hyperparameter's own limits.
 
+Native complex sources are accepted only for complex tensor hyperparameters.
+
 For a tensor hyperparameter, both the input and the stored value must meet the declared bounds.
 
 Tensor hyperparameters accept boolean elements only in boolean tensors and numeric elements only in numeric tensors.

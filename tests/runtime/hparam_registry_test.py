@@ -326,6 +326,34 @@ def test_tensor_assignment_rejects_rounding_outside_bound() -> None:
     assert model.weight.item() == 0.0
 
 
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int64])
+def test_tensor_assignment_rejects_complex_source_for_real_target(
+    dtype: torch.dtype,
+) -> None:
+    model = _Model()
+    original = model.weight = torch.tensor([7], dtype=dtype)
+
+    with pytest.raises(ValueError, match=r"got torch\.complex128 elements"):
+        _assign(model, "weight", [2 + 3j])
+
+    assert model.weight is original
+    assert model.weight.tolist() == [7]
+
+
+@pytest.mark.parametrize(("value", "expected"), [(2 + 3j, 2 + 3j), (2.5, 2.5 + 0j)])
+def test_tensor_assignment_preserves_complex_target(
+    value: complex | float, expected: complex
+) -> None:
+    model = _Model()
+    original = model.weight = torch.zeros(1, dtype=torch.complex64)
+
+    result = _assign(model, "weight", [value])
+
+    assert model.weight is original
+    assert model.weight.tolist() == [expected]
+    assert result.value == [expected]
+
+
 def test_check_and_assign_tensor_shape_mismatch_raises() -> None:
     model = _Model()
 
