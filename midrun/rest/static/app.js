@@ -501,42 +501,68 @@ function renderTunableHparamRow(name, info) {
   return row;
 }
 
+function hasUnsafeInteger(value) {
+  if (Array.isArray(value)) return value.some(hasUnsafeInteger);
+  return typeof value === "number" && !Number.isSafeInteger(value);
+}
+
 function buildInputForType(info) {
   if (info.type === "bool")
     return el("input", { type: "checkbox", checked: Boolean(info.value) });
   if (info.type === "int" || info.type === "float") {
+    const unsafe = info.type === "int" && hasUnsafeInteger(info.value);
     const attrs = {
       type: "number",
-      value: info.value,
+      value: unsafe ? "" : info.value,
       step: info.type === "int" ? 1 : "any",
     };
+    if (unsafe)
+      attrs.placeholder = "Current value exceeds the safe integer range";
     if (info.min !== undefined && info.min !== null) attrs.min = info.min;
     if (info.max !== undefined && info.max !== null) attrs.max = info.max;
     return el("input", attrs);
   }
   if (info.type === "str")
     return el("input", { type: "text", value: info.value ?? "" });
+  const integerTensor = /^torch\.u?int\d+$/.test(info.dtype);
+  const unsafe = integerTensor && hasUnsafeInteger(info.value);
   const textarea = el("textarea", {
-    value: JSON.stringify(info.value ?? []),
+    value: unsafe ? "" : JSON.stringify(info.value ?? []),
     rows: 2,
     title: info.shape
       ? `shape ${JSON.stringify(info.shape)}, dtype ${info.dtype}, device ${info.device}`
       : "",
   });
+  if (integerTensor) textarea.dataset.integerTensor = "1";
+  if (unsafe)
+    textarea.placeholder = "Current value exceeds the safe integer range";
   return textarea;
 }
 
 function readInputValue(input, type) {
   if (type === "bool") return input.checked;
-  if (type === "int" || type === "float") {
+  if (type === "int") {
+    const text = input.value.trim();
+    if (!/^-?\d+$/.test(text)) throw new Error("enter a whole number");
+    const value = Number(text);
+    if (hasUnsafeInteger(value))
+      throw new Error("value exceeds the safe integer range");
+    return value;
+  }
+  if (type === "float") {
     const value = input.value.trim() === "" ? NaN : Number(input.value);
     if (!Number.isFinite(value)) throw new Error("enter a number");
-    if (type === "int" && !Number.isInteger(value))
-      throw new Error("enter a whole number");
     return value;
   }
   if (type === "str") return input.value;
-  return JSON.parse(input.value); // tensor: a JSON array
+  const value = JSON.parse(input.value);
+  if (input.dataset.integerTensor === "1") {
+    if (!/^[\d\s,[\]-]+$/.test(input.value))
+      throw new Error("enter only whole numbers for an integer tensor");
+    if (hasUnsafeInteger(value))
+      throw new Error("tensor element exceeds the safe integer range");
+  }
+  return value;
 }
 
 // ---- metrics -----------------------------------------------------------------
