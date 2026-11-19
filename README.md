@@ -290,6 +290,8 @@ midrun_tunable_hparams = {
 The declared values are in `procfs/model/tunable-hparams.json`. A new value must have the type of the current value, but
 an integer is also a valid float. A float value must be finite.
 
+For a tensor hyperparameter, both the input and the stored value must meet the declared bounds.
+
 ## Read the run as files
 
 `procfs/` is a read-only FUSE mount. Use any tool that reads files:

@@ -33,14 +33,14 @@ def check_and_assign(
             `spec`'s bounds, or the current value's type is unsupported.
     """
     current = get_field(parent, leaf)
-    value = typed_hparam_value(current, leaf, new_value)
-    validate_bounds(spec, value)
+    value = typed_hparam_value(current, leaf, new_value, spec)
     if isinstance(current, torch.Tensor):
         # Without no_grad, an in-place copy into an `nn.Parameter` raises.
         with torch.no_grad():
             # typed_hparam_value returns a tensor for a tensor knob.
             current.copy_(cast("torch.Tensor", value))
     else:
+        validate_bounds(spec, value)
         set_field(parent, leaf, value)
     return replace(
         describe_hparam(get_field(parent, leaf)),

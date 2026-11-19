@@ -223,6 +223,65 @@ def test_check_and_assign_tensor_matches_dtype_moves_device_and_preserves_identi
     assert result.device == "cpu"
 
 
+@pytest.mark.parametrize(
+    ("value", "upper_bound"),
+    [(256, 10), (11, 10), (256, None), (-1, None)],
+)
+def test_tensor_integer_assignment_rejects_overflow_and_bounds(
+    value: int, upper_bound: int | None
+) -> None:
+    model = _Model()
+    original = model.weight = torch.tensor([3], dtype=torch.uint8)
+    spec = TunableHparamSpec(path="weight", max=upper_bound)
+
+    with pytest.raises(ValueError):
+        check_and_assign(spec, model, "weight", [value])
+
+    assert model.weight is original
+    assert model.weight.item() == 3
+
+
+def test_tensor_uint64_assignment_preserves_mixed_magnitude_integers() -> None:
+    model = _Model()
+    model.weight = torch.zeros(2, dtype=torch.uint64)
+    values = [1, 2**63 + 1]
+
+    _assign(model, "weight", values)
+
+    assert model.weight.tolist() == values
+
+
+def test_tensor_float64_assignment_preserves_python_precision() -> None:
+    model = _Model()
+    original = model.weight = torch.zeros(1, dtype=torch.float64)
+    _assign(model, "weight", [1.00000001])
+
+    assert model.weight is original
+    assert model.weight.item() == 1.00000001
+
+
+def test_tensor_assignment_checks_bound_before_rounding_to_float32() -> None:
+    model = _Model()
+    model.weight = torch.zeros(1, dtype=torch.float32)
+    spec = TunableHparamSpec(path="weight", max=1.0)
+
+    with pytest.raises(ValueError, match="<= 1.0"):
+        check_and_assign(spec, model, "weight", [1.00000001])
+
+    assert model.weight.item() == 0.0
+
+
+def test_tensor_assignment_rejects_rounding_outside_bound() -> None:
+    model = _Model()
+    model.weight = torch.zeros(1, dtype=torch.float32)
+    spec = TunableHparamSpec(path="weight", max=0.1)
+
+    with pytest.raises(ValueError, match="<= 0.1"):
+        check_and_assign(spec, model, "weight", [0.1])
+
+    assert model.weight.item() == 0.0
+
+
 def test_check_and_assign_tensor_shape_mismatch_raises() -> None:
     model = _Model()
 
