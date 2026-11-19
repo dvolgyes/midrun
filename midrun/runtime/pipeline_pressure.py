@@ -21,9 +21,9 @@ class PipelinePressureSample:
     :ivar global_step: Global step after this batch completed; it can remain unchanged
         across batches when gradient accumulation is enabled.
     :ivar batch_idx: Batch index within the epoch.
-    :ivar input_gap_ns: Time between the previous batch's end and this batch's start --
-        some mix of DataLoader wait, batch transfer, and framework overhead; not
-        proven to be pure DataLoader time. `None` for the first batch of each fit.
+    :ivar input_gap_ns: Time between the previous timed batch's end and this batch's
+        start -- some mix of DataLoader wait, batch transfer, and framework overhead;
+        not proven to be pure DataLoader time. `None` for the first timed batch of each fit.
     :ivar forward_loss_ns: Time before the first backward and between backward passes,
         including work other than forward/loss. `None` if backward never started.
     :ivar backward_ns: Total time inside backward passes. `None` if the final pass
@@ -47,11 +47,11 @@ class PipelinePressureSample:
 class _BatchState:
     """Timestamps and identity for the batch currently being measured.
 
-    :ivar batch_start_ns: Timestamp of the current batch's start.
+    :ivar batch_start_ns: Timestamp of the unmatched batch start, if any.
     :ivar before_backward_ns: Most recent backward start within this batch.
     :ivar after_backward_ns: Most recent backward end within this batch.
     :ivar prior_backward_ns: Total duration of passes preceding the current one.
-    :ivar previous_batch_end_ns: End of the last completed batch, across epochs.
+    :ivar previous_batch_end_ns: End of the last timed batch, across epochs.
     :ivar epoch: Current epoch.
     :ivar batch_idx: Index within the current epoch.
     """
@@ -109,18 +109,20 @@ class PipelinePressureTracker:
         """Records the point just after `backward()`. Call from `on_after_backward`."""
         self._batch.after_backward_ns = now_ns
 
-    def batch_end(self, now_ns: int, global_step: int) -> PipelinePressureSample:
-        """Finalizes a batch using the global step observed at batch end."""
+    def batch_end(self, now_ns: int, global_step: int) -> PipelinePressureSample | None:
+        """Finalizes a timed batch, or returns `None` without a matching start."""
         batch = self._batch
+        start_ns = batch.batch_start_ns
+        if start_ns is None:
+            return None
         input_gap_ns = (
-            batch.batch_start_ns - batch.previous_batch_end_ns
-            if batch.batch_start_ns is not None
-            and batch.previous_batch_end_ns is not None
+            start_ns - batch.previous_batch_end_ns
+            if batch.previous_batch_end_ns is not None
             else None
         )
         forward_loss_ns = (
-            batch.before_backward_ns - batch.batch_start_ns - batch.prior_backward_ns
-            if batch.before_backward_ns is not None and batch.batch_start_ns is not None
+            batch.before_backward_ns - start_ns - batch.prior_backward_ns
+            if batch.before_backward_ns is not None
             else None
         )
         backward_ns = (
@@ -134,9 +136,7 @@ class PipelinePressureTracker:
             if batch.after_backward_ns is not None
             else None
         )
-        batch_total_ns = (
-            now_ns - batch.batch_start_ns if batch.batch_start_ns is not None else None
-        )
+        batch_total_ns = now_ns - start_ns
         sample = PipelinePressureSample(
             epoch=batch.epoch,
             batch_idx=batch.batch_idx,
@@ -148,6 +148,7 @@ class PipelinePressureTracker:
             batch_total_ns=batch_total_ns,
         )
         self._samples.append(sample)
+        batch.batch_start_ns = None
         batch.previous_batch_end_ns = now_ns
         return sample
 

@@ -21,6 +21,7 @@ def test_first_batch_has_no_input_gap() -> None:
     tracker.batch_start(1_000, epoch=0, batch_idx=0)
     sample = tracker.batch_end(2_000, global_step=1)
 
+    assert sample is not None
     assert sample.input_gap_ns is None
     assert sample.batch_total_ns == 1_000
 
@@ -33,7 +34,31 @@ def test_second_batch_records_input_gap_from_previous_batch_end() -> None:
     tracker.batch_start(2_500, epoch=0, batch_idx=1)
     sample = tracker.batch_end(3_000, global_step=2)
 
+    assert sample is not None
     assert sample.input_gap_ns == 500
+
+
+def test_batch_end_without_start_does_not_record_a_sample() -> None:
+    tracker = PipelinePressureTracker(window=8)
+
+    assert tracker.batch_end(100, global_step=0) is None
+    assert tracker.latest() is None
+    assert tracker.summary()["samples"] == 0
+
+    tracker.batch_start(200, epoch=0, batch_idx=1)
+    first = tracker.batch_end(300, global_step=1)
+    assert first is not None
+    assert first.input_gap_ns is None
+
+    assert tracker.batch_end(400, global_step=1) is None
+    assert tracker.latest() == first
+    assert tracker.summary()["samples"] == 1
+
+    tracker.batch_start(600, epoch=0, batch_idx=3)
+    last = tracker.batch_end(700, global_step=2)
+    assert last is not None
+    assert last.input_gap_ns == 300
+    assert tracker.summary()["samples"] == 2
 
 
 def test_full_phase_breakdown_recorded_in_order() -> None:
@@ -43,6 +68,7 @@ def test_full_phase_breakdown_recorded_in_order() -> None:
     tracker.after_backward(150)
     sample = tracker.batch_end(200, global_step=1)
 
+    assert sample is not None
     assert sample.forward_loss_ns == 100
     assert sample.backward_ns == 50
     assert sample.post_backward_ns == 50
@@ -59,6 +85,7 @@ def test_multiple_backward_passes_partition_batch_time() -> None:
     tracker.after_backward(18 * ms)
     sample = tracker.batch_end(20 * ms, global_step=1)
 
+    assert sample is not None
     assert sample.forward_loss_ns == 5 * ms
     assert sample.backward_ns == 13 * ms
     assert sample.post_backward_ns == 2 * ms
@@ -70,6 +97,7 @@ def test_missing_backward_phases_are_none() -> None:
     tracker.batch_start(0, epoch=0, batch_idx=0)
     sample = tracker.batch_end(100, global_step=1)
 
+    assert sample is not None
     assert sample.forward_loss_ns is None
     assert sample.backward_ns is None
     assert sample.post_backward_ns is None
@@ -104,6 +132,7 @@ def test_summary_identifies_largest_phase() -> None:
     tracker.after_backward(1_000)
     sample = tracker.batch_end(1_010, global_step=1)
 
+    assert sample is not None
     assert sample.backward_ns == 990
     summary = tracker.summary()
     assert summary["largest_phase"] == "backward"
