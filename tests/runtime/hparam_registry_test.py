@@ -224,6 +224,50 @@ def test_check_and_assign_tensor_matches_dtype_moves_device_and_preserves_identi
 
 
 @pytest.mark.parametrize(
+    ("dtype", "value"),
+    [
+        (torch.float32, [[True, 0.25]]),
+        (torch.float32, [[True, False]]),
+        (torch.int64, [[2], [False]]),
+        (torch.uint64, [[True, 2**63 + 1]]),
+        (torch.bool, [[False, 1]]),
+    ],
+)
+def test_tensor_assignment_rejects_incompatible_boolean_and_numeric_elements(
+    dtype: torch.dtype, value: list[list[bool | int | float]]
+) -> None:
+    model = _Model()
+    original = model.weight = torch.zeros((len(value), len(value[0])), dtype=dtype)
+
+    with pytest.raises(ValueError, match="tensor hparam; got"):
+        _assign(model, "weight", value)
+
+    assert model.weight is original
+    assert model.weight.tolist() == [[0] * len(value[0]) for _ in value]
+
+
+@pytest.mark.parametrize(
+    ("dtype", "value", "expected"),
+    [
+        (torch.float32, [[1, 0.25]], [[1.0, 0.25]]),
+        (torch.bool, [[True, False]], [[True, False]]),
+        (torch.bool, [[]], [[]]),
+    ],
+)
+def test_tensor_assignment_accepts_compatible_nested_elements(
+    dtype: torch.dtype,
+    value: list[list[bool | int | float]],
+    expected: list[list[bool | float]],
+) -> None:
+    model = _Model()
+    model.weight = torch.zeros((len(value), len(value[0])), dtype=dtype)
+
+    _assign(model, "weight", value)
+
+    assert model.weight.tolist() == expected
+
+
+@pytest.mark.parametrize(
     ("value", "upper_bound"),
     [(256, 10), (11, 10), (256, None), (-1, None)],
 )

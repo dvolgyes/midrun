@@ -48,6 +48,13 @@ def _tensor_value(
     """Check source elements and the stored representation before assignment."""
     if isinstance(new_value, str):
         raise ValueError(f"{leaf!r} is a tensor hparam; got {new_value!r}")
+    if isinstance(new_value, list | tuple) and _has_wrong_boolean_element(
+        new_value, current.dtype == torch.bool
+    ):
+        raise ValueError(
+            f"{leaf!r} is a {current.dtype} tensor hparam; got incompatible "
+            f"boolean or numeric elements {new_value!r}"
+        )
     tensor = _source_tensor(new_value, current.dtype)
     if _changes_element_kind(tensor, current):
         raise ValueError(
@@ -81,6 +88,15 @@ def _require_finite(tensor: torch.Tensor, leaf: str) -> None:
     """Reject floating-point tensors with any nonfinite element."""
     if tensor.is_floating_point() and not bool(torch.isfinite(tensor).all()):
         raise ValueError(f"{leaf!r}: every element must be finite")
+
+
+def _has_wrong_boolean_element(value: object, boolean_target: bool) -> bool:
+    """Check boolean and numeric sequence leaves before dtype inference."""
+    if isinstance(value, list | tuple):
+        return any(_has_wrong_boolean_element(item, boolean_target) for item in value)
+    if isinstance(value, bool | np.bool_):
+        return not boolean_target
+    return boolean_target and isinstance(value, int | float | complex | np.number)
 
 
 def _changes_element_kind(tensor: torch.Tensor, current: torch.Tensor) -> bool:

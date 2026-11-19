@@ -362,6 +362,8 @@ Use REST directly to set larger integers within the hyperparameter's own limits.
 
 For a tensor hyperparameter, both the input and the stored value must meet the declared bounds.
 
+Tensor hyperparameters accept boolean elements only in boolean tensors and numeric elements only in numeric tensors.
+
 ## Read the run as files
 
 `procfs/` is a read-only FUSE mount. Use any tool that reads files:
