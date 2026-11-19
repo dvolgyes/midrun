@@ -1,6 +1,7 @@
 """The momentum reset for torch.optim.Adam and AdamW."""
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from functools import partial
 from typing import Any
 
 import torch
@@ -24,6 +25,21 @@ def _protected_storages(
     }
 
 
+def _apply_reset(
+    optimizer: torch.optim.Optimizer,
+    replacements: dict[torch.Tensor, dict[str, Any]],
+    tensors: list[torch.Tensor],
+) -> dict[str, Any]:
+    """Installs isolated first moments and zeroes unshared tensors in place."""
+    optimizer.state.update(replacements)
+    for tensor in tensors:
+        tensor.zero_()
+    return {
+        "semantic": "exp_avg_zeroed",
+        "parameters_reset": len(replacements) + len(tensors),
+    }
+
+
 class AdamSurgeryAdapter:
     """Resets Adam/AdamW first moments without writing through shared state.
 
@@ -37,28 +53,29 @@ class AdamSurgeryAdapter:
         """Accepts optimizers with Adam's first-moment state layout."""
         return isinstance(optimizer, torch.optim.Adam | torch.optim.AdamW)
 
-    def reset_momentum(
+    def prepare_reset_momentum(
         self,
         optimizer: torch.optim.Optimizer,
         parameters: list[torch.nn.Parameter],
         *,
         optimizers: Sequence[torch.optim.Optimizer] = (),
-    ) -> dict[str, Any]:
-        """Zeroes first moments in place unless that would change another state entry."""
+    ) -> Callable[[], dict[str, Any]]:
+        """Plans in-place zeroing unless it would change another state entry."""
         protected = _protected_storages(
             optimizer, set(parameters), optimizers or (optimizer,)
         )
-        reset_count = 0
+        replacements: dict[torch.Tensor, dict[str, Any]] = {}
+        tensors: list[torch.Tensor] = []
         for parameter in parameters:
             state = optimizer.state.get(parameter)
             if state is None or (exp_avg := state.get("exp_avg")) is None:
                 continue
             if exp_avg.untyped_storage() in protected:
-                optimizer.state[parameter] = {
+                replacements[parameter] = {
                     **state,
                     "exp_avg": torch.zeros_like(exp_avg),
                 }
             else:
-                exp_avg.zero_()
-            reset_count += 1
-        return {"semantic": "exp_avg_zeroed", "parameters_reset": reset_count}
+                tensors.append(exp_avg)
+
+        return partial(_apply_reset, optimizer, replacements, tensors)

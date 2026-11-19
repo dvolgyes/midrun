@@ -101,7 +101,11 @@ def test_sgd_adapter_drops_momentum_buffer() -> None:
     _step(model, optimizer)
     assert all("momentum_buffer" in optimizer.state[p] for p in model.parameters())
 
-    result = SGDSurgeryAdapter().reset_momentum(optimizer, list(model.parameters()))
+    apply = SGDSurgeryAdapter().prepare_reset_momentum(
+        optimizer, list(model.parameters())
+    )
+    assert all("momentum_buffer" in optimizer.state[p] for p in model.parameters())
+    result = apply()
 
     assert result["semantic"] == "momentum_buffer_dropped"
     assert all("momentum_buffer" not in optimizer.state[p] for p in model.parameters())
@@ -118,7 +122,13 @@ def test_adam_adapter_zeroes_exp_avg_but_not_exp_avg_sq_or_step() -> None:
         id(p): optimizer.state[p]["step"].clone() for p in model.parameters()
     }
 
-    result = AdamSurgeryAdapter().reset_momentum(optimizer, list(model.parameters()))
+    before_avg = [optimizer.state[p]["exp_avg"].clone() for p in model.parameters()]
+    apply = AdamSurgeryAdapter().prepare_reset_momentum(
+        optimizer, list(model.parameters())
+    )
+    for p, before in zip(model.parameters(), before_avg, strict=True):
+        assert torch.equal(optimizer.state[p]["exp_avg"], before)
+    result = apply()
 
     assert result["semantic"] == "exp_avg_zeroed"
     for p in model.parameters():

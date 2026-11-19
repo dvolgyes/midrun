@@ -10,6 +10,7 @@ from midrun.runtime.optimizer_surgery.find_surgery_adapter import find_surgery_a
 from midrun.runtime.optimizer_surgery.resolve_optimizer_parameters import (
     resolve_optimizer_parameters,
 )
+from midrun.runtime.rank_agreement import RankAgreement
 
 if TYPE_CHECKING:
     from lightning.pytorch import LightningModule, Trainer
@@ -29,20 +30,21 @@ def handle_reset_momentum(
             surgery adapter supports the optimizer.
     """
     del safe_point
-    if not runtime.config.optimizer_surgery_enabled:
-        raise ValueError("reset_momentum requires optimizer_surgery_enabled")
-    optimizer_index = command.args["optimizer"]
-    optimizer = optimizer_at(trainer.optimizers, optimizer_index)
-    adapter = find_surgery_adapter(optimizer)
-    if adapter is None:
-        raise ValueError(
-            "optimizer_surgery_unsupported: no reset_momentum adapter for "
-            f"{type(optimizer).__module__}.{type(optimizer).__name__}"
+    with RankAgreement(runtime.rank_sync, "reset_momentum preparation"):
+        if not runtime.config.optimizer_surgery_enabled:
+            raise ValueError("reset_momentum requires optimizer_surgery_enabled")
+        optimizer_index = command.args["optimizer"]
+        optimizer = optimizer_at(trainer.optimizers, optimizer_index)
+        adapter = find_surgery_adapter(optimizer)
+        if adapter is None:
+            raise ValueError(
+                "optimizer_surgery_unsupported: no reset_momentum adapter for "
+                f"{type(optimizer).__module__}.{type(optimizer).__name__}"
+            )
+        parameters = resolve_optimizer_parameters(
+            pl_module, optimizer, command.args["selector"]
         )
-    parameters = resolve_optimizer_parameters(
-        pl_module, optimizer, command.args["selector"]
-    )
-    result = adapter.reset_momentum(
-        optimizer, parameters, optimizers=trainer.optimizers
-    )
-    return {"optimizer": optimizer_index, **result}
+        apply = adapter.prepare_reset_momentum(
+            optimizer, parameters, optimizers=trainer.optimizers
+        )
+    return {"optimizer": optimizer_index, **apply()}

@@ -582,8 +582,11 @@ class MidrunRuntime:
         if not has_due:
             return held
         for command in self.rank_sync.broadcast(due):
-            if self._is_rank_zero or COMMAND_SPECS[command.kind].all_ranks:
-                execute_command(self, pl_module, trainer, command, safe_point)
+            collective = COMMAND_SPECS[command.kind].all_ranks
+            if self._is_rank_zero or collective:
+                execute_command(
+                    self, pl_module, trainer, command, safe_point, collective=collective
+                )
         # A command can enter or release a hold, so rank 0 sends its state again.
         (held,) = self.rank_sync.broadcast_flags(self.gate.is_held())
         return held

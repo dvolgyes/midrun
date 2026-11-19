@@ -410,6 +410,9 @@ The terminal snapshot reports the queued command count after teardown expires ou
   `set_learning_rate`, `reset_momentum`, `set_dataloader_finite_check` and `set_hparam` run on every rank, and a hold
   stops every rank. The other commands run on rank zero only. Each safe point costs one small broadcast, about 0.5 ms on
   two local ranks. If a command on rank zero takes longer than 30 minutes, the other ranks time out.
+- An all-rank command reports success only after every rank completes it.
+- If any rank rejects momentum reset during validation, no rank changes its momentum buffers.
+- Other all-rank commands can report failure after changes have taken effect on some ranks.
 - After a backward exception in a distributed run, only rank zero holds. The other ranks raise the exception at once, so
   Lightning soon stops the job.
 - midrun does not support `strategy="ddp_spawn"` or the other spawn-based strategies, because they pickle the model. Use

@@ -1,9 +1,25 @@
 """The momentum reset for torch.optim.SGD."""
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
+from functools import partial
 from typing import Any
 
 import torch
+
+
+def _apply_reset(
+    optimizer: torch.optim.Optimizer, parameters: list[torch.nn.Parameter]
+) -> dict[str, Any]:
+    """Drops the selected buffers after preparation succeeds."""
+    reset_count = 0
+    for parameter in parameters:
+        state = optimizer.state.get(parameter)
+        if state is not None and state.pop("momentum_buffer", None) is not None:
+            reset_count += 1
+    return {
+        "semantic": "momentum_buffer_dropped",
+        "parameters_reset": reset_count,
+    }
 
 
 class SGDSurgeryAdapter:
@@ -13,14 +29,14 @@ class SGDSurgeryAdapter:
         """Accepts optimizers with SGD's momentum buffer layout."""
         return isinstance(optimizer, torch.optim.SGD)
 
-    def reset_momentum(
+    def prepare_reset_momentum(
         self,
         optimizer: torch.optim.Optimizer,
         parameters: list[torch.nn.Parameter],
         *,
         optimizers: Sequence[torch.optim.Optimizer] = (),
-    ) -> dict[str, Any]:
-        """Drops the momentum buffers of `parameters`.
+    ) -> Callable[[], dict[str, Any]]:
+        """Plans to drop the momentum buffers of `parameters`.
 
         Raises:
             ValueError: `parameters` holds only some of the buffered parameters of a
@@ -40,9 +56,5 @@ class SGDSurgeryAdapter:
                     f"param_group {index} is fused: reset_momentum must select all "
                     "of its parameters or none"
                 )
-        reset_count = 0
-        for parameter in parameters:
-            state = optimizer.state.get(parameter)
-            if state is not None and state.pop("momentum_buffer", None) is not None:
-                reset_count += 1
-        return {"semantic": "momentum_buffer_dropped", "parameters_reset": reset_count}
+
+        return partial(_apply_reset, optimizer, parameters)
