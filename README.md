@@ -337,6 +337,8 @@ In `meta/ranks/` and `/run`, `worker_pids` refers to active multiprocessing chil
 zero refreshes its own list when it publishes state. The other ranks report empty lists gathered at setup, not live
 worker counts.
 
+A path reports the size of its newest open handle; each handle keeps its own contents until it closes.
+
 `model/summary-live.txt`, `model/graph.dot` and `model/lightning-profiler-summary.txt` need a training safe point.
 
 The training thread serves live reads just before an optimizer step; each reader waits up to 30 seconds for its result.

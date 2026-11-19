@@ -103,3 +103,24 @@ def test_seek_end_reports_the_size_of_its_own_handle(
             assert _end_offset(older) == len(older.read())
             assert _end_offset(newer) == len(newer.read())
         assert _end_offset(older) == len(older.read())
+
+
+def test_path_size_tracks_the_newest_remaining_open_handle(growing_file: str) -> None:
+    config = MidrunConfig(
+        rest_enabled=False, fuse_enabled=False, torch_debug_enabled=False
+    )
+    fs = filesystem.MidrunFS(build_runtime(config, load_backend("lightning.pytorch")))
+    path = f"/{growing_file}"
+    oldest, middle, newest = (fs.open(path, os.O_RDONLY) for _ in range(3))
+    for handle, content in ((oldest, b"x\n"), (middle, b"xx\n"), (newest, b"xxx\n")):
+        assert fs.read(path, 4096, 0, handle) == content
+        assert fs.getattr(path, handle)["st_size"] == len(content)
+
+    assert fs.getattr(path)["st_size"] == 4
+    fs.release(path, middle)
+    assert fs.getattr(path)["st_size"] == 4
+    fs.release(path, newest)
+    assert fs.getattr(path)["st_size"] == 2
+    assert fs.read(path, 4096, 0, oldest) == b"x\n"
+    fs.release(path, oldest)
+    assert fs.getattr(path)["st_size"] == (0 if path == "/model/graph.dot" else 5)

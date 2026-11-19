@@ -23,6 +23,7 @@ import os
 import stat
 import threading
 import time
+from collections import OrderedDict, defaultdict
 from typing import TYPE_CHECKING, Any
 
 import mfusepy
@@ -38,16 +39,18 @@ if TYPE_CHECKING:
 
 
 class MidrunFS(mfusepy.Operations):  # type: ignore[misc]  # mfusepy has no types
-    """Read-only, direct-I/O mfusepy `Operations` backed by a `MidrunRuntime`."""
+    """Read-only, direct-I/O mfusepy operations backed by a MidrunRuntime.
+
+    :ivar _handles: Open snapshots for each path, ordered from oldest to newest.
+    """
 
     use_ns = True
-    _newest_handle: dict[str, int]
+    _handles: defaultdict[str, OrderedDict[int, bytes]]
 
     def __init__(self, runtime: "MidrunRuntime") -> None:
         self._runtime = runtime
         self._ready = threading.Event()
-        self._handles: dict[int, bytes] = {}
-        self._newest_handle: dict[str, int] = {}
+        self._handles = defaultdict(OrderedDict)
         self._next_fh = 1
         self._handles_lock = threading.Lock()
 
@@ -68,8 +71,13 @@ class MidrunFS(mfusepy.Operations):  # type: ignore[misc]  # mfusepy has no type
         if is_virtual_dir(self._runtime, path):
             return {"st_mode": (stat.S_IFDIR | 0o755), "st_nlink": 2, **owner}
         with self._handles_lock:
-            handle = self._newest_handle.get(path) if fh is None else fh
-            content = self._handles.get(handle) if handle is not None else None
+            handles = self._handles.get(path)
+            if not handles:
+                content = None
+            elif fh is None:
+                content = next(reversed(handles.values()))
+            else:
+                content = handles.get(fh)
         if content is not None:
             return {
                 "st_mode": (stat.S_IFREG | 0o444),
@@ -105,21 +113,22 @@ class MidrunFS(mfusepy.Operations):  # type: ignore[misc]  # mfusepy has no type
         with self._handles_lock:
             handle = self._next_fh
             self._next_fh += 1
-            self._handles[handle] = content
-            self._newest_handle[path] = handle
+            self._handles[path][handle] = content
         return handle
 
     def read(self, path: str, size: int, offset: int, fh: int) -> bytes:
-        del path
         with self._handles_lock:
-            content = self._handles.get(fh, b"")
+            handles = self._handles.get(path)
+            content = handles.get(fh, b"") if handles else b""
         return content[offset : offset + size]
 
     def release(self, path: str, fh: int) -> int:
         with self._handles_lock:
-            self._handles.pop(fh, None)
-            if self._newest_handle.get(path) == fh:
-                del self._newest_handle[path]
+            handles = self._handles.get(path)
+            if handles is not None:
+                handles.pop(fh, None)
+                if not handles:
+                    del self._handles[path]
         return 0
 
     def statfs(self, path: str) -> dict[str, int]:
