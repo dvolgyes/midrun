@@ -21,29 +21,31 @@ other changes to `data.py` or `train.py`. See `midrun/mixin.py` for the full set
 (ports, mountpoint, enabling/disabling each service); the mounted filesystem's own `/README.md` documents its tree, and
 `midrun/rest/app.py` documents the REST routes.
 
-While a run is active:
+For the first run with the default log directory and FUSE enabled:
 
 ```bash
-cat examples/cifar/lightning_logs/cifar/version_0/procfs/state/status
-curl http://127.0.0.1:8090/run
-curl -X POST http://127.0.0.1:8090/holds -d '{"when":{"safe_point":"train_epoch_end","occurrence":"next"}}'
+RUN=examples/cifar/lightning_logs/cifar/version_0  # use this run's version
+URL=$(cat "$RUN/procfs/meta/rest/url")
+cat "$RUN/procfs/state/status"
+curl "$URL/run"
+curl -X POST "$URL/holds" -H 'Content-Type: application/json' \
+    -d '{"when":{"safe_point":"train_epoch_end"}}'
 ```
 
 ## Running
 
 ```bash
-uv run python -m examples.cifar.train
+uv run --group examples python -m examples.cifar.train
 ```
 
-Defaults to a 1-hour wall-clock run (`--max-time 00:01:00:00`) with `--max-epochs -1`, so duration is governed by
-`--max-time` rather than a fixed epoch count. See `uv run python -m examples.cifar.train --help` for all options (batch
-size, learning rate, data/log directories, accelerator, etc.).
+By default, training runs for up to one hour (`--max-time 00:01:00:00`) with no epoch limit (`--max-epochs -1`). Use
+`uv run --group examples python -m examples.cifar.train --help` for the full list of options.
 
 The first run downloads CIFAR-10 (~170 MB) into `examples/cifar/data/`; subsequent runs reuse the cached copy.
 TensorBoard logs and checkpoints are written to `examples/cifar/lightning_logs/`. View them with:
 
 ```bash
-uv run tensorboard --logdir examples/cifar/lightning_logs
+uv run --group examples tensorboard --logdir examples/cifar/lightning_logs
 ```
 
 Logged per run: `train/loss` and `val/loss` (loss), `train/acc` and `val/acc` (accuracy metric), and the optimizer

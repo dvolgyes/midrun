@@ -4,8 +4,5 @@
 # second terminal using the REST/FUSE commands printed at startup.
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-
-cd "$REPO_ROOT"
-exec uv run python -m examples.playground.run
+CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
+exec uv run --group examples python -m examples.playground.run "$@"
