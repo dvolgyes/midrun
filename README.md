@@ -335,6 +335,8 @@ watch -n1 cat $RUN/procfs/state/pipeline/summary.json
 | `model/` | class, hyperparameters, summary, tunable hyperparameters, inspector results |
 | `debug/pytorch/` | `torch.distributed.debug` status |
 
+`state/batch-idx` contains the published batch index, or a blank line when no batch index is available.
+
 In `meta/ranks/` and `/run`, `worker_pids` refers to active multiprocessing children, not just DataLoader workers. Rank
 zero refreshes its own list when it publishes state. The other ranks report empty lists gathered at setup, not live
 worker counts.

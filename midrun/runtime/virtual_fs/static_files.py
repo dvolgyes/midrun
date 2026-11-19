@@ -147,7 +147,7 @@ STATIC_FILES: dict[str, Callable[["MidrunRuntime"], bytes]] = {
     "/state/epoch": lambda rt: encode_text(str(rt.state.read().epoch)),
     "/state/global-step": lambda rt: encode_text(str(rt.state.read().global_step)),
     "/state/batch-idx": lambda rt: encode_text(
-        str(rt.state.read().batch_idx) if rt.state.read().batch_idx is not None else ""
+        str(idx) if (idx := rt.state.read().batch_idx) is not None else ""
     ),
     "/state/generation": lambda rt: encode_text(str(rt.state.read().generation)),
     "/state/metrics/index.json": lambda rt: encode_json(

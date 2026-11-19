@@ -18,6 +18,7 @@ from midrun.runtime.commands.command_when import CommandWhen
 from midrun.runtime.events import SafePoint
 from midrun.runtime.handlers.handle_snapshot import handle_snapshot
 from midrun.runtime.state.host_snapshot import host_snapshot
+from midrun.runtime.state.runtime_snapshot import RuntimeSnapshot
 from midrun.runtime.virtual_fs.static_files import STATIC_FILES
 
 
@@ -156,3 +157,25 @@ def test_a_learning_rate_changed_in_place_reads_as_of_the_last_safe_point(
 
     assert before == (0.5,)
     assert host_snapshot(runtime.state.read()).learning_rates == (0.25,)
+
+
+def test_batch_idx_file_when_the_index_is_cleared(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = MidrunConfig(
+        rest_enabled=False, fuse_enabled=False, torch_debug_enabled=False
+    )
+    runtime = build_runtime(config, load_backend("lightning.pytorch"))
+    runtime.state.update(batch_idx=0)
+    read_snapshot = runtime.state.read
+
+    def read_and_clear_batch_idx() -> RuntimeSnapshot:
+        snapshot = read_snapshot()
+        if snapshot.batch_idx is not None:
+            runtime.state.update(batch_idx=None)
+        return snapshot
+
+    monkeypatch.setattr(runtime.state, "read", read_and_clear_batch_idx)
+    render = STATIC_FILES["/state/batch-idx"]
+    assert render(runtime) == b"0\n"
+    assert render(runtime) == b"\n"
