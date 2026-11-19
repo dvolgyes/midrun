@@ -80,6 +80,8 @@ from midrun.torch_debug.manager import TorchDebugManager
 if TYPE_CHECKING:
     from lightning.pytorch import LightningModule, Trainer
 
+    from midrun.runtime.state.runtime_snapshot import RuntimeSnapshot
+
 _KNOWN_SAFE_BACKWARD_STRATEGIES = frozenset(
     {"SingleDeviceStrategy", "DDPStrategy", "FSDPStrategy"}
 )
@@ -804,9 +806,15 @@ class MidrunRuntime:
 
     # ---- state publication ------------------------------------------------------
 
+    def capture_snapshot(self, pl_module: "LightningModule") -> "RuntimeSnapshot":
+        """Publishes the current training state for a runtime snapshot command."""
+        return self._publish(
+            pl_module, status="held" if self.gate.is_held() else "running"
+        )
+
     def _publish(
         self, pl_module: "LightningModule", status: str, *, batch_idx: int | None = None
-    ) -> None:
+    ) -> "RuntimeSnapshot":
         trainer = pl_module.trainer
         # Lightning computes these properties on each access; read them once.
         epoch = trainer.current_epoch
@@ -836,7 +844,7 @@ class MidrunRuntime:
         if batch_idx is None and self.current_step.batch is not None:
             # A publish inside a batch, such as from a hold, shows that batch.
             batch_idx = self.current_step.batch_idx
-        self.state.update(
+        return self.state.update(
             status=status,
             stage=stage,
             phase=phase_of_stage(stage),

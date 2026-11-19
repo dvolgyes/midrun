@@ -206,7 +206,7 @@ Instead of `epoch`, you can give `global_step`. Without `safe_point`, the condit
 | Command kind | What it does |
 | -- | -- |
 | `hold`, `stop` | Pause or stop the training. |
-| `checkpoint`, `snapshot` | Write a checkpoint or a runtime snapshot to `artifacts/`. |
+| `checkpoint`, `snapshot` | Write a checkpoint or snapshot to `artifacts/`; a runtime snapshot records state at the safe point where the command executes. |
 | `set_learning_rate`, `reset_momentum` | Change optimizer state. |
 | `set_hparam` | Change a tunable hyperparameter (see below). |
 | `set_dataloader_finite_check` | Turn the NaN/Inf check of each batch on or off. |

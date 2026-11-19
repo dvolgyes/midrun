@@ -93,6 +93,28 @@ def test_each_reader_gets_float_metrics_and_learning_rates(tmp_path: Path) -> No
     assert fuse_run["learning_rates"] == [0.25, 0.125]
 
 
+def test_scheduled_snapshot_captures_the_current_step(tmp_path: Path) -> None:
+    runtime, model = _published(tmp_path, {"loss": 3.0}, [0.125])
+    trainer = model.trainer
+    command = runtime.command_queue.submit(
+        "snapshot",
+        {"kind": "runtime"},
+        CommandWhen(SafePoint.TRAIN_BATCH_END, "step", step=8),
+    )
+    trainer.global_step = 8
+    trainer.callback_metrics["loss"] = 2.0
+    trainer.optimizers[0].param_groups[0]["lr"] = 0.25
+
+    runtime.process_safe_point(model, SafePoint.TRAIN_BATCH_END)
+
+    assert command.status == "succeeded", command.error
+    assert command.result is not None
+    saved = json.loads((Path(command.result["path"]) / "runtime.json").read_text())
+    assert saved["global_step"] == 8
+    assert saved["metrics"]["loss"]["value"] == 2.0
+    assert saved["learning_rates"] == [0.25]
+
+
 def test_non_scalar_and_non_numeric_metrics_are_left_out(tmp_path: Path) -> None:
     runtime, _ = _published(
         tmp_path,

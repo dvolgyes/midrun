@@ -1,6 +1,6 @@
 """The part of the runtime that command handlers use."""
 
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from midrun.config import MidrunConfig
 from midrun.lightning_backend import LightningBackend
@@ -15,6 +15,11 @@ from midrun.runtime.rank_sync import RankSync
 from midrun.runtime.state.exception_breakpoint_info import ExceptionBreakpointInfo
 from midrun.runtime.state.rank_info import RankInfo
 from midrun.runtime.state.state_store import StateStore
+
+if TYPE_CHECKING:
+    from lightning.pytorch import LightningModule
+
+    from midrun.runtime.state.runtime_snapshot import RuntimeSnapshot
 
 
 class CommandRuntime(Protocol):
@@ -55,6 +60,10 @@ class CommandRuntime(Protocol):
     lightning_profiler_level: str
     exception_hold: ExceptionBreakpointInfo | None
     tunable_hparam_specs: dict[str, TunableHparamSpec]
+
+    def capture_snapshot(self, pl_module: "LightningModule") -> "RuntimeSnapshot":
+        """Publishes the live state at the command's execution point."""
+        ...
 
     @property
     def artifact_store(self) -> ArtifactStore:

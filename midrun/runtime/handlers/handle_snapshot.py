@@ -30,7 +30,7 @@ def handle_snapshot(
     del safe_point
     kind = command.args["kind"]
     if kind == "runtime":
-        payload = asdict(host_snapshot(runtime.state.read()))
+        payload = asdict(host_snapshot(runtime.capture_snapshot(pl_module)))
     elif kind == "model_summary":
         payload = {
             "class": type(pl_module).__name__,
