@@ -6,8 +6,12 @@ under `root`, a sibling of the FUSE mount that the mount does not project (its
 module owns only the on-disk layout and manifest format.
 """
 
+import ctypes
+import errno
+import os
 import re
 import shutil
+import stat
 import time
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
@@ -24,6 +28,39 @@ _ARTIFACT_NAME = re.compile(ARTIFACT_NAME_PATTERN)
 _RESERVED_CAPTURE_FILENAMES = frozenset({"manifest.json"})
 # Ids already taken by earlier runs or other ranks that one new artifact skips at most.
 _MAX_ID_ATTEMPTS = 100_000
+_AT_FDCWD = -100
+_RENAME_NOREPLACE = 1
+
+
+def _publish_checkpoint(staged: Path, path: Path) -> None:
+    """Publishes with a file hard link or a no-replace directory rename."""
+    if not stat.S_ISDIR(staged.lstat().st_mode):
+        os.link(staged, path, follow_symlinks=False)
+        return
+    renameat2 = getattr(ctypes.CDLL(None, use_errno=True), "renameat2", None)
+    if renameat2 is None:
+        raise OSError(
+            errno.ENOSYS, "checkpoint directory publication requires renameat2", path
+        )
+    renameat2.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
+    renameat2.restype = ctypes.c_int
+    if renameat2(
+        _AT_FDCWD, os.fsencode(staged), _AT_FDCWD, os.fsencode(path), _RENAME_NOREPLACE
+    ):
+        error = ctypes.get_errno()
+        if error in (errno.EINVAL, errno.ENOSYS, errno.EOPNOTSUPP):
+            raise OSError(
+                error,
+                "checkpoint directory publication requires a no-replace rename",
+                path,
+            )
+        raise OSError(error, os.strerror(error), path)
 
 
 class ArtifactStore:
@@ -40,29 +77,39 @@ class ArtifactStore:
         (self.root / "snapshots").mkdir(parents=True, exist_ok=True)
         (self.root / "debug").mkdir(parents=True, exist_ok=True)
 
-    def reserve_checkpoint_path(self, label: str) -> Path:
-        """Creates an empty checkpoint file under `checkpoints/` and returns its path.
+    @contextmanager
+    def stage_checkpoint(self, label: str) -> Iterator[tuple[Path, Path]]:
+        """Yields private and public paths; publishes only on successful exit.
 
-        Ids are process-local, so a resumed run or another run sharing `root` may hold
-        an id already; exclusive creation skips to the next id. The caller writes the
-        checkpoint over the empty file, or removes it.
-
-        Raises:
-            ValueError: `label` does not match `ARTIFACT_NAME_PATTERN`.
-            FileExistsError: `_MAX_ID_ATTEMPTS` consecutive ids were all taken.
+        Runs sharing `root` reserve each name by exclusively creating its staging
+        directory. The private save path itself does not exist yet: a strategy
+        can create a file or a sharded checkpoint directory at that path.
         """
         if not _ARTIFACT_NAME.fullmatch(label):
             raise ValueError(
                 f"invalid checkpoint label {label!r}: must match {ARTIFACT_NAME_PATTERN}"
             )
         checkpoints = self.root / "checkpoints"
+        if self.root.stat().st_dev != checkpoints.stat().st_dev:
+            raise OSError(
+                "checkpoint staging and publication require the same filesystem"
+            )
         for _ in range(_MAX_ID_ATTEMPTS):
             path = checkpoints / f"ckpt-{next_id('c')}-{label}.ckpt"
+            stage = self.root / f".midrun-stage-{path.stem}"
             try:
-                path.touch(exist_ok=False)
+                stage.mkdir(mode=0o700)
             except FileExistsError:
                 continue
-            return path
+            try:
+                if path.exists(follow_symlinks=False):
+                    continue
+                staged = stage / path.name
+                yield staged, path
+                _publish_checkpoint(staged, path)
+                return
+            finally:
+                shutil.rmtree(stage)
         raise FileExistsError(
             f"no free checkpoint id under {checkpoints} after {_MAX_ID_ATTEMPTS} attempts"
         )

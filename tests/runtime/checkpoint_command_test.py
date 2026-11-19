@@ -1,4 +1,4 @@
-"""Behavioral tests for the `checkpoint` command handler and its reserved file name."""
+"""Behavioral tests for checkpoint staging and rank coordination."""
 
 from pathlib import Path
 
@@ -34,18 +34,21 @@ def _checkpoint_command() -> Command:
 
 
 class _SingleProcessStrategy:
-    def barrier(self, name: str) -> None:
-        del name
+    checkpoint_io = None
 
 
 class _FailingTrainer:
     strategy = _SingleProcessStrategy()
 
     def save_checkpoint(self, path: str) -> None:
+        Path(path).mkdir()
+        (Path(path) / "shard").write_bytes(b"incomplete")
         raise OSError(f"disk full while writing {path}")
 
 
 class _RecordingTrainer:
+    strategy = _SingleProcessStrategy()
+
     def __init__(self) -> None:
         self.saved: list[str] = []
 
@@ -53,13 +56,14 @@ class _RecordingTrainer:
         self.saved.append(path)
 
 
-def test_a_failed_save_leaves_no_reserved_checkpoint_file(tmp_path: Path) -> None:
+def test_a_failed_save_cleans_up_a_partial_checkpoint_directory(tmp_path: Path) -> None:
     runtime = _make_runtime(tmp_path)
 
     with pytest.raises(OSError, match="disk full"):
         handle_checkpoint(runtime, None, _FailingTrainer(), _checkpoint_command(), None)
 
     assert list((tmp_path / "checkpoints").iterdir()) == []
+    assert not list(tmp_path.glob(".midrun-stage-*"))
 
 
 def test_a_worker_rank_saves_at_the_path_of_rank_zero_and_reserves_none(
@@ -68,11 +72,14 @@ def test_a_worker_rank_saves_at_the_path_of_rank_zero_and_reserves_none(
     runtime = _make_runtime(tmp_path)
     runtime._is_rank_zero = False
     rank_zero_path = tmp_path / "checkpoints" / "ckpt-c_000042-manual.ckpt"
-    monkeypatch.setattr(runtime.rank_sync, "broadcast", lambda _: rank_zero_path)
+    staged = tmp_path / ".staging" / rank_zero_path.name
+    monkeypatch.setattr(
+        runtime.rank_sync, "broadcast", lambda _: (staged, rank_zero_path)
+    )
     trainer = _RecordingTrainer()
 
     result = handle_checkpoint(runtime, None, trainer, _checkpoint_command(), None)
 
-    assert trainer.saved == [str(rank_zero_path)]
+    assert trainer.saved == [str(staged)]
     assert result == {"checkpoint_path": str(rank_zero_path)}
     assert list((tmp_path / "checkpoints").iterdir()) == []

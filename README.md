@@ -258,13 +258,30 @@ If an exception hold is interrupted, `/run` reports `stopping` with `exception` 
 Releasing a stale hold ID returns HTTP 404 and leaves the replacement hold active.
 
 Other routes: `/run`, `/metrics`, `/optimizers`, `/artifacts`, `/telemetry/pipeline`, `/inspectors`,
-`/debug/cuda-memory/snapshot`, `/files/<path>` (the same tree as `procfs/`). `GET $URL/checkpoints` lists each
-checkpoint with its size, modification time and download URL. A checkpoint can show a partial size during a save. In
-contrast, a snapshot or debug capture appears only when its manifest and all its payload files are ready. A directory
-under `/files/` is a page of links for a browser, and JSON (`path` and `entries`) for other clients. Two CUDA `GET`
-routes have side effects: `/debug/cuda-memory/snapshot` writes a debug artifact, and
-`/debug/cuda-memory/history?enabled=true` starts recording allocator history. Without `max_entries`, the history keeps
-the last 100_000 entries.
+`/debug/cuda-memory/snapshot`, `/files/<path>` (the same tree as `procfs/`).
+
+`GET $URL/checkpoints` lists each checkpoint's `size_bytes`, modification time, and URL only after all ranks save it.
+
+- For a single-file checkpoint, the URL downloads the file and `size_bytes` is its size.
+- For a directory checkpoint, the URL is a base for known shard filenames, not an archive download.
+- A directory checkpoint's `size_bytes` is its filesystem-reported size, not the sum of its contents.
+
+Snapshots and debug captures appear only when their manifest and payloads are ready.
+
+A directory under `/files/` is a page of links for a browser, and JSON (`path` and `entries`) for other clients.
+
+Two CUDA `GET` routes have side effects: `/debug/cuda-memory/snapshot` writes a debug artifact, and
+`/debug/cuda-memory/history?enabled=true` starts recording allocator history.
+
+Without `max_entries`, the history keeps the last 100_000 entries.
+
+Checkpoint staging and `checkpoints/` must be on the same filesystem.
+
+Publication requires hard links for file checkpoints or no-replace renames for directory checkpoints.
+
+Midrun waits for Lightning's `AsyncCheckpointIO` to finish writing before publishing a checkpoint.
+
+Other custom writers must finish before their save method returns; Midrun cannot detect when their background work ends.
 
 If a stage cannot initialize its artifact directory, it does not use the previous stage's directory.
 

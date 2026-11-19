@@ -72,15 +72,62 @@ def test_write_debug_capture_ids_dont_collide_under_concurrency(tmp_path: Path) 
 )
 def test_checkpoint_path_rejects_unsafe_labels(tmp_path: Path, bad_label: str) -> None:
     store = ArtifactStore(tmp_path / "artifacts")
-    with pytest.raises(ValueError, match="invalid checkpoint label"):
-        store.reserve_checkpoint_path(bad_label)
+    with (
+        pytest.raises(ValueError, match="invalid checkpoint label"),
+        store.stage_checkpoint(bad_label),
+    ):
+        pytest.fail("unsafe label reserved a checkpoint path")
 
 
 def test_checkpoint_path_stays_in_checkpoints_dir(tmp_path: Path) -> None:
     store = ArtifactStore(tmp_path)
-    path = store.reserve_checkpoint_path("before-lr_change.v2")
-    assert path.parent == tmp_path / "checkpoints"
-    assert path.name.endswith("-before-lr_change.v2.ckpt")
+    with store.stage_checkpoint("before-lr_change.v2") as (staged, path):
+        assert path.parent == tmp_path / "checkpoints"
+        assert path.name.endswith("-before-lr_change.v2.ckpt")
+        assert staged.name == path.name
+        assert not staged.exists()
+        staged.mkdir()
+        (staged / "shard").write_bytes(b"checkpoint shard")
+        assert not path.exists()
+    assert (path / "shard").read_bytes() == b"checkpoint shard"
+    assert not staged.parent.exists()
+
+
+def test_checkpoint_reservations_do_not_collide_while_staging(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = ArtifactStore(tmp_path)
+    ids = iter(("c_000001", "c_000001", "c_000002"))
+    monkeypatch.setattr("midrun.runtime.artifacts.next_id", lambda _: next(ids))
+    with (
+        store.stage_checkpoint("best") as (first_stage, first),
+        store.stage_checkpoint("best") as (second_stage, second),
+    ):
+        first_stage.write_text("first")
+        second_stage.write_text("second")
+    assert first != second
+    assert [path.read_text() for path in (first, second)] == ["first", "second"]
+
+
+def test_checkpoint_publication_never_replaces_a_destination_created_during_save(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = ArtifactStore(tmp_path)
+    monkeypatch.setattr("midrun.runtime.artifacts.next_id", lambda _: "c_000001")
+    with (
+        pytest.raises(FileExistsError),
+        store.stage_checkpoint("best") as (staged, path),
+    ):
+        staged.mkdir()
+        (staged / "shard").write_text("new checkpoint")
+        path.mkdir()
+    assert list(path.iterdir()) == []
+    assert not staged.parent.exists()
+    path.rmdir()
+    with store.stage_checkpoint("best") as (retry, destination):
+        assert destination == path
+        retry.write_text("retry")
+    assert path.read_text() == "retry"
 
 
 _WRITE_IN_A_NEW_PROCESS = """
@@ -133,8 +180,8 @@ import sys
 from pathlib import Path
 from midrun.runtime.artifacts import ArtifactStore
 
-path = ArtifactStore(Path(sys.argv[1])).reserve_checkpoint_path("best")
-path.write_text(sys.argv[2])
+with ArtifactStore(Path(sys.argv[1])).stage_checkpoint("best") as (staged, path):
+    staged.write_text(sys.argv[2])
 print(path)
 """
 

@@ -81,6 +81,7 @@ class _FullDiskCheckpointIO(TorchCheckpointIO):
         self, checkpoint: dict, path: str | Path, storage_options: object = None
     ) -> None:
         del checkpoint, storage_options
+        Path(path).write_bytes(b"incomplete")
         raise OSError(errno.ENOSPC, "No space left on device", str(path))
 
 
@@ -419,6 +420,8 @@ def _assert_the_checkpoint_fails_and_every_rank_trains_on(
     command = run.get(f"/commands/{command_id}")
     assert command["status"] == "failed", command
     assert error in command["error"], command
+    root = Path(run.status(0)["artifacts_path"])
+    assert not list(root.glob(".midrun-stage-ckpt-*"))
     steps = [len(run.steps(rank)) for rank in (0, 1)]
     run.wait_until(lambda: all(len(run.steps(r)) > steps[r] + 5 for r in (0, 1)))
     run.post("/control/stop", {})
@@ -457,7 +460,7 @@ def test_a_checkpoint_write_failing_on_rank_zero_fails_only_the_command(
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
-def test_a_checkpoint_path_rank_zero_cannot_reserve_fails_only_the_command(
+def test_a_checkpoint_rank_zero_cannot_publish_fails_only_the_command(
     launch,
 ) -> None:
     run = launch(MIDRUN_TEST_STEP_SLEEP_S="0.05", MIDRUN_TEST_PG_TIMEOUT_S="20")

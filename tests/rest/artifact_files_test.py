@@ -11,6 +11,7 @@ from threading import Event
 import lightning.pytorch as PL
 import pytest
 from fastapi.testclient import TestClient
+from lightning.pytorch.plugins import AsyncCheckpointIO, TorchCheckpointIO
 
 from midrun.build_runtime import build_runtime
 from midrun.config import MidrunConfig
@@ -140,23 +141,108 @@ def test_artifact_files_mount_keeps_svg_type_for_the_dashboard_preview(
     assert response.headers["content-security-policy"] == "sandbox"
 
 
-def test_get_checkpoints_lists_each_checkpoint_with_its_download_url(
-    tmp_path: Path,
+def _model_with_paused_checkpoint_writer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, background: bool, write_fails: bool
+) -> tuple[PL.LightningModule, Event, Event, Event]:
+    entered, resume, draining = Event(), Event(), Event()
+    writer = TorchCheckpointIO()
+    save = writer.save_checkpoint
+
+    def pause_write(
+        checkpoint: dict, path: str | Path, storage_options: dict | None = None
+    ) -> None:
+        Path(path).write_bytes(b"incomplete")
+        entered.set()
+        assert resume.wait(10)
+        if write_fails:
+            raise OSError("disk write failed")
+        save(checkpoint, path, storage_options)
+
+    monkeypatch.setattr(writer, "save_checkpoint", pause_write)
+    plugin = AsyncCheckpointIO(writer) if background else writer
+    if background:
+        teardown = plugin.teardown
+
+        def drain() -> None:
+            draining.set()
+            teardown()
+
+        monkeypatch.setattr(plugin, "teardown", drain)
+    trainer = PL.Trainer(
+        accelerator="cpu",
+        logger=False,
+        enable_checkpointing=False,
+        default_root_dir=tmp_path,
+        plugins=[plugin],
+    )
+    model = PL.LightningModule()
+    model.trainer = trainer
+    trainer.strategy.connect(model)
+    return model, entered, resume, draining
+
+
+def _assert_checkpoint_hidden(client: TestClient, url: str) -> None:
+    assert client.get("/checkpoints").json() == {"checkpoints": []}
+    assert client.get("/artifacts").json()["checkpoints"] == []
+    assert client.get(url).status_code == 404
+
+
+def _assert_checkpoint_download(client: TestClient, path: Path, url: str) -> None:
+    assert client.get("/artifacts").json()["checkpoints"] == [path.name]
+    (entry,) = client.get("/checkpoints").json()["checkpoints"]
+    stat = path.stat()
+    assert entry == {
+        "name": path.name,
+        "size_bytes": stat.st_size,
+        "modified_at": stat.st_mtime,
+        "url": url,
+    }
+    response = client.get(url)
+    assert response.status_code == 200
+    assert response.content == path.read_bytes() != b"incomplete"
+
+
+@pytest.mark.parametrize("background", [False, True])
+@pytest.mark.parametrize("write_fails", [False, True])
+def test_checkpoint_is_published_only_after_a_successful_save(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, background: bool, write_fails: bool
 ) -> None:
     client, runtime = _client(tmp_path)
-    assert client.get("/checkpoints").json() == {"checkpoints": []}
-    path = runtime.artifacts.reserve_checkpoint_path("before-lr")
-    (reserved,) = client.get("/checkpoints").json()["checkpoints"]
-    assert reserved["size_bytes"] == 0
-    assert client.get(reserved["url"]).content == b""
-    path.write_bytes(b"12345")
+    monkeypatch.setattr("midrun.runtime.artifacts.next_id", lambda _: "c_000042")
+    model, entered, resume, draining = _model_with_paused_checkpoint_writer(
+        tmp_path, monkeypatch, background, write_fails
+    )
+    queued = client.post("/checkpoints", json={"label": "manual"})
+    assert queued.status_code == 200
+    command_url = f"/commands/{queued.json()['id']}"
+    name = "ckpt-c_000042-manual.ckpt"
+    path = tmp_path / "checkpoints" / name
+    url = f"/artifact-files/checkpoints/{name}"
 
-    (entry,) = client.get("/checkpoints").json()["checkpoints"]
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        pending = pool.submit(
+            runtime.process_safe_point, model, SafePoint.TRAIN_BATCH_END
+        )
+        try:
+            assert entered.wait(10)
+            if background:
+                assert draining.wait(10)
+            assert client.get(command_url).json()["status"] == "executing"
+            _assert_checkpoint_hidden(client, url)
+        finally:
+            resume.set()
+        pending.result(timeout=10)
 
-    assert entry["name"] == path.name
-    assert entry["size_bytes"] == 5
-    assert entry["modified_at"] == path.stat().st_mtime
-    assert client.get(entry["url"]).content == b"12345"
+    command = client.get(command_url).json()
+    assert not list(tmp_path.glob(".midrun-stage-*"))
+    if write_fails:
+        assert command["status"] == "failed", command
+        assert "disk write failed" in command["error"]
+        _assert_checkpoint_hidden(client, url)
+    else:
+        assert command["status"] == "succeeded", command
+        assert command["result"] == {"checkpoint_path": str(path)}
+        _assert_checkpoint_download(client, path, url)
 
 
 @pytest.mark.parametrize("category", ["debug", "snapshots"])
