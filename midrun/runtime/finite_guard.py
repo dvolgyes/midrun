@@ -69,6 +69,7 @@ class DataloaderFiniteGuard:
     def check(self, batch: object) -> FiniteCheckReport | None:
         """Returns a `FiniteCheckReport` if `batch` contains non-finite values, else `None`.
 
+        Counts use the logical values of complex tensors, including conjugate views.
         No-ops (returns `None` without traversing `batch`) when `enabled` is False.
         """
         if not self.enabled:
@@ -81,7 +82,7 @@ class DataloaderFiniteGuard:
             # isposinf/isneginf reject complex input, so a complex element counts
             # when either of its components is infinite.
             if ref.tensor.is_complex():
-                components = torch.view_as_real(ref.tensor)
+                components = torch.view_as_real(ref.tensor.resolve_conj())
                 posinf = torch.isposinf(components).any(dim=-1)
                 neginf = torch.isneginf(components).any(dim=-1)
             else:

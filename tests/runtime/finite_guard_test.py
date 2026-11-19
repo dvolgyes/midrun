@@ -104,7 +104,12 @@ def test_check_finds_nan_posinf_neginf_counts() -> None:
     assert guard.failures == 1
 
 
-def test_check_counts_complex_elements_by_their_components() -> None:
+@pytest.mark.parametrize(
+    ("conjugate", "counts"), [(False, (1, 1, 1)), (True, (1, 2, 0))]
+)
+def test_check_counts_complex_elements_by_their_components(
+    conjugate: bool, counts: tuple[int, int, int]
+) -> None:
     guard = DataloaderFiniteGuard(enabled=True)
     batch = torch.tensor(
         [
@@ -115,11 +120,11 @@ def test_check_counts_complex_elements_by_their_components() -> None:
         ]
     )
 
-    report = guard.check(batch)
+    report = guard.check(batch.conj() if conjugate else batch)
 
     assert report is not None
     bad = report.bad_tensors[0]
-    assert (bad.nan_count, bad.posinf_count, bad.neginf_count) == (1, 1, 1)
+    assert (bad.nan_count, bad.posinf_count, bad.neginf_count) == counts
 
 
 def test_check_returns_none_for_finite_batch() -> None:
