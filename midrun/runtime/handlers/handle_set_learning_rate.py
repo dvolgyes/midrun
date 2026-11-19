@@ -13,6 +13,19 @@ if TYPE_CHECKING:
     from lightning.pytorch import LightningModule, Trainer
 
 
+def _non_target_lr_storages(
+    trainer: "Trainer", optimizer_index: int, param_group: int | str
+) -> set[torch.UntypedStorage]:
+    """Collect tensor storage that this command must not modify."""
+    return {
+        lr.untyped_storage()
+        for other_index, optimizer in enumerate(trainer.optimizers)
+        for index, group in enumerate(optimizer.param_groups)
+        if (other_index != optimizer_index or param_group not in ("*", index))
+        and isinstance(lr := group["lr"], torch.Tensor)
+    }
+
+
 def handle_set_learning_rate(
     runtime: CommandRuntime,
     pl_module: "LightningModule",
@@ -41,16 +54,27 @@ def handle_set_learning_rate(
     if param_group == "*":
         groups = list(enumerate(optimizer.param_groups))
     else:
-        index = param_group
-        if index >= len(optimizer.param_groups):
-            raise ValueError(f"optimizer {optimizer_index} has no param_group {index}")
-        groups = [(index, optimizer.param_groups[index])]
-    changes: dict[str, Any] = {}
-    for index, group in groups:
-        changes[str(index)] = {"before": float(group["lr"]), "after": value}
-        # A Tensor lr is updated in place, so it stays a Tensor of its dtype and device.
-        if isinstance(group["lr"], torch.Tensor):
-            group["lr"].fill_(value)
+        if param_group >= len(optimizer.param_groups):
+            raise ValueError(
+                f"optimizer {optimizer_index} has no param_group {param_group}"
+            )
+        groups = [(param_group, optimizer.param_groups[param_group])]
+    changes = {
+        str(index): {"before": float(group["lr"]), "after": value}
+        for index, group in groups
+    }
+    other_storages = (
+        _non_target_lr_storages(trainer, optimizer_index, param_group)
+        if any(isinstance(group["lr"], torch.Tensor) for _, group in groups)
+        else set()
+    )
+    for _, group in groups:
+        lr = group["lr"]
+        if isinstance(lr, torch.Tensor):
+            if other_storages and lr.untyped_storage() in other_storages:
+                lr = lr.clone()
+                group["lr"] = lr
+            lr.fill_(value)
         else:
             group["lr"] = value
     result: dict[str, Any] = {"optimizer": optimizer_index, "groups": changes}
