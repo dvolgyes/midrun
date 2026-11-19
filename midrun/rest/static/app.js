@@ -47,26 +47,30 @@ async function pollCommand(id, timeoutMs = 60000, intervalMs = 300) {
   }
 }
 
-/** Polls GET /artifacts until a debug entry of `kind` appears that isn't in `excludeIds`. */
-async function pollForArtifact(
-  kind,
-  excludeIds,
-  timeoutMs = 120000,
-  intervalMs = 500,
-) {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const { debug } = await fetchJSON("/artifacts");
-    for (const id of debug) {
-      if (excludeIds.has(id)) continue;
-      excludeIds.add(id);
-      const manifest = await fetchJSON(`/artifacts/${id}`);
-      if (manifest.kind === kind) return manifest;
+/** Waits for the exact profiler capture; only a 404 means it is not ready. */
+async function pollForProfileCapture(captureId, timeoutMs = 120000) {
+  const url = `/artifacts/${encodeURIComponent(captureId)}`;
+  const deadline = performance.now() + timeoutMs;
+  const signal = AbortSignal.timeout(timeoutMs);
+  try {
+    while (performance.now() < deadline && !signal.aborted) {
+      const res = await fetch(url, { cache: "no-store", signal });
+      if (res.ok) {
+        const manifest = await res.json();
+        if (manifest.id !== captureId || manifest.kind !== "profiler")
+          throw new Error(`${url}: unexpected profiler capture manifest`);
+        return manifest;
+      }
+      if (res.status !== 404)
+        throw new Error(`${url}: ${res.status} ${await res.text()}`);
+      await sleep(Math.min(500, Math.max(0, deadline - performance.now())));
     }
-    if (Date.now() > deadline)
-      throw new Error(`no ${kind} capture appeared within ${timeoutMs}ms`);
-    await sleep(intervalMs);
+  } catch (err) {
+    if (!signal.aborted) throw err;
   }
+  throw new Error(
+    `profiler capture ${captureId} did not appear within ${timeoutMs}ms`,
+  );
 }
 
 // ---- shared poll scheduler --------------------------------------------------
@@ -769,17 +773,16 @@ function setupInspectorControls() {
     const resultBox = byId("profile-result");
     resultBox.textContent = "arming…";
     try {
-      // "profile" only arms the profiler and returns immediately -- it writes its
-      // actual summary/trace as a debug capture several batches later, off the
-      // per-batch training hook, not in this command's own result.
-      const before = new Set((await fetchJSON("/artifacts")).debug);
       const command = await submitCommand("profile", args);
       if (command.status !== "succeeded") {
         resultBox.textContent = `failed: ${command.error}`;
         return;
       }
+      const captureId = command.result?.capture_id;
+      if (typeof captureId !== "string" || !captureId)
+        throw new Error("profile command did not return a capture ID");
       resultBox.textContent = `armed -- waiting for the current batch to end, then for ${args.warmup_steps + args.active_steps} batch(es)…`;
-      const manifest = await pollForArtifact("profiler", before);
+      const manifest = await pollForProfileCapture(captureId);
       await renderArtifactManifest(resultBox, manifest);
     } catch (err) {
       resultBox.textContent = `error: ${err.message}`;

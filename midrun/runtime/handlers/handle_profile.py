@@ -43,6 +43,7 @@ def handle_profile(
     runtime.profiler_run = run
     return {
         "armed": True,
+        "capture_id": run.capture_id,
         "warmup_steps": warmup_steps,
         "active_steps": active_steps,
         "level": level,

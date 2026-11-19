@@ -1,18 +1,20 @@
 """Behavioral tests for the bounded profiler run and its runtime integration."""
 
 import json
+import os
 import subprocess
 import sys
 import threading
 import time
 import warnings
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
 import lightning.pytorch as PL
 import pytest
 import torch
+from fastapi.testclient import TestClient
 from loguru import logger
 from torch.utils.data import DataLoader, TensorDataset
 
@@ -20,6 +22,7 @@ from midrun.build_runtime import build_runtime
 from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
 from midrun.mixin import MidrunMixin
+from midrun.rest.app import build_app
 from midrun.runtime.artifacts import ArtifactStore
 from midrun.runtime.command_specs.execute_command import execute_command
 from midrun.runtime.commands.parse_when import parse_when
@@ -206,6 +209,65 @@ def test_finish_train_batch_advances_and_finalizes_profiler(tmp_path: Path) -> N
     assert len(debug_dirs) == 1
 
 
+@pytest.fixture
+def _pin_profiler_thread() -> Iterator[None]:
+    if not hasattr(os, "sched_getaffinity"):
+        yield
+        return
+    cpus = os.sched_getaffinity(0)
+    os.sched_setaffinity(0, {min(cpus)})
+    try:
+        yield
+    finally:
+        os.sched_setaffinity(0, cpus)
+
+
+@pytest.mark.usefixtures("_pin_profiler_thread")
+def test_profile_commands_with_same_id_publish_distinct_captures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "midrun.runtime.commands.command_queue.next_id",
+        lambda prefix: f"{prefix}_000001",
+    )
+    runtime_a, runtime_b = _make_runtime(tmp_path), _make_runtime(tmp_path)
+    trainer = _FakeTrainer()
+    module = _FakePLModule(trainer)
+    args = {"warmup_steps": 0, "active_steps": 1}
+    command_a = runtime_a.command_queue.submit("profile", args, parse_when("now"))
+    command_b = runtime_b.command_queue.submit("profile", args, parse_when("now"))
+    assert command_a.id == command_b.id
+
+    execute_command(runtime_b, module, trainer, command_b, safe_point=None)
+    assert command_b.status == "succeeded"
+    capture_b = command_b.result["capture_id"]
+    runtime_b.finish_train_batch(module)
+    runtime_b.begin_train_batch(module, batch={}, batch_idx=1)
+    _ = torch.ones(4).cumsum(0)
+    runtime_b.finish_train_batch(module)
+
+    execute_command(runtime_a, module, trainer, command_a, safe_point=None)
+    with TestClient(build_app(runtime_a), base_url="http://localhost") as client:
+        armed = client.get(f"/commands/{command_a.id}").json()
+        assert armed["status"] == "succeeded"
+        capture_a = armed["result"]["capture_id"]
+        assert capture_a != capture_b
+        assert client.get(f"/artifacts/{capture_b}").status_code == 200
+        assert client.get(f"/artifacts/{capture_a}").status_code == 404
+
+        runtime_a.finish_train_batch(module)
+        runtime_a.begin_train_batch(module, batch={}, batch_idx=1)
+        _ = torch.ones(4).relu()
+        runtime_a.finish_train_batch(module)
+
+        response = client.get(f"/artifacts/{capture_a}")
+        assert response.status_code == 200
+        assert response.json()["id"] == capture_a
+        assert response.json()["kind"] == "profiler"
+        assert "aten::relu" in _traced_op_names(tmp_path / "debug" / capture_a)
+        assert "aten::cumsum" in _traced_op_names(tmp_path / "debug" / capture_b)
+
+
 def test_completed_profile_retries_publication_before_holding(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -215,17 +277,23 @@ def test_completed_profile_retries_publication_before_holding(
     store = runtime.artifact_store
     publish = store.write_debug_capture
     traces: list[bytes] = []
+    capture_ids: list[str] = []
     holds: list[list[bytes]] = []
 
     def fail_once(
-        kind: str, files: Mapping[str, str | bytes], metadata: dict[str, Any]
+        kind: str,
+        files: Mapping[str, str | bytes],
+        metadata: dict[str, Any],
+        *,
+        artifact_id: str,
     ) -> dict[str, Any]:
         trace = files["trace.json"]
         assert isinstance(trace, bytes)
         traces.append(trace)
+        capture_ids.append(artifact_id)
         if len(traces) == 1:
             raise OSError("capture publication unavailable")
-        return publish(kind, files, metadata)
+        return publish(kind, files, metadata, artifact_id=artifact_id)
 
     def release_hold(*_args: object) -> None:
         assert runtime.gate.is_held()
@@ -242,6 +310,7 @@ def test_completed_profile_retries_publication_before_holding(
         parse_when("now"),
     )
     execute_command(runtime, module, trainer, cmd, safe_point=None)
+    capture_id = cmd.result["capture_id"]
     run = runtime.profiler_run
     assert run is not None
     runtime.finish_train_batch(module)
@@ -249,6 +318,7 @@ def test_completed_profile_retries_publication_before_holding(
     _ = torch.ones(4).cumsum(0)
     runtime.finish_train_batch(module)
     assert len(traces) == 1
+    assert not (store.root / "debug" / capture_id).exists()
     assert not holds
     assert runtime.profiler_run is run
     assert run.phase_state()["state"] == "pending_publication"
@@ -260,9 +330,11 @@ def test_completed_profile_retries_publication_before_holding(
     assert runtime.profiler_run is None
     assert run.steps_done == 2
     assert len(traces) == 2
+    assert capture_ids == [capture_id, capture_id]
     assert traces[0] == traces[1]
     assert holds == [[traces[0]]]
     (capture,) = (store.root / "debug").iterdir()
+    assert capture.name == capture_id
     assert "aten::cumsum" in _traced_op_names(capture)
 
 
@@ -441,6 +513,8 @@ def test_run_end_stops_an_active_profile_and_saves_it_as_truncated(
     assert not torch.autograd.profiler._is_profiler_enabled
     assert runtime.profiler_run is None
     (capture_dir,) = (runtime.artifact_store.root / "debug").iterdir()
+    (command,) = runtime.command_queue.list_all()
+    assert capture_dir.name == command.result["capture_id"]
     manifest = json.loads((capture_dir / "manifest.json").read_text())
     assert manifest["kind"] == "profiler"
     assert manifest["metadata"]["truncated"] is True

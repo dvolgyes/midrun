@@ -93,8 +93,9 @@ def test_retry_after_capture_write_failure_preserves_the_export():
         calls.append("export")
         Path(path).write_bytes(b"trace")
 
-    def write_capture(kind, files, metadata):
+    def write_capture(kind, files, metadata, *, artifact_id):
         assert files["trace.json"] == b"trace"
+        assert artifact_id == run.capture_id
         calls.append("write")
         if calls.count("write") == 1:
             raise OSError("write failed")

@@ -91,6 +91,8 @@ class ArtifactStore:
         kind: str,
         files: Mapping[str, str | bytes],
         metadata: dict[str, Any] | None = None,
+        *,
+        artifact_id: str | None = None,
     ) -> dict[str, Any]:
         """Writes a debug capture's manifest plus one or more named files; returns the manifest.
 
@@ -100,6 +102,7 @@ class ArtifactStore:
                 value is written as text; a `bytes` value (e.g. a `torch.save` buffer)
                 is written as-is.
             metadata: Optional JSON-serializable context to record alongside the capture.
+            artifact_id: Optional preassigned id for a capture advertised before publication.
 
         Returns:
             The written manifest (id, kind, created_at, metadata, filenames, and path).
@@ -107,9 +110,15 @@ class ArtifactStore:
         Raises:
             ValueError: a filename in `files` does not match `ARTIFACT_NAME_PATTERN`
                 or is `manifest.json` (REST-supplied input boundary: a capture can
-                never write outside its own directory or replace its manifest).
-                Nothing is written in that case.
+                never write outside its own directory or replace its manifest), or
+                `artifact_id` is not a valid debug id. Nothing is written.
+            FileExistsError: the preassigned id is already in use.
         """
+        if artifact_id is not None and (
+            not artifact_id.startswith("dbg_")
+            or not _ARTIFACT_NAME.fullmatch(artifact_id)
+        ):
+            raise ValueError(f"invalid debug capture id {artifact_id!r}")
         for filename in files:
             if (
                 not _ARTIFACT_NAME.fullmatch(filename)
@@ -119,7 +128,10 @@ class ArtifactStore:
                     f"invalid capture filename {filename!r}: must match"
                     f" {ARTIFACT_NAME_PATTERN} and not be manifest.json"
                 )
-        with _stage_artifact(self.root / "debug", "dbg") as (stage, published):
+        with _stage_artifact(self.root / "debug", "dbg", artifact_id=artifact_id) as (
+            stage,
+            published,
+        ):
             manifest = {
                 "id": published.name,
                 "kind": kind,
@@ -138,15 +150,17 @@ class ArtifactStore:
 
 
 @contextmanager
-def _stage_artifact(parent: Path, prefix: str) -> Iterator[tuple[Path, Path]]:
+def _stage_artifact(
+    parent: Path, prefix: str, *, artifact_id: str | None = None
+) -> Iterator[tuple[Path, Path]]:
     """Reserves a private directory outside the published categories until all writes succeed."""
     staging_parent = parent.parent
     if staging_parent.stat().st_dev != parent.stat().st_dev:
         raise OSError("artifact staging and publication require the same filesystem")
-    for _ in range(_MAX_ID_ATTEMPTS):
-        artifact_id = next_id(prefix)
-        destination = parent / artifact_id
-        stage = staging_parent / f".midrun-stage-{artifact_id}"
+    for _ in range(1 if artifact_id is not None else _MAX_ID_ATTEMPTS):
+        candidate = artifact_id if artifact_id is not None else next_id(prefix)
+        destination = parent / candidate
+        stage = staging_parent / f".midrun-stage-{candidate}"
         try:
             stage.mkdir(mode=0o700)
         except FileExistsError:
@@ -160,6 +174,8 @@ def _stage_artifact(parent: Path, prefix: str) -> Iterator[tuple[Path, Path]]:
             shutil.rmtree(stage)
             raise
         stage.rmdir()
+    if artifact_id is not None:
+        raise FileExistsError(f"artifact id {artifact_id!r} is in use under {parent}")
     raise FileExistsError(
         f"no free {prefix} id under {parent} after {_MAX_ID_ATTEMPTS} attempts"
     )

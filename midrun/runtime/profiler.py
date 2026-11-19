@@ -8,6 +8,7 @@ itself; no profiling logic is reimplemented here.
 import tempfile
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import torch
 from loguru import logger
@@ -30,17 +31,19 @@ class ProfilerRun:
     first warmup or active step is a full batch.
 
     Attributes:
-        id: The `profile` command's id, used to label the resulting artifact.
+        id: The `profile` command's id, used for logging.
         warmup_steps: Full batches to run under the profiler before recording starts.
         active_steps: Full batches to actually record after warmup.
         level: One of `basic`, `shapes`, `memory`, `full` (see `_LEVEL_KWARGS`).
         then_hold: Whether to enter a cooperative hold once this run finalizes.
         steps_done: Number of `step()` calls made so far, the first included.
 
+    :ivar capture_id: The unique artifact id for this capture, including write retries.
     :ivar _stopped: Whether the underlying profiler has stopped.
     :ivar _pending_export: Trace and metadata retained until the artifact write succeeds.
     """
 
+    capture_id: str
     _stopped: bool
     _pending_export: tuple[dict[str, str | bytes], dict[str, Any]] | None
 
@@ -59,6 +62,7 @@ class ProfilerRun:
         if active_steps < 1:
             raise ValueError(f"active_steps must be >= 1, got {active_steps}")
         self.id = run_id
+        self.capture_id = f"dbg_{uuid4().hex}"
         self.warmup_steps = warmup_steps
         self.active_steps = active_steps
         self.level = level
@@ -147,7 +151,7 @@ class ProfilerRun:
             self._pending_export = self.finalize()
         files, finalize_metadata = self._pending_export
         artifact_store.write_debug_capture(
-            "profiler", files, metadata | finalize_metadata
+            "profiler", files, metadata | finalize_metadata, artifact_id=self.capture_id
         )
         self._pending_export = None
 

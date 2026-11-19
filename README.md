@@ -225,6 +225,12 @@ For Adam and AdamW, `reset_momentum` clears only the selected first moments.
 
 If a reset replaces a shared buffer, recapture any CUDA graph that used that buffer before replay.
 
+The `profile` command returns a separate `capture_id` that stays the same on write retries and for truncated traces.
+
+For the manifest, poll `GET $URL/artifacts/<capture_id>`, which returns 404 until publication.
+
+The dashboard waits up to two minutes after arming, but there is no artifact if the profiler records nothing.
+
 If a completed `profile` cannot write its trace, `state/profiler.json` reports `pending_publication`.
 
 - The next batch end or stage teardown retries the write without recording more steps.
