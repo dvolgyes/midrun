@@ -310,15 +310,21 @@ def test_disallowed_command_is_not_executed_during_exception_hold(
         thread.join(timeout=5)
 
 
-def test_detect_backward_interception_allows_known_strategy(tmp_path: Path) -> None:
+def test_detect_backward_interception_resets_for_a_known_strategy(
+    tmp_path: Path,
+) -> None:
     runtime = _make_runtime(tmp_path)
     trainer = _FakeTrainer()
 
     class SingleDeviceStrategy:
         pass
 
-    trainer.strategy = SingleDeviceStrategy()
+    trainer.strategy = object()
     pl_module = _FakePLModule(trainer)
+    runtime._detect_backward_interception(pl_module)
+    assert not runtime.state.read().backward_interception_supported
+
+    trainer.strategy = SingleDeviceStrategy()
 
     runtime._detect_backward_interception(pl_module)
 

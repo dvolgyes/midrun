@@ -791,6 +791,9 @@ class MidrunRuntime:
             return
         strategy_name = type(strategy).__name__
         if strategy_name in _KNOWN_SAFE_BACKWARD_STRATEGIES:
+            self.state.update(
+                backward_interception_supported=True, backward_interception_reason=None
+            )
             return
         reason = (
             f"strategy {strategy_name!r} is not in the known-safe allowlist for "
