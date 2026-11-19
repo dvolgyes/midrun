@@ -2,6 +2,7 @@
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from graphlib import TopologicalSorter
 
 import torch
 from torch.utils._python_dispatch import is_traceable_wrapper_subclass
@@ -68,8 +69,8 @@ def inspector_forward(
             "wait on collectives that the other ranks do not join"
         )
     # Per module, as a model can keep a frozen part in eval mode while it trains.
-    # `modules()` lists a parent before its children, so a child's own flag wins.
-    modes = []
+    original_modes: dict[torch.nn.Module, bool] = {}
+    restore_order: TopologicalSorter[torch.nn.Module] = TopologicalSorter()
     for module in model.modules():
         if (
             isinstance(module, torch.nn.Embedding | torch.nn.EmbeddingBag)
@@ -79,11 +80,16 @@ def inspector_forward(
                 f"{what} refused: {type(module).__name__} with max_norm set "
                 "can change its weights during a forward pass"
             )
-        modes.append((module, module.training))
-    model.eval()
+        original_modes[module] = module.training
+        restore_order.add(module)
+        for child in module.children():
+            restore_order.add(child, module)
     try:
+        model.eval()
         with torch.enable_grad() if needs_grad else torch.no_grad():
             yield
     finally:
-        for module, training in modes:
-            module.train(training)
+        for module in restore_order.static_order():
+            training = original_modes[module]
+            if module.training != training:
+                module.train(training)

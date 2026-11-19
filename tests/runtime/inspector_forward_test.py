@@ -12,8 +12,9 @@ import sys
 import threading
 import time
 import types
+from contextlib import nullcontext
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
 
 import pytest
 import torch
@@ -26,6 +27,7 @@ from midrun.load_backend import load_backend
 from midrun.runtime.artifacts import ArtifactStore
 from midrun.runtime.command_specs.execute_command import execute_command
 from midrun.runtime.commands.parse_when import parse_when
+from midrun.runtime.inspector_forward import inspector_forward
 from midrun.runtime.runtime import MidrunRuntime
 from midrun.runtime.virtual_fs.virtual_file_content import virtual_file_content
 
@@ -230,6 +232,59 @@ def test_capture_command_restores_train_mode_when_forward_raises(
     assert "on purpose" in cmd.error
     assert model.recorder.seen == [(False, False)]
     assert model.training
+
+
+class _ModeDependentDropout(torch.nn.Dropout):
+    scale: int
+
+    def __init__(self) -> None:
+        super().__init__(p=0.0)
+        self.scale = 2
+
+    def train(self, mode: bool = True) -> Self:
+        super().train(mode)
+        self.scale = 2 if mode else 1
+        return self
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return super().forward(x) * self.scale
+
+
+@pytest.mark.parametrize("dropout_training", [False, True], ids=["eval", "train"])
+@pytest.mark.parametrize("fails", [False, True], ids=["success", "error"])
+def test_inspector_forward_restores_modes_with_shared_dropout(
+    fails: bool, dropout_training: bool
+) -> None:
+    dropout = _ModeDependentDropout()
+    recorder = _Recorder()
+    recorder.fail = fails
+    model = torch.nn.Sequential(
+        torch.nn.Sequential(dropout), torch.nn.Sequential(dropout), recorder
+    )
+    model[0].eval()
+    dropout.train(dropout_training)
+    sample = torch.ones(4)
+    original_output = dropout(sample)
+    original_modes = {name: module.training for name, module in model.named_modules()}
+
+    expectation = (
+        pytest.raises(RuntimeError, match="forward failed on purpose")
+        if fails
+        else nullcontext()
+    )
+    with (
+        expectation,
+        inspector_forward(
+            load_backend("lightning.pytorch"), None, model, "test inspector"
+        ),
+    ):
+        assert not any(module.training for module in model.modules())
+        torch.testing.assert_close(model(sample), sample)
+
+    assert recorder.seen == [(False, False)]
+    restored_modes = {name: module.training for name, module in model.named_modules()}
+    assert restored_modes == original_modes
+    torch.testing.assert_close(dropout(sample), original_output)
 
 
 @_NEEDS_DOT
