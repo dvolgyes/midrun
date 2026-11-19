@@ -4,12 +4,14 @@ from pathlib import Path
 
 import lightning.pytorch as pl
 import torch
+from fastapi.testclient import TestClient
 from torch.utils.data import DataLoader
 
 from midrun.build_runtime import build_runtime
 from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
 from midrun.mixin import MidrunMixin
+from midrun.rest.app import build_app
 from midrun.runtime.pipeline_pressure import PipelinePressureTracker
 
 
@@ -192,3 +194,41 @@ def test_accumulated_batches_report_completed_optimizer_steps(tmp_path: Path) ->
     )
     trainer.fit(Model(), DataLoader(torch.ones(4), batch_size=1))
     assert steps == [0, 1, 1, 2]
+
+
+def test_new_fit_resets_input_gap_and_retains_samples(tmp_path: Path) -> None:
+    class Model(MidrunMixin, pl.LightningModule):
+        def __init__(self) -> None:
+            super().__init__(
+                rest_enabled=False,
+                fuse_enabled=False,
+                torch_debug_enabled=False,
+                hooks_enabled=False,
+            )
+            self.weight = torch.nn.Parameter(torch.ones(()))
+
+        def training_step(self, batch: torch.Tensor, batch_idx: int) -> torch.Tensor:
+            return self.weight * batch.mean()
+
+        def configure_optimizers(self) -> torch.optim.SGD:
+            return torch.optim.SGD(self.parameters(), lr=0.1)
+
+    model = Model()
+    client = TestClient(build_app(model.midrun), base_url="http://localhost")
+    loader = DataLoader(torch.ones(1), batch_size=1)
+    for expected_samples in (1, 2):
+        trainer = pl.Trainer(
+            default_root_dir=tmp_path,
+            accelerator="cpu",
+            devices=1,
+            max_epochs=1,
+            logger=False,
+            enable_progress_bar=False,
+            enable_checkpointing=False,
+        )
+        trainer.fit(model, loader)
+        response = client.get("/telemetry/pipeline")
+        assert response.status_code == 200
+        pipeline = response.json()
+        assert pipeline["latest"]["input_gap_ns"] is None
+        assert pipeline["summary"]["samples"] == expected_samples

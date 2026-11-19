@@ -23,7 +23,7 @@ class PipelinePressureSample:
     :ivar batch_idx: Batch index within the epoch.
     :ivar input_gap_ns: Time between the previous batch's end and this batch's start --
         some mix of DataLoader wait, batch transfer, and framework overhead; not
-        proven to be pure DataLoader time. `None` for the first batch.
+        proven to be pure DataLoader time. `None` for the first batch of each fit.
     :ivar forward_loss_ns: Time before the first backward and between backward passes,
         including work other than forward/loss. `None` if backward never started.
     :ivar backward_ns: Total time inside backward passes. `None` if the final pass
@@ -80,6 +80,10 @@ class PipelinePressureTracker:
     def __init__(self, window: int) -> None:
         self.window = window
         self._samples = deque(maxlen=window)
+        self._batch = _BatchState()
+
+    def fit_start(self) -> None:
+        """Clears batch timing at a new fit while retaining completed samples."""
         self._batch = _BatchState()
 
     def batch_start(self, now_ns: int, epoch: int, batch_idx: int) -> None:

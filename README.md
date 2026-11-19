@@ -276,6 +276,8 @@ can report the same `global_step`. The rolling summary uses nearest-rank percent
 phase, `mean_to_batch_ratio` replaces `fraction`: it divides mean phase time by mean in-batch time. The input gap occurs
 *between* batches, so its ratio can exceed one.
 
+The first batch of each `fit()` reports `input_gap_ns: null`; the rolling summary retains earlier samples.
+
 For batches with multiple backward passes, `backward_ns` sums all passes and `forward_loss_ns` includes the gaps between
 them.
 

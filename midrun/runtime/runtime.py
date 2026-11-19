@@ -368,6 +368,7 @@ class MidrunRuntime:
 
     def on_fit_start(self, pl_module: "LightningModule") -> None:
         """Publishes the first full snapshot and tunable hparams once the Trainer is attached."""
+        self.pipeline.fit_start()
         self.model_info = ModelInfo(
             class_name=type(pl_module).__name__,
             hparams=dict(getattr(pl_module, "hparams", {})),
