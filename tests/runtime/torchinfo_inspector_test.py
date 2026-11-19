@@ -1,10 +1,12 @@
 """Behavioral tests for the torchinfo inspector and its command handler."""
 
+import json
 import sys
 from pathlib import Path
 
 import pytest
 import torch
+from lightning.pytorch import LightningModule
 
 from midrun.build_runtime import build_runtime
 from midrun.config import MidrunConfig
@@ -79,6 +81,49 @@ def test_basic_summary_text_uses_torchinfo_when_available() -> None:
     model = _Model()
     text = basic_summary_text(model)
     assert "Total params" in text
+
+
+@pytest.mark.parametrize(("tied", "total"), [(True, 10_200), (False, 20_200)])
+def test_summaries_count_unique_model_parameters(tied: bool, total: int) -> None:
+    class TwoLayers(LightningModule):
+        def __init__(self) -> None:
+            super().__init__()
+            self.first = torch.nn.Linear(100, 100, dtype=torch.float64)
+            self.second = torch.nn.Linear(100, 100, dtype=torch.float64)
+            if tied:
+                self.second.weight = self.first.weight
+            self.second.bias.requires_grad_(False)
+            self.forward_calls = 0
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            self.forward_calls += 1
+            return self.second(self.first(x))
+
+    model = TwoLayers()
+    trainable = total - 100
+    static_text = basic_summary_text(model)
+    assert model.forward_calls == 0
+    assert basic_summary_json(model) == {
+        "total_params": total,
+        "trainable_params": trainable,
+        "non_trainable_params": 100,
+        "torchinfo_used": True,
+    }
+
+    live = torchinfo_rich_summary(model, torch.zeros(3, 100, dtype=torch.float64))
+    assert model.forward_calls == 1
+    assert json.loads(live["summary.json"]) == {
+        "total_params": total,
+        "trainable_params": trainable,
+        "total_mult_adds": 60_600,
+    }
+    for text in (static_text, live["summary.txt"]):
+        assert f"Total params: {total:,}" in text.splitlines()
+        assert f"Trainable params: {trainable:,}" in text.splitlines()
+        assert "Non-trainable params: 100" in text.splitlines()
+        assert text.count("Linear:") == 2
+    params_mb = total * 8 / 1e6
+    assert f"Params size (MB): {params_mb:.2f}" in live["summary.txt"].splitlines()
 
 
 def test_rich_summary_raises_without_torchinfo(

@@ -1,9 +1,14 @@
 """The torchinfo summary of a model, traced with a live batch."""
 
+import json
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING
 
 import torch
+
+from midrun.runtime.torchinfo_inspector.parameter_totals import (
+    parameter_totals,
+)
 
 if TYPE_CHECKING:
     from lightning.pytorch import LightningModule
@@ -25,11 +30,12 @@ def torchinfo_rich_summary(
     Raises:
         ImportError: torchinfo is not installed.
     """
-    import json
-
     import torchinfo
 
     stats = torchinfo.summary(pl_module, input_data=batch, verbose=0)
+    stats.total_params, stats.trainable_params, stats.total_param_bytes = (
+        parameter_totals(pl_module.parameters())
+    )
     payload = {
         "total_params": stats.total_params,
         "trainable_params": stats.trainable_params,

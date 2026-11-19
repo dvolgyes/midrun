@@ -2,6 +2,10 @@
 
 from typing import TYPE_CHECKING
 
+from midrun.runtime.torchinfo_inspector.parameter_totals import (
+    parameter_totals,
+)
+
 if TYPE_CHECKING:
     from lightning.pytorch import LightningModule
 
@@ -17,6 +21,10 @@ def basic_summary_text(pl_module: "LightningModule") -> str:
     except ImportError:
         return str(pl_module)
     try:
-        return str(torchinfo.summary(pl_module, verbose=0))
+        stats = torchinfo.summary(pl_module, verbose=0)
+        stats.total_params, stats.trainable_params, stats.total_param_bytes = (
+            parameter_totals(pl_module.parameters())
+        )
+        return str(stats)
     except Exception:  # noqa: BLE001 -- best-effort cosmetic summary, never fatal
         return str(pl_module)
