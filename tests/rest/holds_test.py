@@ -8,6 +8,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,6 +18,7 @@ from midrun.config import MidrunConfig
 from midrun.load_backend import load_backend
 from midrun.rest.app import build_app
 from midrun.runtime.artifacts import ArtifactStore
+from midrun.runtime.command_specs.allowed_during_hold import ALLOWED_DURING_HOLD
 from midrun.runtime.commands.parse_when import parse_when
 from midrun.runtime.events import SafePoint
 from midrun.runtime.runtime import MidrunRuntime
@@ -26,6 +28,13 @@ from midrun.runtime.state.exception_breakpoint_info import ExceptionBreakpointIn
 class _StepTrainer:
     current_epoch = 0
     global_step = 0
+
+
+class _CheckpointTrainer(_StepTrainer):
+    strategy = SimpleNamespace(checkpoint_io=None)
+
+    def save_checkpoint(self, path: str) -> None:
+        Path(path).write_bytes(b"checkpoint")
 
 
 def _runtime(tmp_path: Path) -> MidrunRuntime:
@@ -128,6 +137,53 @@ def test_holds_does_not_list_a_command_that_runs_during_the_hold(
     assert client.get("/holds").json()["waiting"] == []
 
 
+def test_holds_lists_a_scheduled_checkpoint_until_release(tmp_path: Path) -> None:
+    runtime = _runtime(tmp_path)
+    client = TestClient(build_app(runtime), base_url="http://localhost")
+    trainer = _CheckpointTrainer()
+    hold = client.post("/holds", json={"timeout_s": 0}).json()["id"]
+    runtime._run_due_commands(None, trainer, SafePoint.TRAIN_BATCH_END, allowed=None)
+
+    immediate = client.post(
+        "/commands", json={"kind": "checkpoint", "args": {"label": "now"}}
+    ).json()["id"]
+    scheduled = client.post(
+        "/commands",
+        json={
+            "kind": "checkpoint",
+            "args": {"label": "scheduled"},
+            "execution": {"when": "next_safe_point"},
+        },
+    ).json()["id"]
+    later_hold = client.post(
+        "/holds", json={"when": "next_safe_point", "timeout_s": 0}
+    ).json()["id"]
+
+    held = client.get("/holds").json()
+    assert held["active"]["command_id"] == hold
+    assert [entry["id"] for entry in held["holds"]] == [hold, later_hold]
+    assert [entry["id"] for entry in held["waiting"]] == [scheduled]
+
+    runtime._run_due_commands(
+        None, trainer, safe_point=None, allowed=ALLOWED_DURING_HOLD
+    )
+    saved = client.get(f"/commands/{immediate}").json()
+    assert saved["status"] == "succeeded", saved
+    assert Path(saved["result"]["checkpoint_path"]).read_bytes() == b"checkpoint"
+    assert client.get(f"/commands/{scheduled}").json()["status"] == "queued"
+    still_held = client.get("/holds").json()["waiting"]
+    assert [entry["id"] for entry in still_held] == [scheduled]
+
+    assert client.post(f"/holds/{hold}/release").status_code == 200
+    assert client.get("/holds").json()["waiting"] == []
+    assert client.get(f"/commands/{scheduled}").json()["status"] == "queued"
+    assert client.post(f"/holds/{later_hold}/cancel").status_code == 200
+    runtime._run_due_commands(None, trainer, SafePoint.TRAIN_BATCH_END, allowed=None)
+    saved = client.get(f"/commands/{scheduled}").json()
+    assert saved["status"] == "succeeded", saved
+    assert Path(saved["result"]["checkpoint_path"]).read_bytes() == b"checkpoint"
+
+
 def test_holds_lists_a_batch_command_that_waits_for_the_next_batch(
     tmp_path: Path,
 ) -> None:
@@ -150,6 +206,9 @@ def test_holds_applies_the_exception_hold_policy_during_an_exception(
     runtime = _runtime(tmp_path)
     client = TestClient(build_app(runtime), base_url="http://localhost")
     runtime.command_queue.submit("save_current_batch", {}, parse_when("now"))
+    scheduled = runtime.command_queue.submit(
+        "save_current_batch", {}, parse_when("next_safe_point")
+    )
     snapshot = runtime.command_queue.submit("snapshot", {}, parse_when("now"))
     exception = ExceptionBreakpointInfo(
         exception_type="RuntimeError",
@@ -166,7 +225,11 @@ def test_holds_applies_the_exception_hold_policy_during_an_exception(
 
     waiting = client.get("/holds").json()["waiting"]
 
-    assert [entry["id"] for entry in waiting] == [snapshot.id]
+    assert [entry["id"] for entry in waiting] == [scheduled.id, snapshot.id]
+
+    runtime.state.update(exception=None)
+
+    assert client.get("/holds").json()["waiting"] == []
 
 
 def test_holds_shows_the_active_exception_hold(tmp_path: Path) -> None:

@@ -248,8 +248,16 @@ missing or unknown argument, and a value of the wrong type with status 422. The 
 a float argument, `{"value": 1}` is accepted and becomes `1.0`. Every invalid argument, in any route, gets status 422
 with a list of errors: `{"detail": [{"loc": ["body", ...], "msg": "...", "type": "..."}]}`.
 
-While the run is held, only some command kinds run. `GET $URL/holds` lists the other queued commands under `waiting`.
-They run after the hold ends. After `release_exception` they never run, because the run then ends with the exception.
+While the run is held, only immediate (`now`) commands permitted by the hold policy and batch availability can run.
+
+`GET $URL/holds` lists queued commands that cannot run during the hold under `waiting`.
+
+Hold commands appear under `holds` instead.
+
+Waiting commands can run after a regular hold ends, when their scheduling conditions are met.
+
+After `release_exception` they never run, because the run then ends with the exception.
+
 During an exception hold, `active` in `GET $URL/holds` is `null`, and `exception` shows the exception with the same
 fields as in `GET $URL/run`. Otherwise, `exception` is `null`. `release_exception` returns status 409 when no exception
 hold is active. `POST $URL/holds/<id>/cancel` cancels only a hold that is not active yet. `POST $URL/control/continue`

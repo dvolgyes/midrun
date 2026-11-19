@@ -27,9 +27,8 @@ def register_hold_routes(app: FastAPI, runtime: MidrunRuntime) -> None:
         """Reports active holds and commands waiting for release."""
         commands = runtime.command_queue.list_all()
         active = runtime.gate.active_hold()
-        exception = runtime.state.read().exception
-        # A hold runs only some kinds, and no batch command while no batch is in
-        # flight; the other queued commands wait.
+        state = runtime.state.read()
+        exception = state.exception
         # While an exception is held, the training thread runs only the exception
         # hold loop, so that loop's policy applies.
         allowed: frozenset[str] | None = None
@@ -48,8 +47,11 @@ def register_hold_routes(app: FastAPI, runtime: MidrunRuntime) -> None:
                 for c in commands
                 if allowed is not None
                 and c.kind != "hold"
-                and c.kind not in allowed
                 and c.status == "queued"
+                and (
+                    c.kind not in allowed
+                    or not c.when.is_due(None, state.epoch, state.global_step)
+                )
             ],
         }
 
