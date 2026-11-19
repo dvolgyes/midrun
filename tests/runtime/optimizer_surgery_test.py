@@ -442,26 +442,58 @@ def test_reset_momentum_rejects_part_of_a_fused_sgd_group_without_mutating_state
 def test_set_learning_rate_updates_a_tensor_lr_in_place_and_reports_floats() -> None:
     runtime = _make_runtime()
     model = torch.nn.Linear(2, 2)
-    lr = torch.tensor(0.1)
+    lr = torch.tensor(0.125, dtype=torch.float16)
     optimizer = torch.optim.SGD(model.parameters(), lr=lr)
     trainer = _FakeTrainer(optimizers=[optimizer])
     pl_module = _FakePLModule(trainer, model)
 
     command = _submit_and_run(
-        runtime, pl_module, trainer, "set_learning_rate", {"value": 0.5}
+        runtime, pl_module, trainer, "set_learning_rate", {"value": 0.1}
     )
 
     assert command.status == "succeeded"
     assert optimizer.param_groups[0]["lr"] is lr
-    assert lr.item() == 0.5
+    assert lr.item() == torch.tensor(0.1, dtype=torch.float16).item()
     response = TestClient(build_app(runtime), base_url="http://localhost").get(
         f"/commands/{command.id}"
     )
     assert response.status_code == 200
     assert response.json()["result"]["groups"]["0"] == {
-        "before": pytest.approx(0.1),
-        "after": 0.5,
+        "before": 0.125,
+        "after": lr.item(),
     }
+
+
+@pytest.mark.parametrize("value", [1e5, 1e-8], ids=["overflow", "underflow"])
+def test_set_learning_rate_rejects_unrepresentable_rate_atomically(
+    value: float,
+) -> None:
+    runtime = _make_runtime()
+    model = _Model()
+    wide = torch.tensor(0.125, dtype=torch.float32)
+    narrow = torch.tensor(0.25, dtype=torch.float16)
+    optimizer = torch.optim.SGD(
+        [
+            {"params": [model.a.weight], "lr": 0.5},
+            {"params": [model.a.bias], "lr": wide},
+            {"params": model.b.parameters(), "lr": narrow},
+        ]
+    )
+    other = torch.optim.SGD(model.parameters(), lr=wide.view_as(wide))
+    trainer = _FakeTrainer(optimizers=[optimizer, other])
+    command = _submit_and_run(
+        runtime,
+        _FakePLModule(trainer, model),
+        trainer,
+        "set_learning_rate",
+        {"value": value},
+    )
+
+    assert command.status == "failed"
+    assert optimizer.param_groups[0]["lr"] == 0.5
+    assert optimizer.param_groups[1]["lr"] is wide
+    assert optimizer.param_groups[2]["lr"] is narrow
+    assert (wide.item(), narrow.item()) == (0.125, 0.25)
 
 
 @pytest.mark.parametrize("use_view", [False, True], ids=["inherited", "view"])

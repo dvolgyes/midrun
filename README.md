@@ -215,6 +215,12 @@ Instead of `epoch`, you can give `global_step`. Without `safe_point`, the condit
 | `torchinfo_capture`, `torchview_capture`, `torchviz_capture`, `torchlens_capture` | Capture a model summary or graph (optional extras). |
 | `profile`, `set_lightning_profiler` | Profile some training steps. |
 
+`set_learning_rate` checks every selected parameter group before changing any of them.
+
+It rejects a rate that overflows or rounds from a positive value to zero in a group's tensor dtype.
+
+The command result reports the rate each group actually stores.
+
 For Adam and AdamW, `reset_momentum` clears only the selected first moments.
 
 If a reset replaces a shared buffer, recapture any CUDA graph that used that buffer before replay.

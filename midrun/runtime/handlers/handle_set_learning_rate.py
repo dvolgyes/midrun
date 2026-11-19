@@ -1,5 +1,6 @@
 """Runs the `set_learning_rate` command."""
 
+import math
 from typing import TYPE_CHECKING, Any
 
 import torch
@@ -26,6 +27,20 @@ def _non_target_lr_storages(
     }
 
 
+def _stored_rate(lr: torch.Tensor | float, value: float, index: int) -> float:
+    """Convert the rate without modifying an optimizer group.
+
+    Raises:
+        ValueError: The conversion produces a nonfinite rate or loses a positive rate.
+    """
+    actual = float(lr.new_tensor(value)) if isinstance(lr, torch.Tensor) else value
+    if not math.isfinite(actual) or (value > 0 and actual == 0):
+        raise ValueError(
+            f"learning rate {value} cannot be represented by param_group {index}"
+        )
+    return actual
+
+
 def handle_set_learning_rate(
     runtime: CommandRuntime,
     pl_module: "LightningModule",
@@ -39,11 +54,9 @@ def handle_set_learning_rate(
     LR scheduler can overwrite the value.
 
     Raises:
-        ValueError: The optimizer or the param group does not exist, or one param group
-            is selected without optimizer surgery.
+        ValueError: A target group is invalid, disallowed, or cannot store the rate.
     """
     del pl_module, safe_point
-    value = command.args["value"]
     optimizer_index = command.args["optimizer"]
     optimizer = optimizer_at(trainer.optimizers, optimizer_index)
     param_group = command.args["param_group"]
@@ -60,7 +73,10 @@ def handle_set_learning_rate(
             )
         groups = [(param_group, optimizer.param_groups[param_group])]
     changes = {
-        str(index): {"before": float(group["lr"]), "after": value}
+        str(index): {
+            "before": float(group["lr"]),
+            "after": _stored_rate(group["lr"], command.args["value"], index),
+        }
         for index, group in groups
     }
     other_storages = (
@@ -68,15 +84,15 @@ def handle_set_learning_rate(
         if any(isinstance(group["lr"], torch.Tensor) for _, group in groups)
         else set()
     )
-    for _, group in groups:
+    for index, group in groups:
         lr = group["lr"]
-        if isinstance(lr, torch.Tensor):
-            if other_storages and lr.untyped_storage() in other_storages:
-                lr = lr.clone()
-                group["lr"] = lr
-            lr.fill_(value)
-        else:
-            group["lr"] = value
+        if not isinstance(lr, torch.Tensor):
+            group["lr"] = changes[str(index)]["after"]
+            continue
+        if other_storages and lr.untyped_storage() in other_storages:
+            lr = lr.clone()
+            group["lr"] = lr
+        lr.fill_(changes[str(index)]["after"])
     result: dict[str, Any] = {"optimizer": optimizer_index, "groups": changes}
     if getattr(trainer, "lr_scheduler_configs", None):
         result["warning"] = (
