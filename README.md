@@ -362,6 +362,8 @@ midrun_tunable_hparams = {
 The declared values are in `procfs/model/tunable-hparams.json`. A new value must have the type of the current value, but
 an integer is also a valid float. A float value must be finite.
 
+Outside PyTorch inference mode, `set_hparam` rejects updates to inference tensors without changing their values.
+
 The dashboard accepts decimal integers from `-9007199254740991` to `9007199254740991`, including in integer tensors.
 
 If a current value is outside that range, the dashboard leaves its field blank for a replacement.

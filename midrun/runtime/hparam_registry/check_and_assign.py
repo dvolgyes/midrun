@@ -35,6 +35,10 @@ def check_and_assign(
     current = get_field(parent, leaf)
     value = typed_hparam_value(current, leaf, new_value, spec)
     if isinstance(current, torch.Tensor):
+        if current.is_inference() and not torch.is_inference_mode_enabled():
+            raise ValueError(
+                f"{leaf!r}: cannot update an inference tensor outside inference mode"
+            )
         # Without no_grad, an in-place copy into an `nn.Parameter` raises.
         with torch.no_grad():
             # typed_hparam_value returns a tensor for a tensor knob.

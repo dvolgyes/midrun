@@ -255,6 +255,23 @@ def test_set_hparam_result_has_the_declared_bounds_and_label(tmp_path: Path) -> 
     )
 
 
+def test_rejected_inference_tensor_update_keeps_value(tmp_path: Path) -> None:
+    runtime = _make_runtime(tmp_path)
+    model = _ready_model(runtime)
+    with torch.inference_mode():
+        scale = torch.tensor(1.0)
+    model.augmentation_strength = scale
+    command = runtime.command_queue.submit(
+        "set_hparam", {"name": "augmentation_strength", "value": 2.0}, parse_when("now")
+    )
+
+    runtime.process_safe_point(model, SafePoint.TRAIN_BATCH_END)
+
+    assert runtime.command_queue.get(command.id).status == "failed"
+    assert scale.item() == 1.0
+    assert runtime.tunable_hparams["augmentation_strength"].value == 1.0
+
+
 def test_tunable_hparams_shows_a_set_hparam_that_runs_during_a_hold(
     tmp_path: Path,
 ) -> None:
