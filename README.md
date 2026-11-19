@@ -227,6 +227,12 @@ It rejects a rate that overflows or rounds from a positive value to zero in a gr
 
 The command result reports the rate each group actually stores.
 
+Tensor rates are updated outside autograd.
+
+If a tensor rate shares storage with an unselected group, only the selected group gets a replacement.
+
+Outside inference mode, the command rejects in-place updates to inference tensors before changing any group.
+
 For Adam and AdamW, `reset_momentum` clears only the selected first moments.
 
 If a reset replaces a shared buffer, recapture any CUDA graph that used that buffer before replay.

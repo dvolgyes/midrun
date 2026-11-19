@@ -474,6 +474,44 @@ def test_set_learning_rate_updates_a_tensor_lr_in_place_and_reports_floats() -> 
     }
 
 
+@pytest.mark.parametrize("inference", [False, True], ids=["grad", "inference"])
+def test_set_learning_rate_updates_mixed_adam_groups_or_rejects_before_writing(
+    inference: bool,
+) -> None:
+    runtime = _make_runtime()
+    model = _Model()
+    with torch.inference_mode(inference):
+        lr = torch.tensor(0.25, requires_grad=True)
+    optimizer = torch.optim.Adam(
+        [
+            {"params": model.a.parameters(), "lr": 0.125},
+            {"params": model.b.parameters(), "lr": lr},
+        ]
+    )
+    trainer = _FakeTrainer(optimizers=[optimizer])
+    command = _submit_and_run(
+        runtime,
+        _FakePLModule(trainer, model),
+        trainer,
+        "set_learning_rate",
+        {"value": 0.5},
+    )
+
+    assert optimizer.param_groups[1]["lr"] is lr
+    assert lr.requires_grad
+    if inference:
+        assert command.status == "failed"
+        assert "cannot update inference tensor in param_group 1" in command.error
+        assert optimizer.param_groups[0]["lr"] == 0.125
+        assert lr.item() == 0.25
+    else:
+        assert command.status == "succeeded"
+        assert optimizer.param_groups[0]["lr"] == 0.5
+        assert lr.item() == 0.5
+        assert lr.is_leaf
+        assert lr.grad_fn is None
+
+
 @pytest.mark.parametrize("value", [1e5, 1e-8], ids=["overflow", "underflow"])
 def test_set_learning_rate_rejects_unrepresentable_rate_atomically(
     value: float,
@@ -513,7 +551,7 @@ def test_set_learning_rate_with_aliased_tensor_groups(
 ) -> None:
     runtime = _make_runtime()
     model = _Model()
-    lr = torch.tensor(0.125, dtype=torch.float64)
+    lr = torch.tensor(0.125, dtype=torch.float64, requires_grad=True)
     optimizer = torch.optim.Adam(
         [{"params": model.a.parameters()}, {"params": model.b.parameters()}], lr=lr
     )
@@ -533,6 +571,7 @@ def test_set_learning_rate_with_aliased_tensor_groups(
     assert lr.item() == (0.5 if selection == "*" else 0.125)
     target = optimizer.param_groups[1]["lr"]
     assert (target.item(), target.dtype, target.device) == (0.5, lr.dtype, lr.device)
+    assert target.requires_grad
     response = TestClient(build_app(runtime), base_url="http://localhost").get(
         f"/commands/{command.id}"
     )

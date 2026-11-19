@@ -233,7 +233,7 @@ repos:
     hooks:
       - id: py-review-rules
         exclude: >-
-          (?x) ^(?: legacy/ | tests/ | midrun/(?: mixin | hooks/lightning | runtime/(?: gate | commands/command_queue | command_specs/execute_command | hparam_registry/typed_hparam_value ))\.py$ )
+          (?x) ^(?: legacy/ | tests/ | midrun/(?: mixin | hooks/lightning | runtime/(?: gate | commands/command_queue | command_specs/execute_command | handlers/handle_set_learning_rate | hparam_registry/typed_hparam_value ))\.py$ )
         args: [--max-function-nesting-depth, '1']
       # tests/midrun_options_test.py checks the public constructor against the typed options.
       - id: py-review-rules
@@ -254,8 +254,8 @@ repos:
         files: ^midrun/runtime/commands/command_queue\.py$
         args: [--max-function-nesting-depth=1, --max-methods=17]
       - id: py-review-rules
-        name: py-review-rules (command boundary type-only imports)
-        files: ^midrun/runtime/command_specs/execute_command\.py$
+        name: py-review-rules (command type-only imports)
+        files: ^midrun/runtime/(?:command_specs/execute_command|handlers/handle_set_learning_rate)\.py$
         args: [--max-function-nesting-depth=1, --ignore=PRR015]
       - id: py-review-rules
         name: py-review-rules (tensor value validation)
