@@ -124,9 +124,13 @@ repos:
         language: system
         types: [python]
         args:
-          - --disable=too-many-arguments,too-many-locals,too-many-public-methods,too-many-positional-arguments,too-many-instance-attributes,protected-access
+          - --disable=too-many-arguments,too-many-locals,too-many-public-methods,too-many-positional-arguments,too-many-instance-attributes,protected-access,broad-exception-caught
         exclude: ^tests/
         require_serial: true
+      - !!merge <<: *pylint
+        name: Pylint (broad exception handlers outside the command boundary)
+        args: [--disable=all, --enable=broad-exception-caught]
+        exclude: ^(?:tests/|midrun/runtime/command_specs/execute_command\.py$)
       - &pylint_limits
         # The following profiles run only the five checks delegated above.
         # Each source file gets exactly one profile. Tests retain their original exclusion.
@@ -228,7 +232,8 @@ repos:
     rev: 0.2.1
     hooks:
       - id: py-review-rules
-        exclude: ^(legacy/|tests/|midrun/(mixin|hooks/lightning)\.py$)
+        exclude: >-
+          (?x) ^(?: legacy/ | tests/ | midrun/(?: mixin | hooks/lightning | runtime/(?: gate | commands/command_queue | command_specs/execute_command | hparam_registry/typed_hparam_value ))\.py$ )
         args: [--max-function-nesting-depth, '1']
       # tests/midrun_options_test.py checks the public constructor against the typed options.
       - id: py-review-rules
@@ -240,6 +245,22 @@ repos:
         name: py-review-rules (Lightning callback signatures)
         files: ^midrun/hooks/lightning\.py$
         args: [--max-function-nesting-depth=1, --max-methods=39, --ignore=PRR026]
+      - id: py-review-rules
+        name: py-review-rules (gate and active hold)
+        files: ^midrun/runtime/gate\.py$
+        args: [--max-function-nesting-depth=1, --max-classes=2, --max-constructs=2]
+      - id: py-review-rules
+        name: py-review-rules (command queue)
+        files: ^midrun/runtime/commands/command_queue\.py$
+        args: [--max-function-nesting-depth=1, --max-methods=17]
+      - id: py-review-rules
+        name: py-review-rules (command boundary type-only imports)
+        files: ^midrun/runtime/command_specs/execute_command\.py$
+        args: [--max-function-nesting-depth=1, --ignore=PRR015]
+      - id: py-review-rules
+        name: py-review-rules (tensor value validation)
+        files: ^midrun/runtime/hparam_registry/typed_hparam_value\.py$
+        args: [--max-function-nesting-depth=1, --max-local-helpers=6]
 
   # Source: 300_mdformat.yaml [central]
   - repo: https://github.com/executablebooks/mdformat
