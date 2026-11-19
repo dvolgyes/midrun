@@ -340,6 +340,28 @@ def test_tensor_assignment_rejects_complex_source_for_real_target(
     assert model.weight.tolist() == [7]
 
 
+@pytest.mark.parametrize(
+    ("dtype", "value"),
+    [
+        (torch.complex64, 1e39),
+        (torch.complex64, complex(0, 1e39)),
+        (torch.complex128, complex(1, float("nan"))),
+    ],
+    ids=["real overflow", "imaginary overflow", "nonfinite source"],
+)
+def test_complex_assignment_rejects_nonfinite_components(
+    dtype: torch.dtype, value: complex
+) -> None:
+    model = _Model()
+    original = model.weight = torch.tensor([2 + 3j], dtype=dtype)
+
+    with pytest.raises(ValueError, match="finite"):
+        _assign(model, "weight", [value])
+
+    assert model.weight is original
+    assert model.weight.item() == 2 + 3j
+
+
 @pytest.mark.parametrize(("value", "expected"), [(2 + 3j, 2 + 3j), (2.5, 2.5 + 0j)])
 def test_tensor_assignment_preserves_complex_target(
     value: complex | float, expected: complex

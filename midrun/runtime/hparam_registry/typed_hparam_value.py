@@ -85,8 +85,10 @@ def _tensor_value(
 
 
 def _require_finite(tensor: torch.Tensor, leaf: str) -> None:
-    """Reject floating-point tensors with any nonfinite element."""
-    if tensor.is_floating_point() and not bool(torch.isfinite(tensor).all()):
+    """Reject nonfinite real or imaginary components."""
+    if not (tensor.is_floating_point() or tensor.is_complex()):
+        return
+    if not bool(torch.isfinite(tensor).all()):
         raise ValueError(f"{leaf!r}: every element must be finite")
 
 

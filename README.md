@@ -368,6 +368,8 @@ Use REST directly to set larger integers within the hyperparameter's own limits.
 
 Native complex sources are accepted only for complex tensor hyperparameters.
 
+The real and imaginary parts must be finite both before and after conversion to the target dtype.
+
 For a tensor hyperparameter, both the input and the stored value must meet the declared bounds.
 
 Tensor hyperparameters accept boolean elements only in boolean tensors and numeric elements only in numeric tensors.
