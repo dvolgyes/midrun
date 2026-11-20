@@ -1,10 +1,6 @@
-"""Behavioral tests for the TorchLens inspector and its hold-gated command handler.
+"""Behavioral tests for the TorchLens inspector and its hold-gated command handler."""
 
-TorchLens is deliberately absent from the `dev` dependency group (heavier, less
-common -- see the implementation plan); its "available" capture path is exercised
-only when the package happens to be installed, and always skipped otherwise.
-"""
-
+import shutil
 import sys
 import types
 from pathlib import Path
@@ -19,10 +15,9 @@ from midrun.runtime.artifacts import ArtifactStore
 from midrun.runtime.command_specs.execute_command import execute_command
 from midrun.runtime.commands.parse_when import parse_when
 from midrun.runtime.runtime import MidrunRuntime
-from midrun.runtime.torchlens_available import torchlens_available
 from midrun.runtime.torchlens_capture import torchlens_capture
 
-_INSTALLED = torchlens_available()
+_HAS_DOT = shutil.which("dot") is not None
 
 
 class _Model(torch.nn.Module):
@@ -106,15 +101,17 @@ def test_torchlens_capture_without_torchlens_fails_and_engages_no_hold(
     assert not runtime.gate.is_held()
 
 
-@pytest.mark.skipif(not _INSTALLED, reason="torchlens not installed")
+@pytest.mark.skipif(not _HAS_DOT, reason="requires Graphviz dot")
 def test_capture_returns_summary_and_graph() -> None:
     model = _Model()
+    add = torch.add
     files = torchlens_capture(model, torch.randn(3, 4))
-    assert "summary.txt" in files
-    assert "graph.svg" in files
+    assert files["summary.txt"].strip()
+    assert b"<svg" in files["graph.svg"]
+    assert torch.add is add
 
 
-@pytest.mark.skipif(not _INSTALLED, reason="torchlens not installed")
+@pytest.mark.skipif(not _HAS_DOT, reason="requires Graphviz dot")
 def test_torchlens_capture_command_succeeds_during_active_hold(
     tmp_path: Path,
 ) -> None:
@@ -131,3 +128,4 @@ def test_torchlens_capture_command_succeeds_during_active_hold(
 
     assert cmd.status == "succeeded"
     assert (Path(cmd.result["path"]) / "summary.txt").exists()
+    assert runtime.gate.is_held()

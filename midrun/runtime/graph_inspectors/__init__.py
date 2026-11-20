@@ -1,8 +1,7 @@
 """Architecture and autograd graph capture via torchview/torchviz.
 
-Both are optional dependencies (`midrun[graphs]`) and both render through the
-Graphviz `dot` binary, not just the pip package -- the `*_available` checks test both
-layers.
+Both Python packages are installed with Midrun.
+SVG rendering also needs the Graphviz `dot` executable.
 Rendering writes to a real file path (`graphviz.Digraph.render`), so both captures use
 the tempdir-then-read-bytes technique to hand the result to `ArtifactStore` unchanged.
 

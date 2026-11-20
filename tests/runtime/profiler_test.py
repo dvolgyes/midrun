@@ -29,6 +29,8 @@ from midrun.runtime.commands.parse_when import parse_when
 from midrun.runtime.profiler import ProfilerRun
 from midrun.runtime.runtime import MidrunRuntime
 
+pytestmark = pytest.mark.usefixtures("_pin_profiler_thread")
+
 
 def _make_runtime(tmp_path: Path, **overrides: object) -> MidrunRuntime:
     config = MidrunConfig(
@@ -211,6 +213,7 @@ def test_finish_train_batch_advances_and_finalizes_profiler(tmp_path: Path) -> N
 
 @pytest.fixture
 def _pin_profiler_thread() -> Iterator[None]:
+    """Use one CPU clock for the profiler and its child threads and processes."""
     if not hasattr(os, "sched_getaffinity"):
         yield
         return
@@ -222,7 +225,6 @@ def _pin_profiler_thread() -> Iterator[None]:
         os.sched_setaffinity(0, cpus)
 
 
-@pytest.mark.usefixtures("_pin_profiler_thread")
 def test_profile_commands_with_same_id_publish_distinct_captures(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

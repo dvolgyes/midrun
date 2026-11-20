@@ -19,9 +19,11 @@ midrun needs Python 3.12 or later and Linux. The filesystem view needs FUSE (`/d
 
 ```sh
 uv add "midrun @ git+https://github.com/dvolgyes/midrun"
-# optional model inspectors (torchview, torchviz, torchinfo, torchlens):
-uv add "midrun[inspectors] @ git+https://github.com/dvolgyes/midrun"
 ```
+
+The Python install includes TorchInfo, TorchView, TorchViz and TorchLens.
+
+Install the Graphviz `dot` executable to render inspector graphs as SVG.
 
 For work on midrun itself:
 
@@ -142,9 +144,9 @@ held, you can save a checkpoint, change a learning rate or hyperparameter, and c
 
 ![Run panel while the training is held](docs/images/paused.png)
 
-The inspectors panel shows model views that midrun captures at the next optimizer step, for example the live model graph
-(needs `midrun[graphs]`). Capture these views while the run is not held: they wait for the next optimizer step and fail
-after 30 seconds.
+The inspectors panel shows model views that Midrun captures at the next optimizer step.
+
+Capture these views while the run is not held, because they wait for the next optimizer step and fail after 30 seconds.
 
 ![Live model graph](docs/images/live-graph.png)
 
@@ -218,7 +220,7 @@ Instead of `epoch`, you can give `global_step`. Without `safe_point`, the condit
 | `set_dataloader_finite_check` | Turn the NaN/Inf check of each batch on or off. |
 | `save_current_batch`, `save_current_loss`, `save_partial_gradients`, `save_optimizer_summary` | Save training data for offline debugging; a skipped batch is not an in-flight batch. |
 | `release_exception` | End the hold after a backward exception that midrun caught; the exception is then raised again. |
-| `torchinfo_capture`, `torchview_capture`, `torchviz_capture`, `torchlens_capture` | Capture a model summary or graph (optional extras). |
+| `torchinfo_capture`, `torchview_capture`, `torchviz_capture`, `torchlens_capture` | Capture a model summary or graph. Rendered graphs require Graphviz `dot`. |
 | `profile`, `set_lightning_profiler` | Profile some training steps. |
 
 `set_learning_rate` checks every selected parameter group before changing any of them.
@@ -544,7 +546,7 @@ uv run --group examples python -m examples.playground.run
 ## Development
 
 ```sh
-uv sync --all-extras
+uv sync
 uv run pytest -n 8
 pre-commit run --all
 ```

@@ -1,10 +1,6 @@
 """Single controlled TorchLens forward-trace capture.
 
-TorchLens is an optional dependency (`midrun[torchlens]`). This wraps only its
-single-shot `trace()` entry point (metadata-only, `layers_to_save="none"` -- no raw
-activation tensors are retained) plus the resulting `Trace`'s own `summary()`/`draw()`;
-no tracing logic is reimplemented here. Continuous "arm next batch" capture is not
-supported -- see the implementation plan for why.
+Capture metadata only and unwrap the process-wide PyTorch hooks after the trace.
 """
 
 import tempfile
@@ -31,17 +27,15 @@ def torchlens_capture(model: torch.nn.Module, batch: object) -> dict[str, str | 
     """
     import torchlens as tl
 
-    # tl.trace() monkeypatches torch functions at the process level (not per-model)
-    # to intercept every tensor-producing op, and by its own documented default
-    # leaves them wrapped after returning -- corrupting every later real forward
-    # pass in the process, not just this model's. unwrap_when_done=True is what
-    # actually restores the original torch callables; a per-model copy wouldn't
-    # help here since the wrapping isn't model-scoped. The caller sets the mode, with
-    # `inspector_forward`.
-    trace = tl.trace(model, batch, layers_to_save="none", unwrap_when_done=True)
-    summary_text = trace.summary(level="overview")
+    trace = tl.trace(
+        model,
+        batch,
+        save="none",
+        capture=tl.options.CaptureOptions(unwrap_when_done=True),
+    )
+    summary_text = trace.summary(view="overview")
     with tempfile.TemporaryDirectory() as tmp_dir:
-        out_path = Path(tmp_dir) / "graph"
-        trace.draw(vis_outpath=str(out_path), vis_fileformat="svg", vis_save_only=True)
-        graph_bytes = out_path.with_suffix(".svg").read_bytes()
+        out_path = Path(tmp_dir) / "graph.svg"
+        trace.draw(path=str(out_path), open_viewer=False)
+        graph_bytes = out_path.read_bytes()
     return {"summary.txt": summary_text, "graph.svg": graph_bytes}

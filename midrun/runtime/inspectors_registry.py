@@ -1,4 +1,4 @@
-"""Shared availability discovery for the optional-package inspectors.
+"""Shared availability discovery for the model inspectors.
 
 One place computing `{name: {"available": bool}}`, called from both `GET /inspectors`
 and the FUSE `/model/inspectors.json` projection so availability logic is never
@@ -16,7 +16,7 @@ from midrun.runtime.torchlens_available import torchlens_available
 
 
 def availability_snapshot() -> dict[str, dict[str, bool]]:
-    """Returns each optional-package inspector's current availability."""
+    """Returns each model inspector's current availability."""
     return {
         "torchinfo": {"available": torchinfo_available()},
         "torchview": {"available": torchview_available()},

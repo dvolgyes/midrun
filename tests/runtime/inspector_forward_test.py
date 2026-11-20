@@ -89,16 +89,17 @@ class _FakeTrainer:
 
 
 class _FakeTrace:
-    def summary(self, level: str) -> str:
-        return f"fake trace ({level})"
+    def summary(self, *, view: str) -> str:
+        return f"fake trace ({view})"
 
-    def draw(self, vis_outpath: str, **kwargs: Any) -> None:
-        del kwargs
-        Path(vis_outpath).with_suffix(".svg").write_bytes(b"<svg/>")
+    def draw(self, *, path: str, open_viewer: bool) -> None:
+        assert not open_viewer
+        Path(path).write_bytes(b"<svg/>")
 
 
 def _install_fake_torchlens(monkeypatch: pytest.MonkeyPatch) -> None:
     """Installs a torchlens stand-in whose `trace` runs one real forward pass."""
+    from torchlens import options
 
     def trace(model: torch.nn.Module, batch: Any, **kwargs: Any) -> _FakeTrace:
         del kwargs
@@ -107,6 +108,7 @@ def _install_fake_torchlens(monkeypatch: pytest.MonkeyPatch) -> None:
 
     module = types.ModuleType("torchlens")
     module.trace = trace
+    module.options = options
     monkeypatch.setitem(sys.modules, "torchlens", module)
 
 
