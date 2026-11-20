@@ -551,4 +551,9 @@ uv run pytest -n 8
 pre-commit run --all
 ```
 
+If PyTorch reports `getCount is non-monotonic` during import or profiling, run the tests on CPUs whose time-stamp
+counters agree.
+
+For example, if CPUs 2 and 3 are allowed on your machine and their counters agree, use `taskset -c 2,3 uv run pytest`.
+
 For a release build, follow the [archive checks and clean-source build procedure](docs/release.md).
